@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+out/
+*.tsbuildinfo
+
+# VS Code extension packages
+*.vsix
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Debug
+*.log
+
+# pnpm
+.pnpm-debug.log
+
+target
+temp

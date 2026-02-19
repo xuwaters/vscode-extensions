@@ -1,0 +1,21 @@
+{
+  "name": "@ext/common",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared utilities for VS Code extensions",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsdown && tsc -b --emitDeclarationOnly",
+    "clean": "tsc -b --clean && rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch"
+  }
+}

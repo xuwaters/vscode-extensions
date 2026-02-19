@@ -1,0 +1,24 @@
+{
+  "name": "vscode-extensions",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo for VS Code extensions",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "build:common": "pnpm --filter @ext/common run build",
+    "build:extensions": "pnpm --filter './extensions/**' run build",
+    "clean": "pnpm -r run clean",
+    "typecheck": "pnpm -r run typecheck",
+    "watch": "pnpm -r --parallel run watch",
+    "package": "pnpm --filter './extensions/**' run package"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsdown": "^0.14.0",
+    "@vscode/vsce": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "packageManager": "pnpm@10.30.0"
+}
