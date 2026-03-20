@@ -1,9 +1,8 @@
 .vscode/**
 src/**
 node_modules/**
-tsdown.config.ts
+tsdown.config.mts
 tsconfig.json
 **/*.ts
+**/*.mts
 !dist/**
-.gitignore
-pnpm-lock.yaml

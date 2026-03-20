@@ -1,3 +1,20 @@
 packages:
-  - 'packages/*'
-  - 'extensions/*'
+  - "packages/*"
+  - "extensions/*"
+
+catalogs:
+  build:
+    "@types/node": ^25.5.0
+    "@types/vscode": ^1.96.0
+    typescript: ^5.7.0
+    tsdown: ^0.12.0
+    "@vscode/vsce": ^3.2.0
+
+allowBuilds:
+  '@vscode/vsce-sign': true
+  esbuild: true
+  keytar: true
+
+
+linkWorkspacePackages: true
+nodeLinker: isolated

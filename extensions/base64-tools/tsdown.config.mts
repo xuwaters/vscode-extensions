@@ -1,4 +1,4 @@
-import { defineConfig } from 'tsdown'
+import { defineConfig } from 'tsdown';
 
 export default defineConfig({
   entry: ['src/extension.ts'],
@@ -8,5 +8,4 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   external: ['vscode'],
-  noExternal: ['@ext/common'],
-})
+});
