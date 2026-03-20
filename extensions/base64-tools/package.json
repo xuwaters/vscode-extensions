@@ -8,7 +8,9 @@
   "engines": {
     "vscode": "^1.96.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
@@ -67,7 +69,9 @@
     "@types/node": "catalog:build",
     "@types/vscode": "^1.96.0",
     "@vscode/vsce": "catalog:build",
+    "iconv-lite": "^0.7.2",
     "tsdown": "catalog:build",
-    "typescript": "catalog:build"
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
   }
 }

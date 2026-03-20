@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { decodeBase64, encodeBase64 } from './base64.js';
+import { decodeBase64, decodeJwtLike, encodeBase64, isJwtLike } from './base64.js';
 
 function getSelection(): { editor: vscode.TextEditor; selection: vscode.Selection; text: string } | undefined {
   const editor = vscode.window.activeTextEditor;
@@ -26,7 +26,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('base64-tools.decode', async () => {
       const result = getSelection();
       if (!result) return;
-      const decoded = decodeBase64(result.text);
+      const decoded = isJwtLike(result.text) ? decodeJwtLike(result.text) : decodeBase64(result.text);
       if (!decoded.ok) {
         vscode.window.showErrorMessage(`Base64 Tools: ${decoded.error}`);
         return;
