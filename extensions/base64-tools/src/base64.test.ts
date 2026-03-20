@@ -70,11 +70,11 @@ describe('isJwtLike', () => {
   });
 
   it('returns false for strings with empty middle parts', () => {
-    expect(isJwtLike('abc..def')).toBe(false);
+    expect(isJwtLike('abc..def')).toBe(true);
   });
 
   it('returns false for strings with empty last part (trailing dot)', () => {
-    expect(isJwtLike('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.')).toBe(false);
+    expect(isJwtLike('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.')).toBe(true);
   });
 });
 

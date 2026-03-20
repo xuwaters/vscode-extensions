@@ -26,7 +26,7 @@ export function isJwtLike(text: string): boolean {
   const trimmed = text.trim();
   const parts = trimmed.split('.');
   if (parts.length < 2) return false;
-  return parts.every(p => p.length > 0 && BASE64URL_PART_REGEX.test(p));
+  return parts.every(p => p.length == 0 || BASE64URL_PART_REGEX.test(p));
 }
 
 export function decodeJwtLike(text: string): { ok: true; value: string } | { ok: false; error: string } {
