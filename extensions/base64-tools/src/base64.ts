@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 
 const BASE64_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
+const BASE64URL_REGEX = /^[A-Za-z0-9_-]+$/;
 const BASE64URL_PART_REGEX = /^[A-Za-z0-9_-]+$/;
 
 export function encodeBase64(text: string): string {
@@ -9,10 +10,13 @@ export function encodeBase64(text: string): string {
 
 export function decodeBase64(text: string): { ok: true; value: string } | { ok: false; error: string } {
   const trimmed = text.trim();
-  if (!BASE64_REGEX.test(trimmed)) {
-    return { ok: false, error: 'Selection is not valid base64.' };
+  if (BASE64_REGEX.test(trimmed)) {
+    return { ok: true, value: Buffer.from(trimmed, 'base64').toString('utf8') };
   }
-  return { ok: true, value: Buffer.from(trimmed, 'base64').toString('utf8') };
+  if (BASE64URL_REGEX.test(trimmed)) {
+    return { ok: true, value: decodeBase64Url(trimmed) };
+  }
+  return { ok: false, error: 'Selection is not valid base64.' };
 }
 
 function decodeBase64Url(part: string): string {
@@ -32,8 +36,9 @@ export function isJwtLike(text: string): boolean {
 export function decodeJwtLike(text: string): { ok: true; value: string } | { ok: false; error: string } {
   const trimmed = text.trim();
   const parts = trimmed.split('.');
-  // Decode first two parts (header + payload); skip signature (third part) as it is binary
-  const decodeParts = parts.length >= 3 ? parts.slice(0, 2) : parts;
+  // Decode first parts (header + payload); preserve last part as-is when there are 3+ parts (signature is binary)
+  const decodeParts = parts.length >= 3 ? parts.slice(0, -1) : parts;
+  const preservedPart = parts.length >= 3 ? parts[parts.length - 1] : null;
   try {
     const decoded = decodeParts.map(part => {
       const raw = decodeBase64Url(part);
@@ -43,6 +48,9 @@ export function decodeJwtLike(text: string): { ok: true; value: string } | { ok:
         return raw;
       }
     });
+    if (preservedPart !== null) {
+      decoded.push(preservedPart);
+    }
     return { ok: true, value: decoded.join('\n.\n') };
   } catch (e) {
     return { ok: false, error: `Failed to decode JWT-like string: ${e}` };

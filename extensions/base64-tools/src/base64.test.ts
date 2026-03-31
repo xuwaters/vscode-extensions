@@ -35,6 +35,14 @@ describe('decodeBase64', () => {
     expect(decodeBase64('SGVsbG8=')).toEqual({ ok: true, value: 'Hello' });
   });
 
+  it('decodes a base64url string (with - and _)', () => {
+    // "你好" in base64url is "5L2g5aW9" (no padding, same as base64 here)
+    // Use a value that differs: base64 "n+/n" vs base64url "n-_n"
+    const text = 'Hello>World?';
+    const b64url = Buffer.from(text).toString('base64url');
+    expect(decodeBase64(b64url)).toEqual({ ok: true, value: text });
+  });
+
   it('returns error for invalid base64 characters', () => {
     const result = decodeBase64('not-valid-base64!!!');
     expect(result.ok).toBe(false);
@@ -79,14 +87,15 @@ describe('isJwtLike', () => {
 });
 
 describe('decodeJwtLike', () => {
-  it('decodes header and payload of a 3-part JWT', () => {
+  it('decodes header and payload, preserves signature of a 3-part JWT', () => {
     const result = decodeJwtLike(SAMPLE_JWT);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const parts = result.value.split('\n.\n');
-    expect(parts).toHaveLength(2);
+    expect(parts).toHaveLength(3);
     expect(JSON.parse(parts[0])).toMatchObject({ alg: 'HS256', typ: 'JWT' });
     expect(JSON.parse(parts[1])).toMatchObject({ sub: '1234567890', name: 'John Doe' });
+    expect(parts[2]).toBe('SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c');
   });
 
   it('decodes both parts of a 2-part JWT-like string', () => {
