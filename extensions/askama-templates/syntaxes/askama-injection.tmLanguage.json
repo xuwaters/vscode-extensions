@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Askama Injection",
+  "scopeName": "askama.injection",
+  "injectionSelector": "L:text.html.askama -comment.block.askama -meta.raw.block.askama -meta.statement.askama -meta.expression.askama",
+  "patterns": [
+    { "include": "source.askama#comment" },
+    { "include": "source.askama#statement" },
+    { "include": "source.askama#expression" }
+  ]
+}

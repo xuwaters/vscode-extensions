@@ -1,0 +1,45 @@
+{
+  "comments": {
+    "blockComment": ["{#", "#}"]
+  },
+  "brackets": [
+    ["{%", "%}"],
+    ["{{", "}}"],
+    ["{#", "#}"],
+    ["<", ">"],
+    ["(", ")"],
+    ["[", "]"],
+    ["{", "}"]
+  ],
+  "autoClosingPairs": [
+    { "open": "{#", "close": "#}" },
+    { "open": "{{", "close": "}}" },
+    { "open": "{%", "close": "%}" },
+    { "open": "\"", "close": "\"" },
+    { "open": "'", "close": "'" },
+    { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
+    { "open": "{", "close": "}" },
+    { "open": "<!--", "close": "-->" }
+  ],
+  "surroundingPairs": [
+    { "open": "\"", "close": "\"" },
+    { "open": "'", "close": "'" },
+    { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
+    { "open": "{", "close": "}" },
+    { "open": "{{", "close": "}}" },
+    { "open": "{%", "close": "%}" },
+    { "open": "{#", "close": "#}" }
+  ],
+  "colorizedBracketPairs": [
+    ["(", ")"],
+    ["[", "]"],
+    ["{%", "%}"],
+    ["{{", "}}"]
+  ],
+  "indentationRules": {
+    "increaseIndentPattern": "(<(?!\\?|(?:area|base|br|col|frame|hr|html|img|input|link|meta|param)\\b)[a-zA-Z][^/>]*(?<!/)>|\\{%[-+~]?\\s*(?:if|elif|else|for|block|macro|call|filter|match|when)\\b.*%\\})\\s*$",
+    "decreaseIndentPattern": "^\\s*(</[a-zA-Z][^>]*>|\\{%[-+~]?\\s*(?:endif|endfor|endblock|endmacro|endcall|endfilter|endmatch|endwhen|else|elif)\\b)"
+  }
+}

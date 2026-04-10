@@ -1,0 +1,82 @@
+{
+  "name": "wx-vsce-askama-templates",
+  "displayName": "Askama Templates",
+  "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "askama-html",
+        "aliases": [
+          "Askama HTML",
+          "askama-html"
+        ],
+        "extensions": [
+          ".html.askama",
+          ".htm.askama"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-txt",
+        "aliases": [
+          "Askama Text",
+          "askama-txt"
+        ],
+        "extensions": [
+          ".txt.askama"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "scopeName": "source.askama",
+        "path": "./syntaxes/askama.tmLanguage.json"
+      },
+      {
+        "language": "askama-html",
+        "scopeName": "text.html.askama",
+        "path": "./syntaxes/askama-html.tmLanguage.json"
+      },
+      {
+        "language": "askama-txt",
+        "scopeName": "text.askama",
+        "path": "./syntaxes/askama-txt.tmLanguage.json"
+      },
+      {
+        "scopeName": "askama.injection",
+        "path": "./syntaxes/askama-injection.tmLanguage.json",
+        "injectTo": [
+          "text.html.askama"
+        ]
+      }
+    ],
+    "snippets": [
+      {
+        "language": "askama-html",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-txt",
+        "path": "./snippets/askama.json"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "echo 'No build needed for declarative extension'",
+    "clean": "echo 'Nothing to clean'",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "catalog:build"
+  }
+}

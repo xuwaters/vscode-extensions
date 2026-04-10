@@ -1,0 +1,81 @@
+{# This is a comment #}
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} - My Site{% endblock %}
+
+{% block content %}
+<div class="container">
+  {# Conditional rendering #}
+  {% if user.is_authenticated %}
+    <h1>Welcome, {{ user.name | capitalize }}!</h1>
+  {% elif visitor_count > 100 %}
+    <h1>Welcome, visitor #{{ visitor_count }}!</h1>
+  {% else %}
+    <h1>Welcome, guest!</h1>
+  {% endif %}
+
+  {# Loop with index #}
+  <ul>
+    {% for item in items %}
+      <li class="{% if loop.first %}first{% endif %}">
+        {{ loop.index }}. {{ item.name | truncate(30) }}
+        <span>{{ item.price | format("{:.2}") }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+
+  {# Pattern matching #}
+  {% match status %}
+    {% when Status::Active %}
+      <span class="badge active">Active</span>
+    {% when Status::Inactive %}
+      <span class="badge inactive">Inactive</span>
+    {% when _ %}
+      <span class="badge">Unknown</span>
+  {% endmatch %}
+
+  {# Variable declarations #}
+  {% let full_name = format!("{} {}", first_name, last_name) %}
+  <p>Full name: {{ full_name }}</p>
+
+  {# If let pattern #}
+  {% if let Some(email) = user.email %}
+    <p>Email: {{ email }}</p>
+  {% endif %}
+
+  {# Include partial #}
+  {% include "partials/footer.html" %}
+
+  {# Raw block - no template processing #}
+  {% raw %}
+    <p>This {{ will_not_be_processed }} stays literal.</p>
+  {% endraw %}
+
+  {# Filter block #}
+  {% filter lower %}
+    THIS TEXT WILL BE LOWERCASED
+  {% endfilter %}
+
+  {# Operators #}
+  {% if count > 0 && is_enabled || !is_hidden %}
+    <p>Visible: {{ (count * 2 + offset) | safe }}</p>
+  {% endif %}
+
+  {# Bitwise operators #}
+  {% let flags = mode bitand 0xFF %}
+
+  {# Check if defined #}
+  {% if optional_var is defined %}
+    <p>{{ optional_var }}</p>
+  {% endif %}
+
+  {# Range and string concatenation #}
+  {% for i in 0..10 %}
+    <span>{{ "item-" ~ i }}</span>
+  {% endfor %}
+
+  {# Macro usage #}
+  {% import "macros.html" as m %}
+  {{ m.render_card(title="Hello", body="World") }}
+</div>
+{% endblock %}

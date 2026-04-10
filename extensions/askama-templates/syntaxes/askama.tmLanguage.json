@@ -1,0 +1,254 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Askama",
+  "scopeName": "source.askama",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#raw-block" },
+    { "include": "#statement" },
+    { "include": "#expression" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.block.askama",
+      "begin": "\\{#-?\\+?~?",
+      "end": "-?\\+?~?#\\}",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.comment.begin.askama" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.comment.end.askama" }
+      }
+    },
+    "raw-block": {
+      "name": "meta.raw.block.askama",
+      "begin": "(\\{%[-+~]?)\\s*(raw)\\s*([-+~]?%\\})",
+      "end": "(\\{%[-+~]?)\\s*(endraw)\\s*([-+~]?%\\})",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.tag.begin.askama" },
+        "2": { "name": "keyword.control.askama" },
+        "3": { "name": "punctuation.section.tag.end.askama" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.tag.begin.askama" },
+        "2": { "name": "keyword.control.askama" },
+        "3": { "name": "punctuation.section.tag.end.askama" }
+      }
+    },
+    "statement": {
+      "name": "meta.statement.askama",
+      "begin": "\\{%[-+~]?",
+      "end": "[-+~]?%\\}",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.tag.begin.askama" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.tag.end.askama" }
+      },
+      "patterns": [
+        { "include": "#tag-keyword" },
+        { "include": "#expression-content" }
+      ]
+    },
+    "expression": {
+      "name": "meta.expression.askama",
+      "begin": "\\{\\{[-+~]?",
+      "end": "[-+~]?\\}\\}",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.interpolation.begin.askama" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.interpolation.end.askama" }
+      },
+      "patterns": [
+        { "include": "#expression-content" }
+      ]
+    },
+    "tag-keyword": {
+      "name": "keyword.control.askama",
+      "match": "\\b(if|else|elif|endif|for|endfor|in|match|when|endwhen|endmatch|block|endblock|extends|include|import|macro|endmacro|call|endcall|filter|endfilter|let|set|mut|decl|declare|endlet|continue|break)\\b"
+    },
+    "expression-content": {
+      "patterns": [
+        { "include": "#string-double" },
+        { "include": "#string-single" },
+        { "include": "#number" },
+        { "include": "#boolean" },
+        { "include": "#is-defined" },
+        { "include": "#keyword-operator" },
+        { "include": "#comparison-operator" },
+        { "include": "#logical-operator" },
+        { "include": "#bitwise-operator" },
+        { "include": "#arithmetic-operator" },
+        { "include": "#assignment-operator" },
+        { "include": "#misc-operator" },
+        { "include": "#filter-pipe" },
+        { "include": "#loop-variable" },
+        { "include": "#builtin-variable" },
+        { "include": "#function-call" },
+        { "include": "#parenthesized" },
+        { "include": "#brackets" },
+        { "include": "#comma" },
+        { "include": "#identifier" }
+      ]
+    },
+    "string-double": {
+      "name": "string.quoted.double.askama",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.askama" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.askama" }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.askama",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "string-single": {
+      "name": "string.quoted.single.askama",
+      "begin": "'",
+      "end": "'",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.askama" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.askama" }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.askama",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.askama",
+          "match": "\\b\\d[\\d_]*\\.\\d[\\d_]*([eE][+-]?\\d[\\d_]*)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.hex.askama",
+          "match": "\\b0x[0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.octal.askama",
+          "match": "\\b0o[0-7_]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.binary.askama",
+          "match": "\\b0b[01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.askama",
+          "match": "\\b\\d[\\d_]*\\b"
+        }
+      ]
+    },
+    "boolean": {
+      "name": "constant.language.boolean.askama",
+      "match": "\\b(true|false)\\b"
+    },
+    "is-defined": {
+      "match": "\\b(is)\\s+(not\\s+)?(defined)\\b",
+      "captures": {
+        "1": { "name": "keyword.operator.askama" },
+        "2": { "name": "keyword.operator.askama" },
+        "3": { "name": "keyword.operator.askama" }
+      }
+    },
+    "keyword-operator": {
+      "name": "keyword.operator.word.askama",
+      "match": "\\b(as|not)\\b"
+    },
+    "comparison-operator": {
+      "name": "keyword.operator.comparison.askama",
+      "match": "==|!=|<=|>=|<|>"
+    },
+    "logical-operator": {
+      "name": "keyword.operator.logical.askama",
+      "match": "&&|\\|\\||!"
+    },
+    "bitwise-operator": {
+      "name": "keyword.operator.bitwise.askama",
+      "match": "\\b(bitand|bitor|xor)\\b"
+    },
+    "arithmetic-operator": {
+      "name": "keyword.operator.arithmetic.askama",
+      "match": "\\+|\\-|\\*|/|%"
+    },
+    "assignment-operator": {
+      "name": "keyword.operator.assignment.askama",
+      "match": "\\+=|-=|\\*=|/=|%=|="
+    },
+    "misc-operator": {
+      "name": "keyword.operator.other.askama",
+      "match": "\\?|\\.\\.|~|\\."
+    },
+    "filter-pipe": {
+      "match": "(\\|)\\s*([a-zA-Z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.operator.pipe.askama" },
+        "2": { "name": "support.function.filter.askama" }
+      }
+    },
+    "loop-variable": {
+      "match": "\\b(loop)\\s*\\.\\s*(index0?|first|last)\\b",
+      "captures": {
+        "1": { "name": "variable.language.loop.askama" },
+        "2": { "name": "support.variable.property.askama" }
+      }
+    },
+    "builtin-variable": {
+      "name": "variable.language.askama",
+      "match": "\\b(self|Self|caller|crate)\\b"
+    },
+    "function-call": {
+      "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(!)\\s*(\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.macro.askama" },
+        "2": { "name": "keyword.operator.macro.askama" },
+        "3": { "name": "punctuation.section.arguments.begin.askama" }
+      }
+    },
+    "parenthesized": {
+      "begin": "\\(",
+      "end": "\\)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.parens.begin.askama" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.parens.end.askama" }
+      },
+      "patterns": [
+        { "include": "#expression-content" }
+      ]
+    },
+    "brackets": {
+      "begin": "\\[",
+      "end": "\\]",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.brackets.begin.askama" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.brackets.end.askama" }
+      },
+      "patterns": [
+        { "include": "#expression-content" }
+      ]
+    },
+    "comma": {
+      "name": "punctuation.separator.comma.askama",
+      "match": ","
+    },
+    "identifier": {
+      "name": "variable.other.askama",
+      "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+    }
+  }
+}

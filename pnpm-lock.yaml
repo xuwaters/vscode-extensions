@@ -26,6 +26,12 @@ importers:
 
   .: {}
 
+  extensions/askama-templates:
+    devDependencies:
+      '@vscode/vsce':
+        specifier: catalog:build
+        version: 3.7.1
+
   extensions/base64-tools:
     devDependencies:
       '@types/node':

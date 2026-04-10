@@ -1,0 +1,87 @@
+{
+  "Askama Block Tag": {
+    "prefix": ["block", "%block"],
+    "body": ["{% block ${1:name} %}$0{% endblock %}"],
+    "description": "{% block name %}...{% endblock %}"
+  },
+  "Askama If Tag": {
+    "prefix": ["if", "%if"],
+    "body": ["{% if ${1:condition} %}", "\t$0", "{% endif %}"],
+    "description": "{% if condition %}...{% endif %}"
+  },
+  "Askama If-Else Tag": {
+    "prefix": ["ifelse", "%ifelse"],
+    "body": ["{% if ${1:condition} %}", "\t$2", "{% else %}", "\t$0", "{% endif %}"],
+    "description": "{% if condition %}...{% else %}...{% endif %}"
+  },
+  "Askama If Let Tag": {
+    "prefix": ["iflet", "%iflet"],
+    "body": ["{% if let ${1:Some(val)} = ${2:expr} %}", "\t$0", "{% endif %}"],
+    "description": "{% if let Some(val) = expr %}...{% endif %}"
+  },
+  "Askama For Tag": {
+    "prefix": ["for", "%for"],
+    "body": ["{% for ${1:item} in ${2:items} %}", "\t$0", "{% endfor %}"],
+    "description": "{% for item in items %}...{% endfor %}"
+  },
+  "Askama Match Tag": {
+    "prefix": ["match", "%match"],
+    "body": [
+      "{% match ${1:expr} %}",
+      "\t{% when ${2:pattern} %}",
+      "\t\t$0",
+      "{% endmatch %}"
+    ],
+    "description": "{% match expr %}{% when pattern %}...{% endmatch %}"
+  },
+  "Askama Extends Tag": {
+    "prefix": ["extends", "%extends"],
+    "body": ["{% extends \"${1:base.html}\" %}"],
+    "description": "{% extends \"base.html\" %}"
+  },
+  "Askama Include Tag": {
+    "prefix": ["include", "%include"],
+    "body": ["{% include \"${1:partial.html}\" %}"],
+    "description": "{% include \"partial.html\" %}"
+  },
+  "Askama Import Tag": {
+    "prefix": ["import", "%import"],
+    "body": ["{% import \"${1:macros.html}\" as ${2:macros} %}"],
+    "description": "{% import \"macros.html\" as macros %}"
+  },
+  "Askama Macro Tag": {
+    "prefix": ["macro", "%macro"],
+    "body": ["{% macro ${1:name}(${2:args}) %}", "\t$0", "{% endmacro %}"],
+    "description": "{% macro name(args) %}...{% endmacro %}"
+  },
+  "Askama Call Tag": {
+    "prefix": ["call", "%call"],
+    "body": ["{% call ${1:macro_name}(${2:args}) %}", "\t$0", "{% endcall %}"],
+    "description": "{% call macro_name(args) %}...{% endcall %}"
+  },
+  "Askama Let Tag": {
+    "prefix": ["let", "%let"],
+    "body": ["{% let ${1:name} = ${2:value} %}"],
+    "description": "{% let name = value %}"
+  },
+  "Askama Filter Block": {
+    "prefix": ["filter", "%filter"],
+    "body": ["{% filter ${1:lower} %}", "\t$0", "{% endfilter %}"],
+    "description": "{% filter lower %}...{% endfilter %}"
+  },
+  "Askama Raw Block": {
+    "prefix": ["raw", "%raw"],
+    "body": ["{% raw %}", "$0", "{% endraw %}"],
+    "description": "{% raw %}...{% endraw %}"
+  },
+  "Askama Expression": {
+    "prefix": ["{{", "expr"],
+    "body": ["{{ ${1:expr} }}"],
+    "description": "{{ expression }}"
+  },
+  "Askama Comment": {
+    "prefix": ["{#", "comment"],
+    "body": ["{# ${1:comment} #}"],
+    "description": "{# comment #}"
+  }
+}
