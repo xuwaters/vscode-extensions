@@ -2,7 +2,7 @@
   "name": "wx-vsce-askama-templates",
   "displayName": "Askama Templates",
   "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -196,6 +196,36 @@
           "light": "#8b7355",
           "highContrast": "#cc9944",
           "highContrastLight": "#6b5530"
+        }
+      },
+      {
+        "id": "askamaTemplates.filterForeground",
+        "description": "Foreground color for Askama template filters (| capitalize, | safe, etc.)",
+        "defaults": {
+          "dark": "#d4a888",
+          "light": "#8b5848",
+          "highContrast": "#e8b898",
+          "highContrastLight": "#6b3830"
+        }
+      },
+      {
+        "id": "askamaTemplates.functionForeground",
+        "description": "Foreground color for function and method calls in Askama template expressions",
+        "defaults": {
+          "dark": "#d4a888",
+          "light": "#8b5848",
+          "highContrast": "#e8b898",
+          "highContrastLight": "#6b3830"
+        }
+      },
+      {
+        "id": "askamaTemplates.namedArgForeground",
+        "description": "Foreground color for named argument keys in Askama template function calls (title=, body=)",
+        "defaults": {
+          "dark": "#b0a098",
+          "light": "#605848",
+          "highContrast": "#c0b0a8",
+          "highContrastLight": "#484038"
         }
       }
     ]
