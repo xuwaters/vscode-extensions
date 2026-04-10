@@ -172,10 +172,10 @@
         "id": "askamaTemplates.keywordForeground",
         "description": "Foreground color for Askama template keywords (if, for, block, etc.)",
         "defaults": {
-          "dark": "#d4976c",
-          "light": "#9b6e26",
-          "highContrast": "#ffa500",
-          "highContrastLight": "#804000"
+          "dark": "#c9874e",
+          "light": "#855218",
+          "highContrast": "#e09040",
+          "highContrastLight": "#6b3808"
         }
       },
       {
