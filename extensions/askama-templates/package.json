@@ -2,7 +2,7 @@
   "name": "wx-vsce-askama-templates",
   "displayName": "Askama Templates",
   "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -11,6 +11,8 @@
   "categories": [
     "Programming Languages"
   ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
@@ -154,14 +156,66 @@
         "language": "askama-ts",
         "path": "./snippets/askama.json"
       }
+    ],
+    "colors": [
+      {
+        "id": "askamaTemplates.delimiterForeground",
+        "description": "Foreground color for Askama template delimiters ({%, %}, {{, }}, {#, #})",
+        "defaults": {
+          "dark": "#d4976c",
+          "light": "#9b6e26",
+          "highContrast": "#ffa500",
+          "highContrastLight": "#804000"
+        }
+      },
+      {
+        "id": "askamaTemplates.keywordForeground",
+        "description": "Foreground color for Askama template keywords (if, for, block, etc.)",
+        "defaults": {
+          "dark": "#d4976c",
+          "light": "#9b6e26",
+          "highContrast": "#ffa500",
+          "highContrastLight": "#804000"
+        }
+      },
+      {
+        "id": "askamaTemplates.contentForeground",
+        "description": "Foreground color for Askama template expressions and variables",
+        "defaults": {
+          "dark": "#e0c285",
+          "light": "#7a5d2e",
+          "highContrast": "#ffd700",
+          "highContrastLight": "#6b4400"
+        }
+      },
+      {
+        "id": "askamaTemplates.commentForeground",
+        "description": "Foreground color for Askama template comments",
+        "defaults": {
+          "dark": "#a0855b",
+          "light": "#8b7355",
+          "highContrast": "#cc9944",
+          "highContrastLight": "#6b5530"
+        }
+      }
     ]
   },
   "scripts": {
-    "build": "echo 'No build needed for declarative extension'",
-    "clean": "echo 'Nothing to clean'",
-    "package": "vsce package --no-dependencies --allow-missing-repository"
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "@vscode/vsce": "catalog:build"
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
   }
 }

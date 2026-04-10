@@ -15,14 +15,14 @@
       "begin": "(\\{%[-+~]?)\\s*(raw)\\s*([-+~]?%\\})",
       "end": "(\\{%[-+~]?)\\s*(endraw)\\s*([-+~]?%\\})",
       "beginCaptures": {
-        "1": { "name": "punctuation.section.tag.begin.askama" },
+        "1": { "name": "punctuation.section.embedded.begin.askama" },
         "2": { "name": "keyword.control.askama" },
-        "3": { "name": "punctuation.section.tag.end.askama" }
+        "3": { "name": "punctuation.section.embedded.end.askama" }
       },
       "endCaptures": {
-        "1": { "name": "punctuation.section.tag.begin.askama" },
+        "1": { "name": "punctuation.section.embedded.begin.askama" },
         "2": { "name": "keyword.control.askama" },
-        "3": { "name": "punctuation.section.tag.end.askama" }
+        "3": { "name": "punctuation.section.embedded.end.askama" }
       },
       "patterns": [
         { "include": "text.html.basic" }
