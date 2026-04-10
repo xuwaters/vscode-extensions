@@ -21,7 +21,13 @@
         ],
         "extensions": [
           ".html.askama",
-          ".htm.askama"
+          ".htm.askama",
+          ".html.j2",
+          ".htm.j2",
+          ".html.jinja",
+          ".htm.jinja",
+          ".html.jinja2",
+          ".htm.jinja2"
         ],
         "configuration": "./language-configuration.json"
       },
@@ -32,7 +38,56 @@
           "askama-txt"
         ],
         "extensions": [
-          ".txt.askama"
+          ".txt.askama",
+          ".txt.j2",
+          ".txt.jinja",
+          ".txt.jinja2",
+          ".askama",
+          ".j2",
+          ".jinja",
+          ".jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-rust",
+        "aliases": [
+          "Askama Rust",
+          "askama-rust"
+        ],
+        "extensions": [
+          ".rs.askama",
+          ".rs.j2",
+          ".rs.jinja",
+          ".rs.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-js",
+        "aliases": [
+          "Askama JavaScript",
+          "askama-js"
+        ],
+        "extensions": [
+          ".js.askama",
+          ".js.j2",
+          ".js.jinja",
+          ".js.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-ts",
+        "aliases": [
+          "Askama TypeScript",
+          "askama-ts"
+        ],
+        "extensions": [
+          ".ts.askama",
+          ".ts.j2",
+          ".ts.jinja",
+          ".ts.jinja2"
         ],
         "configuration": "./language-configuration.json"
       }
@@ -53,10 +108,28 @@
         "path": "./syntaxes/askama-txt.tmLanguage.json"
       },
       {
+        "language": "askama-rust",
+        "scopeName": "source.rust.askama",
+        "path": "./syntaxes/askama-rust.tmLanguage.json"
+      },
+      {
+        "language": "askama-js",
+        "scopeName": "source.js.askama",
+        "path": "./syntaxes/askama-js.tmLanguage.json"
+      },
+      {
+        "language": "askama-ts",
+        "scopeName": "source.ts.askama",
+        "path": "./syntaxes/askama-ts.tmLanguage.json"
+      },
+      {
         "scopeName": "askama.injection",
         "path": "./syntaxes/askama-injection.tmLanguage.json",
         "injectTo": [
-          "text.html.askama"
+          "text.html.askama",
+          "source.rust.askama",
+          "source.js.askama",
+          "source.ts.askama"
         ]
       }
     ],
@@ -67,6 +140,18 @@
       },
       {
         "language": "askama-txt",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-rust",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-js",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-ts",
         "path": "./snippets/askama.json"
       }
     ]

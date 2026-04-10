@@ -1,0 +1,32 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Askama TypeScript",
+  "scopeName": "source.ts.askama",
+  "patterns": [
+    { "include": "source.askama#comment" },
+    { "include": "#raw-block-ts" },
+    { "include": "source.askama#statement" },
+    { "include": "source.askama#expression" },
+    { "include": "source.ts" }
+  ],
+  "repository": {
+    "raw-block-ts": {
+      "name": "meta.raw.block.askama",
+      "begin": "(\\{%[-+~]?)\\s*(raw)\\s*([-+~]?%\\})",
+      "end": "(\\{%[-+~]?)\\s*(endraw)\\s*([-+~]?%\\})",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.tag.begin.askama" },
+        "2": { "name": "keyword.control.askama" },
+        "3": { "name": "punctuation.section.tag.end.askama" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.tag.begin.askama" },
+        "2": { "name": "keyword.control.askama" },
+        "3": { "name": "punctuation.section.tag.end.askama" }
+      },
+      "patterns": [
+        { "include": "source.ts" }
+      ]
+    }
+  }
+}
