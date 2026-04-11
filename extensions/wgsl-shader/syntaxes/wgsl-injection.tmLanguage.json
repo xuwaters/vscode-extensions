@@ -1,0 +1,41 @@
+{
+  "scopeName": "inline.wgsl",
+  "injectionSelector": "L:source.js, L:source.jsx, L:source.ts, L:source.tsx",
+  "patterns": [
+    { "include": "#wgsl-comment-tagged-template" }
+  ],
+  "repository": {
+    "wgsl-comment-tagged-template": {
+      "begin": "(/\\*\\s*wgsl\\s*\\*/)\\s*(`)",
+      "beginCaptures": {
+        "1": { "name": "comment.block.js" },
+        "2": { "name": "punctuation.definition.string.template.begin.js" }
+      },
+      "end": "(`)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.template.end.js" }
+      },
+      "contentName": "meta.embedded.block.wgsl",
+      "patterns": [
+        { "include": "#wgsl-template-substitution" },
+        { "include": "#wgsl-escape-sequence" },
+        { "include": "source.wgsl" }
+      ]
+    },
+    "wgsl-template-substitution": {
+      "name": "meta.template.expression.js",
+      "begin": "\\$\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.template-expression.begin.js" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.template-expression.end.js" }
+      }
+    },
+    "wgsl-escape-sequence": {
+      "name": "constant.character.escape.js",
+      "match": "\\\\."
+    }
+  }
+}

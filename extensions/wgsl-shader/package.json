@@ -1,0 +1,96 @@
+{
+  "name": "wx-vsce-wgsl-shader",
+  "displayName": "WGSL Shader",
+  "description": "WGSL shader language support with syntax highlighting, code completion, and validation (via naga WASM)",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "wgsl",
+        "aliases": [
+          "WGSL",
+          "wgsl"
+        ],
+        "extensions": [
+          ".wgsl"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "wgsl",
+        "scopeName": "source.wgsl",
+        "path": "./syntaxes/wgsl.tmLanguage.json"
+      },
+      {
+        "scopeName": "inline.wgsl",
+        "path": "./syntaxes/wgsl-injection.tmLanguage.json",
+        "injectTo": [
+          "source.js",
+          "source.jsx",
+          "source.ts",
+          "source.tsx"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.wgsl": "wgsl"
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "wgsl.validateFile",
+        "title": "WGSL: Validate Current File"
+      }
+    ],
+    "configuration": {
+      "title": "WGSL Shader",
+      "properties": {
+        "wgsl.validate.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate WGSL files on save"
+        },
+        "wgsl.validate.onType": {
+          "type": "boolean",
+          "default": false,
+          "description": "Validate WGSL files while typing"
+        },
+        "wgsl.completion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable code completion for WGSL"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:wasm": "cd ../../crates/wgsl-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/wgsl-shader/wasm --out-name wgsl_analyzer",
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}

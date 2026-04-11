@@ -1,0 +1,326 @@
+{
+  "name": "WGSL",
+  "scopeName": "source.wgsl",
+  "patterns": [
+    { "include": "#line_comments" },
+    { "include": "#block_comments" },
+    { "include": "#attributes" },
+    { "include": "#keywords" },
+    { "include": "#functions" },
+    { "include": "#function_calls" },
+    { "include": "#constants" },
+    { "include": "#types" },
+    { "include": "#variables" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "line_comments": {
+      "name": "comment.line.double-slash.wgsl",
+      "match": "\\s*//.*"
+    },
+    "block_comments": {
+      "patterns": [
+        {
+          "name": "comment.block.wgsl",
+          "match": "/\\*\\*/"
+        },
+        {
+          "name": "comment.block.documentation.wgsl",
+          "begin": "/\\*\\*",
+          "end": "\\*/",
+          "patterns": [
+            { "include": "#block_comments" }
+          ]
+        },
+        {
+          "name": "comment.block.wgsl",
+          "begin": "/\\*(?!\\*)",
+          "end": "\\*/",
+          "patterns": [
+            { "include": "#block_comments" }
+          ]
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "name": "meta.attribute.wgsl",
+          "match": "(@)([A-Za-z_]+)",
+          "captures": {
+            "1": { "name": "keyword.operator.attribute.at.wgsl" },
+            "2": { "name": "entity.name.attribute.wgsl" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "comment": "control flow keywords",
+          "name": "keyword.control.wgsl",
+          "match": "\\b(break|case|const_assert|continue|continuing|default|diagnostic|discard|else|enable|fallthrough|for|if|loop|return|requires|switch|while)\\b"
+        },
+        {
+          "comment": "fn keyword",
+          "name": "keyword.other.fn.wgsl",
+          "match": "\\bfn\\b"
+        },
+        {
+          "comment": "storage keywords",
+          "name": "keyword.other.wgsl storage.type.wgsl",
+          "match": "\\b(let|var|override|const)\\b"
+        },
+        {
+          "comment": "type declaration keywords",
+          "name": "keyword.declaration.type.wgsl storage.type.wgsl",
+          "match": "\\b(alias|type)\\b"
+        },
+        {
+          "comment": "struct keyword",
+          "name": "keyword.declaration.struct.wgsl storage.type.wgsl",
+          "match": "\\b(struct)\\b"
+        },
+        {
+          "comment": "address space keywords",
+          "name": "keyword.other.wgsl",
+          "match": "\\b(function|private|storage|uniform|workgroup)\\b"
+        },
+        {
+          "comment": "access mode keywords",
+          "name": "keyword.other.wgsl",
+          "match": "\\b(read|read_write|write)\\b"
+        },
+        {
+          "comment": "logical operators",
+          "name": "keyword.operator.logical.wgsl",
+          "match": "(\\^|\\||\\|\\||&&|<<|>>|!)(?!=)"
+        },
+        {
+          "comment": "logical AND / reference",
+          "name": "keyword.operator.borrow.and.wgsl",
+          "match": "&(?![&=])"
+        },
+        {
+          "comment": "assignment operators",
+          "name": "keyword.operator.assignment.wgsl",
+          "match": "(\\+=|-=|\\*=|/=|%=|\\^=|&=|\\|=|<<=|>>=)"
+        },
+        {
+          "comment": "single equal",
+          "name": "keyword.operator.assignment.equal.wgsl",
+          "match": "(?<![<>])=(?!=|>)"
+        },
+        {
+          "comment": "comparison operators",
+          "name": "keyword.operator.comparison.wgsl",
+          "match": "(=(=)?(?!>)|!=|<=|(?<!=)>=)"
+        },
+        {
+          "comment": "math operators",
+          "name": "keyword.operator.math.wgsl",
+          "match": "(([+%]|(\\*(?!\\w)))(?!=))|(-(?!>))|(/(?!/))"
+        },
+        {
+          "comment": "dot access",
+          "name": "keyword.operator.access.dot.wgsl",
+          "match": "\\.(?!\\.)"
+        },
+        {
+          "comment": "arrow",
+          "name": "keyword.operator.arrow.skinny.wgsl",
+          "match": "->"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "meta.function.definition.wgsl",
+          "begin": "\\b(fn)\\s+([A-Za-z0-9_]+)((\\()|(<))",
+          "beginCaptures": {
+            "1": { "name": "keyword.other.fn.wgsl" },
+            "2": { "name": "entity.name.function.wgsl" },
+            "4": { "name": "punctuation.brackets.round.wgsl" }
+          },
+          "end": "\\{",
+          "endCaptures": {
+            "0": { "name": "punctuation.brackets.curly.wgsl" }
+          },
+          "patterns": [
+            { "include": "#line_comments" },
+            { "include": "#block_comments" },
+            { "include": "#attributes" },
+            { "include": "#keywords" },
+            { "include": "#function_calls" },
+            { "include": "#constants" },
+            { "include": "#types" },
+            { "include": "#variables" },
+            { "include": "#punctuation" }
+          ]
+        }
+      ]
+    },
+    "function_calls": {
+      "patterns": [
+        {
+          "name": "meta.function.call.wgsl",
+          "begin": "([A-Za-z0-9_]+)(\\()",
+          "beginCaptures": {
+            "1": { "name": "entity.name.function.wgsl" },
+            "2": { "name": "punctuation.brackets.round.wgsl" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.brackets.round.wgsl" }
+          },
+          "patterns": [
+            { "include": "#line_comments" },
+            { "include": "#block_comments" },
+            { "include": "#attributes" },
+            { "include": "#keywords" },
+            { "include": "#function_calls" },
+            { "include": "#constants" },
+            { "include": "#types" },
+            { "include": "#variables" },
+            { "include": "#punctuation" }
+          ]
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "comment": "decimal float literal",
+          "name": "constant.numeric.float.wgsl",
+          "match": "(-?\\b[0-9][0-9]*\\.[0-9][0-9]*)([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "comment": "float literal with leading dot",
+          "name": "constant.numeric.float.wgsl",
+          "match": "(-?\\b\\.[0-9][0-9]*)([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "comment": "float literal with trailing f/h suffix",
+          "name": "constant.numeric.float.wgsl",
+          "match": "-?\\b[0-9][0-9]*[fh]\\b"
+        },
+        {
+          "comment": "hex int literal",
+          "name": "constant.numeric.hex.wgsl",
+          "match": "\\b0[xX][0-9a-fA-F]+[iu]?\\b"
+        },
+        {
+          "comment": "decimal int literal",
+          "name": "constant.numeric.decimal.wgsl",
+          "match": "-?\\b[0-9][0-9]*[iu]?\\b"
+        },
+        {
+          "comment": "boolean constant",
+          "name": "constant.language.boolean.wgsl",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "comment": "scalar types",
+          "name": "storage.type.wgsl",
+          "match": "\\b(bool|f16|f32|i32|u32)\\b"
+        },
+        {
+          "comment": "vector type aliases",
+          "name": "storage.type.wgsl",
+          "match": "\\b(vec2i|vec3i|vec4i|vec2u|vec3u|vec4u|vec2f|vec3f|vec4f|vec2h|vec3h|vec4h)\\b"
+        },
+        {
+          "comment": "matrix type aliases",
+          "name": "storage.type.wgsl",
+          "match": "\\b(mat2x2f|mat2x3f|mat2x4f|mat3x2f|mat3x3f|mat3x4f|mat4x2f|mat4x3f|mat4x4f|mat2x2h|mat2x3h|mat2x4h|mat3x2h|mat3x3h|mat3x4h|mat4x2h|mat4x3h|mat4x4h)\\b"
+        },
+        {
+          "comment": "vector/matrix generic types",
+          "name": "storage.type.wgsl",
+          "match": "\\b(vec[2-4]|mat[2-4]x[2-4])\\b"
+        },
+        {
+          "comment": "atomic type",
+          "name": "storage.type.wgsl",
+          "match": "\\b(atomic)\\b"
+        },
+        {
+          "comment": "array type",
+          "name": "storage.type.wgsl",
+          "match": "\\b(array)\\b"
+        },
+        {
+          "comment": "pointer type",
+          "name": "storage.type.wgsl",
+          "match": "\\b(ptr)\\b"
+        },
+        {
+          "comment": "sampler types",
+          "name": "storage.type.wgsl",
+          "match": "\\b(sampler|sampler_comparison)\\b"
+        },
+        {
+          "comment": "texture types",
+          "name": "storage.type.wgsl",
+          "match": "\\b(texture_1d|texture_2d|texture_2d_array|texture_3d|texture_cube|texture_cube_array|texture_multisampled_2d|texture_storage_1d|texture_storage_2d|texture_storage_2d_array|texture_storage_3d|texture_depth_2d|texture_depth_2d_array|texture_depth_cube|texture_depth_multisampled_2d|texture_external)\\b"
+        },
+        {
+          "comment": "texel format",
+          "name": "storage.type.wgsl",
+          "match": "\\b(rgba8unorm|rgba8snorm|rgba8uint|rgba8sint|rgba16uint|rgba16sint|rgba16float|r32uint|r32sint|r32float|rg32uint|rg32sint|rg32float|rgba32uint|rgba32sint|rgba32float|bgra8unorm)\\b"
+        },
+        {
+          "comment": "custom type (PascalCase)",
+          "name": "entity.name.type.wgsl",
+          "match": "\\b([A-Z][A-Za-z0-9]*)\\b"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "comment": "variables",
+          "name": "variable.other.wgsl",
+          "match": "\\b[a-z_][a-z0-9_]*\\b"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.comma.wgsl",
+          "match": ","
+        },
+        {
+          "name": "punctuation.brackets.curly.wgsl",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.brackets.round.wgsl",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.semi.wgsl",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.brackets.square.wgsl",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.brackets.angle.wgsl",
+          "match": "(?<![=-])[<>]"
+        },
+        {
+          "name": "punctuation.colon.wgsl",
+          "match": ":"
+        }
+      ]
+    }
+  }
+}
