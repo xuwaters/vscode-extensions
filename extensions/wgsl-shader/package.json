@@ -80,7 +80,7 @@
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "watch": "tsdown --watch",
-    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
     "vscode:prepublish": "tsdown --minify",
     "test": "vitest run",
     "test:watch": "vitest"
