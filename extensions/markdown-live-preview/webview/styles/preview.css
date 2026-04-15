@@ -171,6 +171,13 @@
   background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.1));
 }
 
+.block.block-focused {
+  outline: 2px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: -2px;
+  border-radius: 4px;
+  background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.1));
+}
+
 .block.block-editing {
   background: var(--vscode-editor-background);
   border: 1px solid var(--vscode-focusBorder, #007fd4);

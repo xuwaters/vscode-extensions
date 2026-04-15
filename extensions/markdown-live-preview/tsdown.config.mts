@@ -16,6 +16,7 @@ export default defineConfig([
   {
     entry: ['webview/index.ts'],
     format: 'esm',
+    outExtensions: () => ({ js: '.js' }),
     platform: 'browser',
     outDir: 'dist/webview',
     sourcemap: true,

@@ -1,7 +1,7 @@
 import type { EditorView } from '@codemirror/view';
 import type { DocumentModel, BlockRange, TextChange } from '../documentModel';
 import { createBlockEditor } from '../blockEditor';
-import { createBlockNavigationKeymap } from '../keymap';
+import { createBlockNavigationKeymap, type CursorPlacement } from '../keymap';
 import type { EditCallback, CursorCallback, Renderer } from './types';
 
 export class LivePreviewRenderer implements Renderer {
@@ -11,6 +11,10 @@ export class LivePreviewRenderer implements Renderer {
   private activeEditor: EditorView | null = null;
   private activeBlockElement: HTMLElement | null = null;
   private originalBlockText: string | null = null;
+
+  /** Index of the focused (but not editing) block, used for keyboard re-entry after Escape. */
+  private focusedBlockIndex: number = -1;
+  private containerKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(
     private readonly onEdit: EditCallback,
@@ -26,23 +30,25 @@ export class LivePreviewRenderer implements Renderer {
 
     this.renderAllBlocks();
     this.attachClickHandlers();
+    this.setupContainerKeyboard();
   }
 
   teardown(): void {
     this.deactivateBlock();
+    this.removeContainerKeyboard();
     if (this.container) {
       this.container.innerHTML = '';
       this.container.className = '';
     }
     this.container = null;
     this.model = null;
+    this.focusedBlockIndex = -1;
   }
 
   onDocumentChanged(_changes: TextChange[]): void {
     if (!this.container || !this.model) return;
 
     // For simplicity, re-render all non-active blocks
-    // The active block's editor content is managed by the user
     const activeStart = this.activeBlock?.startLine ?? -1;
     const activeEnd = this.activeBlock?.endLine ?? -1;
 
@@ -82,7 +88,7 @@ export class LivePreviewRenderer implements Renderer {
     const block = this.model.getBlockForLine(line);
     if (block) {
       const localLine = line - block.startLine;
-      this.activateBlock(block, localLine, 0);
+      this.activateBlock(block, { line: localLine, col: 0 });
     }
   }
 
@@ -93,15 +99,12 @@ export class LivePreviewRenderer implements Renderer {
   }
 
   /** Activate edit mode for a specific block. */
-  activateBlock(
-    block: BlockRange,
-    cursorLine = 0,
-    cursorCol = 0,
-  ): void {
+  activateBlock(block: BlockRange, placement?: CursorPlacement): void {
     if (!this.container || !this.model) return;
 
-    // Deactivate current block first
-    this.deactivateBlock();
+    // Deactivate current block first (without setting focus — we're about to activate another)
+    this.deactivateBlockSilent();
+    this.clearFocusedBlock();
 
     this.activeBlock = block;
     this.originalBlockText = this.model.getBlockText(block);
@@ -116,10 +119,16 @@ export class LivePreviewRenderer implements Renderer {
     el.classList.add('block-editing');
     el.innerHTML = '';
 
+    // Resolve cursor placement
+    const { cursorLine, cursorCol } = this.resolvePlacement(
+      placement,
+      this.originalBlockText,
+    );
+
     // Create CodeMirror editor for this block
     const keymaps = createBlockNavigationKeymap({
-      goToPreviousBlock: () => this.navigateToPreviousBlock(),
-      goToNextBlock: () => this.navigateToNextBlock(),
+      goToPreviousBlock: (p) => this.navigateToPreviousBlock(p),
+      goToNextBlock: (p) => this.navigateToNextBlock(p),
       deactivateBlock: () => this.deactivateBlock(),
     });
 
@@ -143,7 +152,7 @@ export class LivePreviewRenderer implements Renderer {
     this.onCursor(block.startLine + cursorLine);
   }
 
-  /** Deactivate the current editing block, committing changes and returning to preview. */
+  /** Deactivate the current editing block, returning to preview and setting keyboard focus. */
   deactivateBlock(): void {
     if (
       !this.activeEditor ||
@@ -157,6 +166,42 @@ export class LivePreviewRenderer implements Renderer {
       this.originalBlockText = null;
       return;
     }
+
+    // Track which block was active for keyboard re-entry
+    const blocks = this.model.getBlocks();
+    const deactivatedIndex = blocks.findIndex(
+      (b) => b.startLine === this.activeBlock!.startLine,
+    );
+
+    this.commitAndTeardownEditor();
+
+    // Focus the deactivated block for keyboard navigation
+    this.setFocusedBlock(deactivatedIndex >= 0 ? deactivatedIndex : 0);
+  }
+
+  // ── Private helpers ──────────────────────────────────────────────────
+
+  /** Deactivate without setting focus (used when immediately activating another block). */
+  private deactivateBlockSilent(): void {
+    if (
+      !this.activeEditor ||
+      !this.activeBlock ||
+      !this.activeBlockElement ||
+      !this.model
+    ) {
+      this.activeEditor = null;
+      this.activeBlock = null;
+      this.activeBlockElement = null;
+      this.originalBlockText = null;
+      return;
+    }
+
+    this.commitAndTeardownEditor();
+  }
+
+  /** Commit pending edits, destroy the editor, and re-render the block as preview. */
+  private commitAndTeardownEditor(): void {
+    if (!this.activeEditor || !this.activeBlock || !this.activeBlockElement || !this.model) return;
 
     const newText = this.activeEditor.state.doc.toString();
 
@@ -195,6 +240,36 @@ export class LivePreviewRenderer implements Renderer {
     this.originalBlockText = null;
   }
 
+  /** Resolve a CursorPlacement to concrete cursorLine/cursorCol values. */
+  private resolvePlacement(
+    placement: CursorPlacement | undefined,
+    blockText: string,
+  ): { cursorLine: number; cursorCol: number } {
+    if (!placement) {
+      return { cursorLine: 0, cursorCol: 0 };
+    }
+
+    const lines = blockText.split('\n');
+
+    if (placement.position === 'end') {
+      const lastLine = lines.length - 1;
+      return { cursorLine: lastLine, cursorCol: lines[lastLine].length };
+    }
+
+    if (placement.position === 'start') {
+      return { cursorLine: 0, cursorCol: 0 };
+    }
+
+    let line = placement.line ?? 0;
+    if (line < 0) {
+      line = lines.length + line; // -1 → last line
+    }
+    line = Math.max(0, Math.min(line, lines.length - 1));
+
+    const col = Math.min(placement.col ?? 0, lines[line].length);
+    return { cursorLine: line, cursorCol: col };
+  }
+
   private renderAllBlocks(): void {
     if (!this.container || !this.model) return;
 
@@ -206,8 +281,9 @@ export class LivePreviewRenderer implements Renderer {
       div.className = `block block-${block.type}`;
       div.setAttribute('data-line-start', String(block.startLine));
       div.setAttribute('data-line-end', String(block.endLine));
+      div.setAttribute('tabindex', '0');
       div.setAttribute('role', 'button');
-      div.setAttribute('aria-label', `Click to edit ${block.type} block`);
+      div.setAttribute('aria-label', `Edit ${block.type} block`);
       div.innerHTML = this.model.renderBlock(block);
       fragment.appendChild(div);
     }
@@ -235,12 +311,129 @@ export class LivePreviewRenderer implements Renderer {
       const block = this.model.getBlockForLine(startLine);
       if (!block) return;
 
-      // Estimate cursor position from click
-      this.activateBlock(block, 0, 0);
+      this.activateBlock(block);
     });
   }
 
-  private navigateToPreviousBlock(): boolean {
+  // ── Container-level keyboard handling (when no block is being edited) ──
+
+  private setupContainerKeyboard(): void {
+    if (!this.container) return;
+    // Make container focusable so it can receive keyboard events after Escape
+    this.container.setAttribute('tabindex', '-1');
+
+    this.containerKeydownHandler = (e: KeyboardEvent) => {
+      // Only handle when no block is actively being edited
+      if (this.activeEditor) return;
+      this.handlePreviewKeydown(e);
+    };
+
+    this.container.addEventListener('keydown', this.containerKeydownHandler);
+  }
+
+  private removeContainerKeyboard(): void {
+    if (this.container && this.containerKeydownHandler) {
+      this.container.removeEventListener('keydown', this.containerKeydownHandler);
+    }
+    this.containerKeydownHandler = null;
+  }
+
+  private handlePreviewKeydown(e: KeyboardEvent): void {
+    if (!this.model) return;
+    const blocks = this.model.getBlocks();
+    if (blocks.length === 0) return;
+
+    const currentIdx = this.focusedBlockIndex >= 0
+      ? this.focusedBlockIndex
+      : 0;
+
+    switch (e.key) {
+      case 'ArrowDown': {
+        e.preventDefault();
+        const nextIdx = Math.min(currentIdx + 1, blocks.length - 1);
+        if (nextIdx === this.focusedBlockIndex) {
+          // Already at last block — activate it at the start
+          this.activateBlock(blocks[nextIdx], { line: 0, col: 0 });
+        } else {
+          this.setFocusedBlock(nextIdx);
+        }
+        break;
+      }
+      case 'ArrowUp': {
+        e.preventDefault();
+        const prevIdx = Math.max(currentIdx - 1, 0);
+        if (prevIdx === this.focusedBlockIndex) {
+          // Already at first block — activate it at the end
+          this.activateBlock(blocks[prevIdx], { position: 'end' });
+        } else {
+          this.setFocusedBlock(prevIdx);
+        }
+        break;
+      }
+      case 'Enter': {
+        e.preventDefault();
+        const idx = Math.min(currentIdx, blocks.length - 1);
+        this.activateBlock(blocks[idx]);
+        break;
+      }
+      case 'Escape': {
+        // Clear focus entirely
+        e.preventDefault();
+        this.clearFocusedBlock();
+        this.focusedBlockIndex = -1;
+        break;
+      }
+      default:
+        // Printable character → activate the focused block and insert the character
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          const idx = Math.min(currentIdx, blocks.length - 1);
+          this.activateBlock(blocks[idx], { position: 'end' });
+          // Insert the typed character into the newly created editor
+          if (this.activeEditor) {
+            const pos = this.activeEditor.state.selection.main.head;
+            this.activeEditor.dispatch({
+              changes: { from: pos, insert: e.key },
+            });
+          }
+        }
+        break;
+    }
+  }
+
+  // ── Focused block management (visual indicator for keyboard navigation) ──
+
+  private setFocusedBlock(index: number): void {
+    this.clearFocusedBlock();
+    if (!this.container || !this.model) return;
+
+    const blocks = this.model.getBlocks();
+    if (index < 0 || index >= blocks.length) return;
+
+    this.focusedBlockIndex = index;
+    const block = blocks[index];
+    const el = this.container.querySelector<HTMLElement>(
+      `[data-line-start="${block.startLine}"]`,
+    );
+    if (el) {
+      el.classList.add('block-focused');
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    // Keep focus on the container so we keep receiving keyboard events
+    this.container.focus();
+  }
+
+  private clearFocusedBlock(): void {
+    if (!this.container) return;
+    const prev = this.container.querySelector('.block-focused');
+    if (prev) {
+      prev.classList.remove('block-focused');
+    }
+  }
+
+  // ── Block-to-block navigation (called from within an active editor) ──
+
+  private navigateToPreviousBlock(placement: CursorPlacement): boolean {
     if (!this.activeBlock || !this.model) return false;
     const blocks = this.model.getBlocks();
     const idx = blocks.findIndex(
@@ -249,12 +442,16 @@ export class LivePreviewRenderer implements Renderer {
     if (idx <= 0) return false;
 
     const prevBlock = blocks[idx - 1];
-    const lastLine = prevBlock.endLine - prevBlock.startLine - 1;
-    this.activateBlock(prevBlock, Math.max(0, lastLine), 0);
+    // For ArrowUp: default to last line with the given column
+    // For ArrowLeft (position: 'end'): use position directly
+    const resolved: CursorPlacement = placement.position
+      ? placement
+      : { line: -1, col: placement.col ?? 0 };
+    this.activateBlock(prevBlock, resolved);
     return true;
   }
 
-  private navigateToNextBlock(): boolean {
+  private navigateToNextBlock(placement: CursorPlacement): boolean {
     if (!this.activeBlock || !this.model) return false;
     const blocks = this.model.getBlocks();
     const idx = blocks.findIndex(
@@ -263,7 +460,7 @@ export class LivePreviewRenderer implements Renderer {
     if (idx < 0 || idx >= blocks.length - 1) return false;
 
     const nextBlock = blocks[idx + 1];
-    this.activateBlock(nextBlock, 0, 0);
+    this.activateBlock(nextBlock, placement);
     return true;
   }
 }

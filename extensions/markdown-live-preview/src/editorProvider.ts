@@ -143,6 +143,9 @@ export class LivePreviewEditorProvider implements vscode.CustomTextEditorProvide
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'index.js'),
     );
+    const styleUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'style.css'),
+    );
 
     const nonce = getNonce();
 
@@ -158,6 +161,7 @@ export class LivePreviewEditorProvider implements vscode.CustomTextEditorProvide
       font-src ${webview.cspSource};
       img-src ${webview.cspSource} data: https:;">
   <title>Markdown Live Preview</title>
+  <link rel="stylesheet" href="${styleUri}">
 </head>
 <body>
   <div id="root"></div>

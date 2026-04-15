@@ -1,11 +1,20 @@
-import type { KeyBinding } from '@codemirror/view';
-import type { EditorView } from '@codemirror/view';
+import type { KeyBinding, EditorView } from '@codemirror/view';
+
+/** Describes where to place the cursor when navigating to a block. */
+export interface CursorPlacement {
+  /** 0-based line within the block. Negative values count from end (-1 = last line). */
+  line?: number;
+  /** 0-based column. Clamped to line length. */
+  col?: number;
+  /** Absolute position shorthand (overrides line/col). */
+  position?: 'start' | 'end';
+}
 
 export interface BlockNavigationCallbacks {
   /** Navigate to the previous block. Returns true if handled. */
-  goToPreviousBlock: () => boolean;
+  goToPreviousBlock: (placement: CursorPlacement) => boolean;
   /** Navigate to the next block. Returns true if handled. */
-  goToNextBlock: () => boolean;
+  goToNextBlock: (placement: CursorPlacement) => boolean;
   /** Deactivate the current block (return to preview). */
   deactivateBlock: () => void;
 }
@@ -18,11 +27,11 @@ export function createBlockNavigationKeymap(
     {
       key: 'ArrowUp',
       run: (view: EditorView): boolean => {
-        // If cursor is on the first line of the editor, go to previous block
         const cursor = view.state.selection.main.head;
         const firstLine = view.state.doc.line(1);
         if (cursor <= firstLine.to) {
-          return callbacks.goToPreviousBlock();
+          const col = cursor - firstLine.from;
+          return callbacks.goToPreviousBlock({ line: -1, col });
         }
         return false; // let default handler move cursor up
       },
@@ -30,11 +39,31 @@ export function createBlockNavigationKeymap(
     {
       key: 'ArrowDown',
       run: (view: EditorView): boolean => {
-        // If cursor is on the last line of the editor, go to next block
         const cursor = view.state.selection.main.head;
         const lastLine = view.state.doc.line(view.state.doc.lines);
         if (cursor >= lastLine.from) {
-          return callbacks.goToNextBlock();
+          const col = cursor - lastLine.from;
+          return callbacks.goToNextBlock({ line: 0, col });
+        }
+        return false;
+      },
+    },
+    {
+      key: 'ArrowLeft',
+      run: (view: EditorView): boolean => {
+        const cursor = view.state.selection.main.head;
+        if (cursor === 0) {
+          return callbacks.goToPreviousBlock({ position: 'end' });
+        }
+        return false;
+      },
+    },
+    {
+      key: 'ArrowRight',
+      run: (view: EditorView): boolean => {
+        const cursor = view.state.selection.main.head;
+        if (cursor === view.state.doc.length) {
+          return callbacks.goToNextBlock({ position: 'start' });
         }
         return false;
       },
