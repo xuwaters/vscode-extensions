@@ -1,0 +1,57 @@
+/* Mermaid diagram container styles */
+.mermaid-container {
+  margin: 1em 0;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-loading {
+  color: var(--vscode-descriptionForeground, #888);
+  font-style: italic;
+  padding: 1em;
+  text-align: center;
+}
+
+.mermaid-error {
+  color: var(--vscode-errorForeground, #f44747);
+  background: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.1));
+  border: 1px solid var(--vscode-inputValidation-errorBorder, #f44747);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+}
+
+/* MDX component card styles */
+.mdx-component-card {
+  background: var(--vscode-textBlockQuote-background, rgba(127, 127, 127, 0.1));
+  border: 1px dashed var(--vscode-panel-border, #555);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 1em 0;
+}
+
+.mdx-component-card.mdx-import {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground, #888);
+}
+
+.mdx-tag {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.85em;
+  color: var(--vscode-symbolIcon-classForeground, #ee9d28);
+  display: block;
+}
+
+.mdx-children {
+  padding: 8px 0 8px 16px;
+  border-left: 2px solid var(--vscode-panel-border, #444);
+  margin: 4px 0;
+}

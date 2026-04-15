@@ -1,0 +1,8 @@
+src/
+webview/
+test/
+tsconfig.json
+tsconfig.tsbuildinfo
+tsdown.config.mts
+**/*.test.ts
+.gitignore

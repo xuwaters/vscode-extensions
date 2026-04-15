@@ -1,0 +1,17 @@
+/* KaTeX math rendering styles */
+.katex-display {
+  margin: 1em 0;
+  text-align: center;
+  color: var(--vscode-editor-foreground);
+}
+
+.katex {
+  color: var(--vscode-editor-foreground);
+}
+
+.math-error {
+  color: var(--vscode-errorForeground, #f44747);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-style: italic;
+  font-size: 0.9em;
+}

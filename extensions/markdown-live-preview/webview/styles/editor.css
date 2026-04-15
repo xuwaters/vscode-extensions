@@ -1,0 +1,48 @@
+/* CodeMirror overrides to blend with VSCode theme */
+
+.cm-editor {
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 14px);
+}
+
+.cm-editor .cm-content {
+  caret-color: var(--vscode-editorCursor-foreground, #fff);
+}
+
+.cm-editor .cm-cursor {
+  border-left-color: var(--vscode-editorCursor-foreground, #fff);
+}
+
+.cm-editor .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+  background: var(--vscode-editor-selectionBackground, rgba(38, 79, 120, 0.6)) !important;
+}
+
+.cm-editor .cm-activeLine {
+  background: var(--vscode-editor-lineHighlightBackground, rgba(255, 255, 255, 0.04));
+}
+
+.cm-editor .cm-gutters {
+  background: var(--vscode-editorGutter-background, var(--vscode-editor-background));
+  color: var(--vscode-editorLineNumber-foreground, #858585);
+  border-right: 1px solid var(--vscode-panel-border, transparent);
+}
+
+.cm-editor .cm-activeLineGutter {
+  background: var(--vscode-editor-lineHighlightBackground, rgba(255, 255, 255, 0.04));
+}
+
+/* Ensure block editors don't have excessive gutters */
+.block-editing .cm-editor {
+  border: none;
+}
+
+.block-editing .cm-editor .cm-gutters {
+  display: none;
+}
+
+.block-editing .cm-editor .cm-content {
+  padding: 4px 0;
+}
