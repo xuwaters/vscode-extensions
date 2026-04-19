@@ -6,22 +6,48 @@ export interface Template {
 }
 
 const DEFAULT = `
+# macOS
 .DS_Store
+
+# Rust
+target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node
 node_modules
 dist
-target
-*.log
-*.local
+.vite
 .next
 .astro
 .cache
 .turbo
 .yarn
-.env
 .pnpm-store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env
+.env
+.env.*.local
+.env.local
 !.env.example
+
+# Editor / misc
+*.local
+*.zip
+temp
 .claude
 .vscode
+
+# sqlx — keep \`.sqlx/\` committed per RFC 0012 (offline query data)
+# but ignore the tmp cache directory
+.sqlx-cache
 `;
 
 const NODE = `# Dependencies
