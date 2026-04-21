@@ -25,7 +25,7 @@ Gaps we see across this landscape:
 - **Brittle import resolution.** Extensions routinely fail to find `google/protobuf/descriptor.proto` etc. unless the user plumbs include paths manually.
 - **No common story for Rust monorepos.** Rust backends that generate code via `prost-build` / `tonic-build` (which internally use `protox`) get code-gen diagnostics that don't agree with what the editor says.
 
-**Why Rust.** This repo already ships a Rust-powered analyzer (`crates/wgsl-analyzer`, backing `wx-vsce-wgsl-shader`) built on `naga` and compiled to WASM. Rust has a stronger protobuf parsing ecosystem than any other ecosystem targetable from VSCode: `protox-parse` ([crates.io/crates/protox-parse](https://crates.io/crates/protox-parse)) produces Google-canonical `FileDescriptorProto`s with miette-quality diagnostics; `protobuf-parse` ([crates.io/crates/protobuf-parse](https://crates.io/crates/protobuf-parse)) is battle-tested; `protox` is already what `prost-build` users compile with, so editor diagnostics and build diagnostics can converge. Rust also gives us deterministic performance for workspace-wide analysis on large trees (googleapis is ~300 `.proto` files).
+**Why Rust.** This repo already ships a Rust-powered analyzer (`crates/wgsl-analyzer`, backing `wx-vsce-wgsl-shader`) built on `naga` and compiled to WASM. Rust gives us deterministic performance for workspace-wide analysis on large trees (googleapis is ~300 `.proto` files), a mature WASM toolchain, and the same build/publish pipeline the repo already uses. We deliberately do **not** take a runtime dependency on the existing third-party proto parsing crates (`protox-parse`, `protobuf-parse`, `protobuf-ast-parser`) — see §5 for the decision — and instead write the lexer, parser, and AST by hand inside `crates/proto3-analyzer`. Proto3's grammar is small and stable; owning the parser avoids being blocked by an upstream that is single-maintainer (`protox-parse`), explicitly unstable ("not meant to be used directly" — `protobuf-parse`), or shaped for batch compilation rather than editor use (fail-fast, no partial ASTs, spans hidden behind `SourceCodeInfo`).
 
 **Why a new extension, not a fork.** None of the existing Rust LSPs are designed to run in-process in a VSCode extension host. Shipping `cargo install` as a prereq is a non-starter for marketplace distribution. Bundling a native binary per platform works but duplicates a lot of engineering. The WASM pipeline we already have for `wgsl-analyzer` gives us a single artifact that runs on every platform VSCode supports, including web (`vscode.dev`) if we keep the surface area disciplined.
 
@@ -51,7 +51,7 @@ Gaps we see across this landscape:
 11. **Workspace-wide analysis** -- The entire discovered tree is analyzed, not just open files. Changes in one file invalidate and re-analyze dependents.
 12. **Reasonable performance on real-world trees** -- Cold open of a googleapis-style ~300-file tree under 1.5 s on a modern laptop. Edit-to-diagnostic latency under 100 ms for a single-file edit, under 500 ms for a transitive re-check.
 13. **Zero external prerequisites** -- The extension works immediately after install, with no requirement to install `protoc`, `buf`, or a Rust toolchain.
-14. **Bi-directional feature parity with `prost-build`** -- A file that `prost-build` compiles cleanly should produce zero diagnostics; a file `prost-build` rejects should surface the same error at the same location. Implemented by sharing the `protox-parse` crate across both.
+14. **Behavioral parity with canonical `protoc` / `prost-build` on valid inputs** -- A file that `protoc` or `prost-build` compiles cleanly must produce zero parse/resolution diagnostics from our analyzer. Error *locations* are not guaranteed byte-identical (we implement our own parser — see §5), but error *verdicts* on well-formed vs malformed inputs must agree. We pin this with a conformance suite that diffs our AST→descriptor lowering against `protoc --descriptor_set_out` on a fixture corpus (§16 Phase 1).
 
 ## 3. High-Level Architecture
 
@@ -126,7 +126,7 @@ Justification:
 
 1. **Consistency with the repo.** `wgsl-analyzer` already proves the pattern works for a VSCode language extension with a Rust backend. The build pipeline (`wasm-pack build --target nodejs --out-dir ../../extensions/<name>/wasm`), the loader (`require(path.join(extensionPath, 'wasm', '<name>.js'))`), and the JSON-over-wasm-bindgen marshaling are already understood and have repo-local conventions.
 2. **Distribution.** A single `.vsix` works everywhere. We do not want to run a per-platform build matrix for a v1 tool.
-3. **Performance headroom.** A proto file is small. A parsed descriptor is small. The workspace is bounded by "what the user has in their repo" — typically a few hundred files max. WASM without threads is fast enough; `protox-parse` parses a 500-line file in single-digit milliseconds.
+3. **Performance headroom.** A proto file is small. A parsed AST is small. The workspace is bounded by "what the user has in their repo" — typically a few hundred files max. WASM without threads is fast enough; a well-tuned hand-written proto3 parser comfortably handles a 500-line file in single-digit milliseconds, which is the shape of latency we need.
 4. **Migration path.** If we ever hit WASM ceilings (e.g. need `rayon` for a 10K-file monorepo), we can add transport B behind a setting without re-architecting the Rust crate — the analyzer's public API is already a JSON-boundary request/response protocol that maps trivially to an LSP `Server`. The same crate can also be built into `crates/proto3-lsp` binary later.
 
 **Trade-offs we accept.** The extension host must hold the entire workspace symbol index in its JS heap (the WASM linear memory). For googleapis-scale, back-of-envelope: ~300 files × ~2 KB of AST per file + ~1 KB per symbol ≈ 2 MB. Negligible. If a user opens a pathologically large internal schema (10K+ files, e.g. a monorepo including third-party vendored BSR modules) we will reconsider and cut over to B.
@@ -137,47 +137,49 @@ Justification:
 
 #### 4.1.1 Parser layer
 
-Wraps `protox-parse` ([docs.rs/protox-parse](https://docs.rs/protox-parse)), which returns a `FileDescriptorProto` plus span information surfaced through `miette`. We do **not** use `protoc` or `prost-build` at runtime — `protox-parse` is a pure Rust library with no binary dependency, which is what makes WASM feasible.
+Hand-written lexer + recursive-descent parser, living entirely inside `crates/proto3-analyzer`. No third-party proto-grammar crate is pulled in at parse time — the full pipeline from `&str` to our typed AST is owned by this crate (see §5 for the rationale and alternatives evaluated).
+
+The pipeline is split into three stages so each can be tested and recovered from independently:
+
+1. **Lexer** (`src/lexer.rs`) — scans the source into `Token` values tagged with a `ByteSpan`. Handles proto3's full lexical grammar: identifiers, dotted names (`foo.bar.Baz`), integer/float literals (decimal, hex, octal, with optional sign), string literals with C-style escapes (including concatenated adjacent string literals), block and line comments (retained as `Trivia` attached to the following token so hover can surface leading doc-comments), and punctuation. Unterminated strings, stray characters, and invalid escape sequences become `LexError` tokens rather than aborting the stream.
+
+2. **Parser** (`src/parser/`) — recursive-descent, one entry per top-level production (`parse_file`, `parse_message`, `parse_enum`, `parse_service`, `parse_option`, `parse_field`, `parse_oneof`, `parse_map_field`, `parse_reserved`, `parse_extensions`). Every production consumes tokens through a single `Parser` cursor that tracks the current position and an error sink. On a syntactic mismatch the parser emits a diagnostic and calls `sync_to` with a set of recovery tokens — usually `{ SEMI, RBRACE, KW_MESSAGE, KW_ENUM, KW_SERVICE, KW_RPC, KW_OPTION, EOF }` — so one broken field does not blow away the rest of the file. This is the crucial property for editor use: a half-typed line must still leave the surrounding message parseable.
+
+3. **AST** (`src/ast.rs`) — our own typed nodes, not `FileDescriptorProto`. Nodes own `ByteSpan` ranges for every identifier, type reference, and literal, which lets go-to-definition, references, and rename operate on exact source ranges without fishing positions out of `source_code_info`. When an external consumer (a future `cargo proto3-check` CLI, a build-tool integration) needs a Google-canonical descriptor, a small `ast::to_descriptor` adapter lowers the AST to `prost_types::FileDescriptorProto` — gated behind the optional `descriptor-adapter` Cargo feature and not shipped in the editor WASM build.
 
 ```rust
 // crates/proto3-analyzer/src/parse.rs
-
-use miette::Diagnostic;
-use protox_parse::ParseError;
 
 /// The canonical parsed representation for a single .proto file.
 pub struct ParsedFile {
     pub uri: FileUri,
     pub source: String,
-    /// Google-canonical descriptor (spans embedded via source_code_info).
-    pub descriptor: prost_types::FileDescriptorProto,
-    /// AST-level spans retained outside the descriptor — covers tokens
-    /// the descriptor drops (comments, whitespace, parse-error positions).
+    /// Typed AST owned by this crate. Every node carries a ByteSpan.
+    pub ast: ast::File,
+    /// Line/column ↔ byte-offset index used by every feature provider.
     pub spans: SpanTable,
-    /// Accumulated parse-time diagnostics (recoverable errors included).
+    /// Parse-time diagnostics. Recoverable errors included; the parser
+    /// never returns early on a single bad token.
     pub diagnostics: Vec<ProtoDiagnostic>,
 }
 
 pub fn parse(uri: FileUri, source: String) -> ParsedFile {
-    match protox_parse::parse(&uri.relative_path(), &source) {
-        Ok(descriptor) => ParsedFile {
-            uri,
-            source,
-            descriptor,
-            spans: SpanTable::from_descriptor(&descriptor),
-            diagnostics: Vec::new(),
-        },
-        Err(err) => synthesize_partial(uri, source, err),
-    }
+    let tokens = lexer::lex(&source);
+    let mut parser = parser::Parser::new(&source, tokens);
+    let ast = parser.parse_file();
+    let (spans, diagnostics) = parser.finish();
+    ParsedFile { uri, source, ast, spans, diagnostics }
 }
 ```
 
-Error recovery: `protox-parse` is fail-fast. For an editor we need recovery so that a half-typed file still produces symbols/completions. Two options (decision captured in §14):
+**Error recovery strategy.** Recursive-descent with follow-set synchronization gives us per-statement recovery by construction:
 
-- Wrap `protox-parse` with a thin "repair" pass: if parsing fails, trim the file at the error location and re-parse the prefix; surface the unparseable tail as a single diagnostic. Cheap, gets us 90% of the recovery story.
-- Eventually fork `protox-parse` and add real recursive-descent recovery at statement boundaries (semicolons, `}`).
+- Top-level: on error, skip to the next `message` / `enum` / `service` / `import` / `option` / `package` / `;`.
+- Inside a message body: skip to the next `;` or the matching `}`.
+- Inside a field declaration: the full declaration is emitted as a best-effort `ast::FieldDecl` with any missing pieces marked `Missing`; downstream passes tolerate `Missing` so hover/completion on the *surrounding* file still works.
+- The lexer never panics; lexical errors are preserved as tokens and surface as `PROTO0001-0003` diagnostics in the parser.
 
-We choose the repair-pass approach for v1 and revisit.
+This gives us the full recovery story — including mid-statement partial ASTs — that a repair-pass wrapper around a fail-fast upstream parser could not deliver.
 
 #### 4.1.2 Workspace / VFS
 
@@ -412,28 +414,47 @@ class AnalyzerCompletionProvider implements vscode.CompletionItemProvider {
 
 ## 5. Parser Choice
 
-Candidate options:
+**Decision: a hand-written lexer + recursive-descent parser, implemented in this repo as `crates/proto3-analyzer/src/lexer.rs` and `crates/proto3-analyzer/src/parser/`.** No third-party grammar or parser crate is pulled in at runtime.
 
-| Option | Source | Notes |
-|--------|--------|-------|
-| **Hand-written recursive-descent** | — | Max control, max work. Would replicate `protox-parse` internals. No. |
-| **`pest`-based grammar** | [pest.rs](https://pest.rs) | PEG, readable. Poor error recovery. No community proto grammar that tracks proto3 precisely. |
-| **`nom`-based parser** | [github.com/rust-bakery/nom](https://github.com/rust-bakery/nom) | Combinator-heavy. Fine for small languages; proto3 is large enough that the grammar-in-types style gets painful. |
-| **`tree-sitter-proto`** | Best implementations: [github.com/mitchellh/tree-sitter-proto](https://github.com/mitchellh/tree-sitter-proto), [github.com/coder3101/tree-sitter-proto](https://github.com/coder3101/tree-sitter-proto) | Incremental re-parsing for free. Excellent error recovery. Used by `protols`. But: runtime is C, WASM distribution of tree-sitter is possible but non-trivial; no name-resolution semantics (we'd still need a whole type-resolution layer). |
-| **`protobuf-parse`** (rust-protobuf) | [crates.io/crates/protobuf-parse](https://crates.io/crates/protobuf-parse) | Pure-rust parser available. Author explicitly says "not meant to be used directly; no stable API." |
-| **`protox-parse`** | [crates.io/crates/protox-parse](https://crates.io/crates/protox-parse), [github.com/andrewhickman/protox](https://github.com/andrewhickman/protox) | Stable public `parse()` fn, returns Google-canonical `FileDescriptorProto`, miette-rich diagnostics with precise spans. Pure Rust, WASM-friendly. `prost-build`'s current default frontend. Actively maintained. |
-| **`protobuf-ast-parser`** | [crates.io/crates/protobuf-ast-parser](https://crates.io/crates/protobuf-ast-parser) | Newer; preserves comments as typed AST nodes. Small crate, recent release. Worth evaluating for Phase 4 doc-hover if `protox-parse`'s comment retention is insufficient. |
+### 5.1 Why own the parser
 
-**Recommendation: `protox-parse` as the primary parser, with bespoke repair wrapper for error recovery.**
+Proto3 is a small, stable grammar — the full [language spec](https://protobuf.dev/reference/protobuf/proto3-spec/) fits in a long afternoon's worth of productions. Owning it costs a bounded one-time implementation and pays off permanently on four axes:
 
-Reasoning:
+1. **No unmaintained-crate or unstable-API risk.** The leading candidate crates all carry structural risk: `protox-parse` is effectively single-maintainer with releases tied to `prost` bumps; `protobuf-parse`'s README explicitly warns "not meant to be used directly; no stable API"; `protobuf-ast-parser` is brand-new with no ecosystem traction. Taking a runtime dependency on any of them means inheriting their cadence for proto-editions support, spec fixes, and WASM-compatibility.
+2. **Editor-grade error recovery by default, not as a band-aid.** Every candidate parser is fail-fast — they return `Result<Descriptor, ParseError>` and bail on the first error, which is exactly backwards for an editor. A repair-pass wrapper can recover the prefix but never a mid-statement partial AST. A recursive-descent parser designed for recovery hands us partial ASTs with `Missing` nodes, which drive usable completions and hover even on broken input.
+3. **First-class span retention.** We do not want to store data as `FileDescriptorProto` + `SourceCodeInfo` and fish spans out of `location.path` at query time — that indirection is fine for a compiler but awkward for a language server that needs exact-range operations on identifiers and nested type references. Our AST carries `ByteSpan` on every node by construction.
+4. **Customization latitude.** We can add diagnostics, lints, and syntactic sugar (e.g. surfacing `map<K,V>` in the AST even though the wire format desugars it to a synthetic nested message) without waiting on upstream.
 
-1. It returns `FileDescriptorProto` — the canonical representation every downstream tool (prost-build, tonic-build, buf itself) consumes. Our diagnostics will therefore naturally agree with what a build reports, which was Design Goal #14.
-2. `SourceCodeInfo` on `FileDescriptorProto` gives us per-node `Span { leading_comments, trailing_comments, location_path, span: [line, col, end_line, end_col] }` — exactly what hover/go-to-definition need.
-3. Pure-Rust, WASM-clean. No `protoc` invocation, no filesystem access from the parser itself.
-4. Error quality via miette is already strong. We extend it by preserving the partial AST through a repair pass.
+The costs: roughly 1500–2500 lines of Rust for lexer + parser + AST + tests, and the obligation to track proto editions (2023, 2024) ourselves. We budget this into Phase 1 (§16).
 
-We keep `tree-sitter-proto` in our back pocket as a Phase 4 alternative if/when we want incremental re-parsing for very large files, because tree-sitter's byte-range re-parse is an order of magnitude faster than our "re-parse whole file" approach on 10K-line proto files (which do exist in monorepos). But none of that is blocking.
+### 5.2 Alternatives considered
+
+| Option | Source | Why we passed |
+|--------|--------|---------------|
+| **`protox-parse`** | [crates.io/crates/protox-parse](https://crates.io/crates/protox-parse), [github.com/andrewhickman/protox](https://github.com/andrewhickman/protox) | Stable public API, miette-quality diagnostics, pure-Rust, WASM-clean, `prost-build`'s current frontend. Still: single-maintainer; fail-fast with no public hooks for recovery; stores everything as `FileDescriptorProto` with spans behind `source_code_info`. Adopting it locks our analyzer's data model to someone else's release cadence. |
+| **`protobuf-parse`** (rust-protobuf) | [crates.io/crates/protobuf-parse](https://crates.io/crates/protobuf-parse) | Battle-tested inside `rust-protobuf`, but the author explicitly documents "not meant to be used directly; no stable API." Unfit as a foundational dependency. |
+| **`protobuf-ast-parser`** | [crates.io/crates/protobuf-ast-parser](https://crates.io/crates/protobuf-ast-parser) | Newer crate; preserves comments as AST nodes. Too new, too narrow, too small a maintenance base. |
+| **`tree-sitter-proto`** | [github.com/mitchellh/tree-sitter-proto](https://github.com/mitchellh/tree-sitter-proto), [github.com/coder3101/tree-sitter-proto](https://github.com/coder3101/tree-sitter-proto) | Free incremental re-parsing and good error recovery. But the runtime is C — WASM distribution is possible but non-trivial — and tree-sitter produces a CST, not a typed AST, so we would still implement a lowering pass and a name-resolution layer on top. Net: comparable work to writing the parser ourselves, with a heavier dependency footprint. |
+| **`pest`** | [pest.rs](https://pest.rs) | PEG grammar is readable but has poor error recovery; no community proto3 grammar that tracks the spec precisely. |
+| **`nom`** | [github.com/rust-bakery/nom](https://github.com/rust-bakery/nom) | Combinator-heavy; proto3's size makes the grammar-in-types style painful compared to plain recursive descent. |
+| **Hand-written recursive-descent (in-repo)** | this RFC | *Chosen.* Bounded scope, editor-grade recovery by construction, owns its AST and span model, zero supply-chain exposure, full customization. |
+
+### 5.3 What we still borrow
+
+- `prost-types` *only* in the offline `ast::to_descriptor` adapter behind the `descriptor-adapter` Cargo feature, for the future CLI-parity path (§15 #6). Not compiled into the editor WASM build.
+- `miette` (optional, `default-features = false`) for `Diagnostic` trait derivation on our own error types — lightweight and WASM-safe. Can be dropped if linear-memory overhead becomes a concern.
+
+### 5.4 Grammar coverage
+
+The parser targets proto3 as specified, plus:
+
+- **proto2 compatibility parsing** (so a proto3 file can `import "legacy.proto"` without the import target's parser failing). `required`, `optional` (proto2-style default field), `group`, and `extensions` / `extend` blocks are parsed; in a proto3 file they emit a diagnostic.
+- **Editions 2023 / 2024** (`edition = "2023";`). New syntax (`features = { ... }`, edition-specific field presence) is recognized and folded into the AST; full semantic validation of edition features is a Phase 4 item.
+- **Custom options** (`option (my.package.opt) = ...;`). Parsed into `ast::OptionValue` trees including nested message literals (`{ key: value, nested: { ... } }`). Name resolution for the extension field is a resolver-layer concern.
+
+### 5.5 Incremental re-parsing
+
+The parser re-parses whole files on edit. Proto3 files are small (typical: a few hundred lines; pathological: 10K), and a straight-line recursive-descent parser comfortably handles that in single-digit milliseconds. If profiling shows whole-file re-parse is a bottleneck on very large schemas, we revisit with a token-stream diff / subtree re-parse — the AST is already node-per-declaration, which makes that retrofit tractable.
 
 ## 6. Symbol Resolution & Import Handling
 
@@ -582,8 +603,17 @@ crates/proto3-analyzer/
 │   ├── lib.rs                  # Re-exports, module wiring
 │   ├── wasm_api.rs             # #[wasm_bindgen] surface (Analyzer struct)
 │   ├── vfs.rs                  # Workspace, FileUri, IncludePath
-│   ├── parse.rs                # protox-parse wrapper + repair pass
-│   ├── ast.rs                  # Thin wrappers over FileDescriptorProto
+│   ├── parse.rs                # Pipeline: lex → parse → ParsedFile
+│   ├── lexer.rs                # Hand-written proto3 tokenizer
+│   ├── parser/
+│   │   ├── mod.rs              # Parser cursor, error sink, sync_to recovery
+│   │   ├── file.rs             # top-level: syntax/edition, package, import, option
+│   │   ├── message.rs          # message, nested, map, oneof, reserved, extensions
+│   │   ├── enum_.rs            # enum bodies and values
+│   │   ├── service.rs          # service, rpc
+│   │   └── options.rs          # option values, message literals, custom extensions
+│   ├── ast.rs                  # Typed AST nodes — own every ByteSpan
+│   ├── descriptor.rs           # Optional ast::to_descriptor adapter (prost-types)
 │   ├── spans.rs                # SpanTable (line/col ↔ byte offset)
 │   ├── resolve/
 │   │   ├── mod.rs              # SymbolIndex
@@ -614,7 +644,12 @@ crates/proto3-analyzer/
     ├── fixtures/               # snapshots of real .proto trees
     │   ├── googleapis-subset/
     │   └── buf-example/
-    ├── snapshot_parse.rs       # insta-powered
+    ├── conformance/            # diff our ast::to_descriptor output
+    │   │                       # against `protoc --descriptor_set_out`
+    │   └── run.rs              # zero-tolerance drift gate
+    ├── snapshot_lexer.rs       # insta-powered token streams
+    ├── snapshot_parse.rs       # insta-powered AST
+    ├── snapshot_recovery.rs    # parser error-recovery goldens
     ├── snapshot_diagnostics.rs
     ├── snapshot_completion.rs
     └── snapshot_definition.rs
@@ -789,10 +824,6 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Parsing
-protox-parse = "0.7"
-prost-types  = "0.13"          # FileDescriptorProto etc.
-
 # Data structures
 rustc-hash   = "2"             # FxHashMap / FxHashSet
 smol_str     = "0.3"           # interned identifier strings
@@ -809,14 +840,19 @@ serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"
 console_error_panic_hook = "0.1"
 
+# Optional — enables ast::to_descriptor for the future proto3-check CLI
+# and build-tool integrations. NOT compiled into the editor WASM build.
+prost-types  = { version = "0.13", optional = true }
+
 # Optional (gated) — native-only LSP binary path (Phase 4)
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tower-lsp = { version = "0.20", optional = true }
 tokio     = { version = "1",    optional = true, features = ["full"] }
 
 [features]
-default = []
-lsp-server = ["tower-lsp", "tokio"]
+default            = []
+descriptor-adapter = ["prost-types"]
+lsp-server         = ["tower-lsp", "tokio"]
 
 [dev-dependencies]
 insta     = "1"
@@ -856,11 +892,11 @@ extension/
 ├── dist/extension.js         # ~50 KB bundled TS
 ├── wasm/
 │   ├── proto3_analyzer.js    # wasm-bindgen glue
-│   └── proto3_analyzer_bg.wasm  # ~600-800 KB (with protox-parse + descriptors)
+│   └── proto3_analyzer_bg.wasm  # ~350-500 KB (hand-written parser + AST)
 └── README.md
 ```
 
-Rough size estimate: `wgsl-analyzer`'s WASM bundle is ~300 KB; we expect ~700 KB for proto3 because `protox-parse` + `prost-types` is heavier than `naga` minus most of naga's middle-ends. Still well under the marketplace soft limit.
+Rough size estimate: `wgsl-analyzer`'s WASM bundle is ~300 KB; we expect ~350–500 KB for proto3 given the hand-written lexer/parser/AST and the absence of `protox-parse` or `prost-types` on the default build. Compiling with the `descriptor-adapter` feature would add roughly ~200 KB (prost-types), but that variant is not what the editor ships — it is for the future `proto3-check` CLI.
 
 ### 12.3 CI build
 
@@ -924,11 +960,11 @@ We measure these with a harness in `crates/proto3-analyzer/benches/` (criterion-
 ## 15. Open Questions
 
 1. **Should we ship transport B (native binary) in v1 as an opt-in?** Some users will have 10K-file internal schemas where WASM's single-thread execution is the bottleneck. We think "measure first, ship second" — defer to when we have a concrete regression.
-2. **Error-recovery in the parser.** The "repair pass" on `protox-parse` failures is a band-aid. Do we upstream a recovering parser to `protox-parse`, fork it, or bring in tree-sitter-proto just for error recovery while keeping `protox-parse` for descriptor emission? Probably: evaluate after Phase 1 ships and we have real user-file test cases.
-3. **Comment-preservation fidelity.** `FileDescriptorProto.source_code_info.location.leading_comments` covers doc-comments but drops some inline comments in certain positions. Do we need `protobuf-ast-parser`'s raw-AST alongside? Decision: only if Phase 2 hover feedback shows it's insufficient.
+2. **Grammar conformance corpus.** The hand-written parser's correctness depends on a large, representative fixture set. Do we lift a known-good suite (googleapis, envoy, grpc protos, bufbuild/protovalidate examples) into `tests/fixtures/` and diff our AST-to-descriptor against `protoc --descriptor_set_out` in CI? Strong yes — tracked as a Phase 1 deliverable. Open question is the size/scope of the vendored corpus (shallow-clone vs vendored subset vs git submodule).
+3. **Comment-preservation fidelity.** Our lexer attaches leading/trailing `Trivia` to every token, which handles doc-comments and inline comments correctly. Open question: *detached* comments (blank-line-separated block comments with no attached declaration). Current plan: attach them to the nearest following token and expose via a dedicated `ast::Trivia` stream for formatters. Revisit if hover or formatting surface shows odd behavior.
 4. **BSR (Buf Schema Registry) module resolution.** We auto-detect `buf.yaml` and read `buf.lock`, but we do not download modules. Should we? That crosses a line from "editor tool" to "build tool." Punt.
-5. **Proto editions** (2023 / 2024 syntax). Do we support `edition = "2023";` files on day one? `protox-parse` supports editions as of its 0.6 series. We say yes, track-the-spec, treat this as a parser-layer concern that falls out of adopting `protox-parse`.
-6. **Interaction with the `prost-build` ecosystem.** Could we expose a CLI subcommand `cargo proto3-check` from the same analyzer crate, so builds and editors share diagnostics? Highly desirable. Parking lot.
+5. **Proto editions** (2023 / 2024 syntax). Our parser recognizes `edition = "2023";` and parses edition-specific syntax into the AST from day one. Full semantic validation of edition features (`features = { field_presence: ... }`, default-value handling, etc.) is Phase 4 — lexer/parser support is the cheap part; correctly modeling feature resolution rules is the work.
+6. **Interaction with the `prost-build` ecosystem.** A CLI `cargo proto3-check` that lowers our AST via `ast::to_descriptor` (gated behind the `descriptor-adapter` feature), emits a `FileDescriptorSet`, and runs the same diagnostics as the editor is highly desirable — it means builds and editors share one checker. Parking lot for post-v1.
 7. **Semantic tokens vs the TextMate grammar.** The syntax extension ships a TM grammar; if we add a LSP-driven semantic tokens provider, VSCode will layer them on top. Need to decide if that's additive (good — disambiguates type vs field) or fights the grammar (bad).
 8. **Rename safety for generated-code consumers.** Renaming a message field is a *wire-compatibility* concern, not just a source concern. Do we warn on rename with "field numbers are what matter for compatibility, name changes are safe on-the-wire but break generated Go/Java/Python code"? Probably yes, as an info-level message attached to the rename preview.
 9. **When does the TypeScript host preload the whole workspace vs lazy-load on open?** Preloading is correct for accurate cross-file diagnostics but costs cold-start time. Compromise: scan the workspace for `.proto` files on activation, index only their headers (package + imports + top-level declarations), hydrate full bodies on first open/completion. Not committed.
@@ -936,10 +972,14 @@ We measure these with a harness in `crates/proto3-analyzer/benches/` (criterion-
 
 ## 16. Implementation Phases
 
-### Phase 1 — Parser + Syntax Diagnostics + Symbols (2 weeks)
+### Phase 1 — Lexer + Parser + Syntax Diagnostics + Symbols (3 weeks)
 
 - `crates/proto3-analyzer` skeleton with `wasm_api.rs`.
-- `parse.rs` wrapping `protox-parse`, with the repair-pass fallback.
+- **`lexer.rs`** — full proto3 tokenizer: identifiers, dotted names, numeric literals (dec/hex/oct, float, signed), string literals with escapes and adjacency concatenation, block/line comments attached as `Trivia`, lex-error tokens. insta-snapshotted against a fixture corpus.
+- **`parser/`** — recursive-descent parser for the full proto3 grammar (syntax/edition, package, import, option, message, nested, enum, service, rpc, oneof, map, reserved, extensions, extend, custom option values with message literals). Sync-to-recovery on errors, partial ASTs with `Missing` nodes.
+- **`ast.rs`** — typed AST with `ByteSpan` on every node.
+- **`descriptor.rs`** — optional `ast::to_descriptor` adapter behind the `descriptor-adapter` feature (not shipped in the editor WASM).
+- **Conformance harness** in `tests/conformance/`: a fixture corpus (googleapis subset + internal goldens) is lowered via `ast::to_descriptor` and diffed against `protoc --descriptor_set_out`. Zero-tolerance drift gate in CI.
 - `vfs.rs` with file upsert/remove, include paths from a setting.
 - `SpanTable` (line/col ↔ offset).
 - Bundled well-known types (`include_str!`).
@@ -947,9 +987,9 @@ We measure these with a harness in `crates/proto3-analyzer/benches/` (criterion-
 - Diagnostics: all PROTO0001-0009 (parse errors) + PROTO0030-0034 (field-number + reserved) + PROTO0040-0042 (duplicates).
 - `extensions/protobuf-intellisense/` extension skeleton: activation, AnalyzerBridge, DocumentSymbolProvider, DiagnosticCollection wiring, `update_file` on edit/open.
 - `package.json` with the config properties listed in §10, no formatter.
-- CI: `cargo test` + `wasm-pack test --node` + `pnpm run build:wasm && pnpm run build`.
+- CI: `cargo test` + conformance gate + `wasm-pack test --node` + `pnpm run build:wasm && pnpm run build`.
 
-**Acceptance:** Open a single `.proto` file. Outline populates. Red squiggles on duplicate field numbers and syntax errors. Extension dependency on `wx-vsce-protobuf` satisfied.
+**Acceptance:** Open a single `.proto` file. Outline populates. Red squiggles on duplicate field numbers and syntax errors. Parser survives mid-statement edits without losing surrounding symbols. Corpus conformance diff against `protoc` is empty for all fixtures. Extension dependency on `wx-vsce-protobuf` satisfied.
 
 ### Phase 2 — Resolution + Hover + Completion + Go-to-Definition (3 weeks)
 
