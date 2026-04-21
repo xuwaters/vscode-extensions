@@ -1,8 +1,9 @@
 //! Virtual file system and workspace — tracks parsed files, import graph,
 //! and include-path resolution.
 
-use crate::diagnostics::{run_all_checks, DiagnosticCode, ProtoDiagnostic, Severity};
+use crate::diagnostics::{run_all_checks, run_resolve_checks, DiagnosticCode, ProtoDiagnostic, Severity};
 use crate::parse::{parse, ParsedFile};
+use crate::resolve::WorkspaceIndex;
 use crate::spans::ByteSpan;
 use crate::well_known;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -189,13 +190,22 @@ impl Workspace {
 
     /// Collect diagnostics for a single file: parse-time + semantic
     /// (duplicate field numbers, reserved clashes, oneof, map-key) +
-    /// import resolution errors.
+    /// import resolution + cross-file name resolution.
     pub fn diagnostics_for(&self, uri: &FileUri) -> Vec<ProtoDiagnostic> {
         let Some(file) = self.files.get(uri) else { return Vec::new() };
         let mut out = file.diagnostics.clone();
         out.extend(run_all_checks(&file.ast));
         out.extend(self.import_diagnostics(uri, file));
+        let index = WorkspaceIndex::build(self);
+        out.extend(run_resolve_checks(self, &index, uri));
         out
+    }
+
+    /// Build a fresh workspace symbol index. Callers that need both
+    /// diagnostics and feature queries should cache this and reuse it to
+    /// avoid rebuilding per query.
+    pub fn build_index(&self) -> WorkspaceIndex {
+        WorkspaceIndex::build(self)
     }
 
     fn import_diagnostics(&self, uri: &FileUri, file: &ParsedFile) -> Vec<ProtoDiagnostic> {

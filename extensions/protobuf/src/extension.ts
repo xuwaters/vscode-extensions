@@ -5,6 +5,10 @@ import { resolveIncludePaths } from './includePaths';
 import { preloadWorkspace } from './workspaceBootstrap';
 import { ProtoDocumentSymbolProvider } from './providers/documentSymbol';
 import { ProtoWorkspaceSymbolProvider } from './providers/workspaceSymbol';
+import { ProtoDefinitionProvider } from './providers/definition';
+import { ProtoHoverProvider } from './providers/hover';
+import { ProtoCompletionProvider } from './providers/completion';
+import { ProtoFoldingRangeProvider } from './providers/foldingRange';
 import { restart } from './commands/restart';
 import { showSymbolTree } from './commands/showSymbolTree';
 
@@ -22,6 +26,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.languages.registerDocumentSymbolProvider(PROTO3_SELECTOR, new ProtoDocumentSymbolProvider(bridge)),
     vscode.languages.registerWorkspaceSymbolProvider(new ProtoWorkspaceSymbolProvider(bridge)),
+    vscode.languages.registerDefinitionProvider(PROTO3_SELECTOR, new ProtoDefinitionProvider(bridge)),
+    vscode.languages.registerHoverProvider(PROTO3_SELECTOR, new ProtoHoverProvider(bridge)),
+    vscode.languages.registerCompletionItemProvider(
+      PROTO3_SELECTOR,
+      new ProtoCompletionProvider(bridge),
+      '.',
+      '/',
+    ),
+    vscode.languages.registerFoldingRangeProvider(PROTO3_SELECTOR, new ProtoFoldingRangeProvider(bridge)),
   );
 
   for (const doc of vscode.workspace.textDocuments) {

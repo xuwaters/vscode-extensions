@@ -2,8 +2,8 @@
 //! the TypeScript host can treat the module as "JSON in, JSON out".
 
 use crate::diagnostics::ProtoDiagnostic;
-use crate::features::{document_symbols, workspace_symbols};
-use crate::spans::{LineCol, SpanTable};
+use crate::features::{completion, definition, document_symbols, folding, hover, workspace_symbols};
+use crate::spans::{ByteSpan, LineCol, SpanTable};
 use crate::vfs::{FileUri, Workspace};
 use serde::Serialize;
 use std::cell::RefCell;
@@ -36,6 +36,35 @@ struct LspDocumentSymbol {
     selection_start: LineCol,
     selection_end: LineCol,
     children: Vec<LspDocumentSymbol>,
+}
+
+#[derive(Serialize)]
+struct LspLocation {
+    file: String,
+    start: LineCol,
+    end: LineCol,
+}
+
+#[derive(Serialize)]
+struct LspHover {
+    markdown: String,
+    start: LineCol,
+    end: LineCol,
+}
+
+#[derive(Serialize)]
+struct LspCompletionItem {
+    label: String,
+    insert_text: String,
+    kind: String,
+    detail: String,
+}
+
+#[derive(Serialize)]
+struct LspFoldingRange {
+    start_line: u32,
+    end_line: u32,
+    kind: String,
 }
 
 #[wasm_bindgen]
@@ -71,7 +100,8 @@ impl Analyzer {
         let diags = ws.diagnostics_for(&uri);
         let source = &pf.source;
         let spans = &pf.spans;
-        let items: Vec<LspDiagnostic> = diags.into_iter().map(|d| to_lsp_diag(d, source, spans)).collect();
+        let items: Vec<LspDiagnostic> =
+            diags.into_iter().map(|d| to_lsp_diag(d, source, spans)).collect();
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
     }
 
@@ -95,19 +125,80 @@ impl Analyzer {
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
     }
 
-    // Phase-1 stubs — stable boundary, empty payloads.
-    pub fn completion(&self, _uri: &str, _line: u32, _col: u32) -> String {
-        "[]".into()
+    pub fn definition(&self, uri: &str, line: u32, col: u32) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "null".into() };
+        let offset = pf.spans.line_col_to_offset(&pf.source, LineCol { line, col });
+        let index = ws.build_index();
+        match definition::definition(&ws, &index, &uri, offset) {
+            Some(loc) => {
+                let target_pf = ws.file(&FileUri::new(&loc.file));
+                let (start, end) = to_line_col_range(target_pf, loc.range);
+                let lsp = LspLocation { file: loc.file, start, end };
+                serde_json::to_string(&lsp).unwrap_or_else(|_| "null".into())
+            }
+            None => "null".into(),
+        }
     }
 
-    pub fn hover(&self, _uri: &str, _line: u32, _col: u32) -> String {
-        "null".into()
+    pub fn hover(&self, uri: &str, line: u32, col: u32) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "null".into() };
+        let offset = pf.spans.line_col_to_offset(&pf.source, LineCol { line, col });
+        let index = ws.build_index();
+        match hover::hover(&ws, &index, &uri, offset) {
+            Some(h) => {
+                let start = pf.spans.offset_to_line_col(&pf.source, h.range.start);
+                let end = pf.spans.offset_to_line_col(&pf.source, h.range.end);
+                let lsp = LspHover { markdown: h.markdown, start, end };
+                serde_json::to_string(&lsp).unwrap_or_else(|_| "null".into())
+            }
+            None => "null".into(),
+        }
     }
 
-    pub fn definition(&self, _uri: &str, _line: u32, _col: u32) -> String {
-        "null".into()
+    pub fn completion(&self, uri: &str, line: u32, col: u32) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "[]".into() };
+        let offset = pf.spans.line_col_to_offset(&pf.source, LineCol { line, col });
+        let index = ws.build_index();
+        let items = completion::completion(&ws, &index, &uri, offset);
+        let lsp: Vec<LspCompletionItem> = items
+            .into_iter()
+            .map(|c| LspCompletionItem {
+                label: c.label,
+                insert_text: c.insert_text,
+                kind: format!("{:?}", c.kind),
+                detail: c.detail,
+            })
+            .collect();
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "[]".into())
     }
 
+    pub fn folding_ranges(&self, uri: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "[]".into() };
+        let ranges = folding::folding_ranges(&pf.ast);
+        let lsp: Vec<LspFoldingRange> = ranges
+            .into_iter()
+            .map(|r| {
+                let start = pf.spans.offset_to_line_col(&pf.source, r.span.start);
+                let end = pf.spans.offset_to_line_col(&pf.source, r.span.end);
+                LspFoldingRange {
+                    start_line: start.line,
+                    end_line: end.line,
+                    kind: format!("{:?}", r.kind),
+                }
+            })
+            .collect();
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "[]".into())
+    }
+
+    // Phase-3 stubs — stable boundary, empty payloads.
     pub fn references(&self, _uri: &str, _line: u32, _col: u32) -> String {
         "[]".into()
     }
@@ -156,5 +247,15 @@ fn to_lsp_symbol(
         selection_start: spans.offset_to_line_col(source, s.selection_range.start),
         selection_end: spans.offset_to_line_col(source, s.selection_range.end),
         children,
+    }
+}
+
+fn to_line_col_range(pf: Option<&crate::parse::ParsedFile>, span: ByteSpan) -> (LineCol, LineCol) {
+    match pf {
+        Some(f) => (
+            f.spans.offset_to_line_col(&f.source, span.start),
+            f.spans.offset_to_line_col(&f.source, span.end),
+        ),
+        None => (LineCol { line: 0, col: 0 }, LineCol { line: 0, col: 0 }),
     }
 }

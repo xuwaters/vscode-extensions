@@ -1,7 +1,9 @@
-//! LSP-style feature providers — phase-1 focus on document symbols and
-//! workspace symbols. The other providers (completion, hover, definition,
-//! references, rename, ...) are stubbed to return empty results so the
-//! WASM boundary is stable.
+//! LSP-style feature providers.
 
+pub mod completion;
+pub mod definition;
 pub mod document_symbols;
+pub mod folding;
+pub mod hover;
+pub mod position;
 pub mod workspace_symbols;

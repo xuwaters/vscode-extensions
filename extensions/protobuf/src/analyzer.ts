@@ -1,8 +1,12 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import type {
+  AnalyzerCompletionItem,
   AnalyzerDiagnostic,
   AnalyzerDocumentSymbol,
+  AnalyzerFoldingRange,
+  AnalyzerHover,
+  AnalyzerLocation,
   AnalyzerWorkspaceSymbolItem,
   WasmAnalyzer,
   WasmModule,
@@ -76,6 +80,42 @@ export class AnalyzerBridge {
     if (!this.analyzer) return [];
     try {
       return JSON.parse(this.analyzer.workspace_symbols(query)) as AnalyzerWorkspaceSymbolItem[];
+    } catch {
+      return [];
+    }
+  }
+
+  definition(uri: string, line: number, col: number): AnalyzerLocation | null {
+    if (!this.analyzer) return null;
+    try {
+      return JSON.parse(this.analyzer.definition(uri, line, col)) as AnalyzerLocation | null;
+    } catch {
+      return null;
+    }
+  }
+
+  hover(uri: string, line: number, col: number): AnalyzerHover | null {
+    if (!this.analyzer) return null;
+    try {
+      return JSON.parse(this.analyzer.hover(uri, line, col)) as AnalyzerHover | null;
+    } catch {
+      return null;
+    }
+  }
+
+  completion(uri: string, line: number, col: number): AnalyzerCompletionItem[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(this.analyzer.completion(uri, line, col)) as AnalyzerCompletionItem[];
+    } catch {
+      return [];
+    }
+  }
+
+  foldingRanges(uri: string): AnalyzerFoldingRange[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(this.analyzer.folding_ranges(uri)) as AnalyzerFoldingRange[];
     } catch {
       return [];
     }

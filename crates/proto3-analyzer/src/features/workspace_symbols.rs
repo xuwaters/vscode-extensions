@@ -11,6 +11,7 @@ pub struct WorkspaceSymbolItem {
     pub kind: String,
     pub file: String,
     pub range: crate::spans::ByteSpan,
+    pub detail: Option<String>,
 }
 
 pub fn collect(ws: &Workspace) -> Vec<WorkspaceSymbolItem> {
@@ -24,5 +25,6 @@ fn into_item(s: Symbol) -> WorkspaceSymbolItem {
         kind: format!("{:?}", s.kind),
         file: s.file.0,
         range: s.name_span,
+        detail: s.detail,
     }
 }

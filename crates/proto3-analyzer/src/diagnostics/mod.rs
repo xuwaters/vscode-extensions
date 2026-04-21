@@ -4,7 +4,10 @@ use crate::spans::ByteSpan;
 use serde::{Deserialize, Serialize};
 
 mod checks;
+mod resolve_checks;
+
 pub use checks::run_all_checks;
+pub use resolve_checks::run_resolve_checks;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

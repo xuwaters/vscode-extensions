@@ -30,6 +30,32 @@ export interface AnalyzerWorkspaceSymbolItem {
   kind: string;
   file: string;
   range: { start: number; end: number };
+  detail: string | null;
+}
+
+export interface AnalyzerLocation {
+  file: string;
+  start: LineCol;
+  end: LineCol;
+}
+
+export interface AnalyzerHover {
+  markdown: string;
+  start: LineCol;
+  end: LineCol;
+}
+
+export interface AnalyzerCompletionItem {
+  label: string;
+  insert_text: string;
+  kind: string;
+  detail: string;
+}
+
+export interface AnalyzerFoldingRange {
+  start_line: number;
+  end_line: number;
+  kind: string;
 }
 
 export interface AnalyzerChangedFiles {
@@ -51,6 +77,7 @@ export interface WasmAnalyzer {
   completion(uri: string, line: number, col: number): string;
   hover(uri: string, line: number, col: number): string;
   definition(uri: string, line: number, col: number): string;
+  folding_ranges(uri: string): string;
   references(uri: string, line: number, col: number): string;
   rename(uri: string, line: number, col: number, newName: string): string;
 }
