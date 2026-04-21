@@ -2,9 +2,17 @@
 
 **Status**: Draft
 **Date**: 2026-04-21
-**Extension name**: `wx-vsce-protobuf-intellisense`
+**Extension name**: `wx-vsce-protobuf` (single extension — grammar + analyzer together)
 **Rust crate**: `crates/proto3-analyzer`
-**Related extension**: `wx-vsce-protobuf` (syntax highlighting + TextMate grammar only — see RFC/branch in parallel)
+
+> **History note (2026-04-21).** An earlier revision of this RFC proposed a
+> two-extension split (`wx-vsce-protobuf` for grammar, `wx-vsce-protobuf-intellisense`
+> for analyzer) modeled on `ms-python.python` + `ms-python.vscode-pylance`. On
+> review the split was scrapped: that pattern exists because Pylance is a
+> separately-licensed product from a different team. Both of ours ship from
+> this repo under the same license and author — the split was pure overhead
+> (marketplace dependency resolution, version skew, two `package.json`s to
+> maintain, two activation paths). One extension owns both.
 
 ---
 
@@ -29,12 +37,12 @@ Gaps we see across this landscape:
 
 **Why a new extension, not a fork.** None of the existing Rust LSPs are designed to run in-process in a VSCode extension host. Shipping `cargo install` as a prereq is a non-starter for marketplace distribution. Bundling a native binary per platform works but duplicates a lot of engineering. The WASM pipeline we already have for `wgsl-analyzer` gives us a single artifact that runs on every platform VSCode supports, including web (`vscode.dev`) if we keep the surface area disciplined.
 
-**Relationship to `wx-vsce-protobuf`.** A sibling agent is building `wx-vsce-protobuf` in parallel — a pure TextMate-grammar / `language-configuration.json` / snippets extension, no language-server component. This RFC treats that as the *syntax-only* foundation and positions `wx-vsce-protobuf-intellisense` as a **separate, additive** extension:
+**Shape of `wx-vsce-protobuf`.** A single extension owns everything:
 
-- `wx-vsce-protobuf` registers the `proto3` language id, the `.proto` file association, the grammar, brackets/comments config, and snippets.
-- `wx-vsce-protobuf-intellisense` adds semantic analysis. It lists `wx-vsce-protobuf` as an `extensionDependencies` entry in its `package.json`, so installing IntelliSense pulls in the grammar automatically. This mirrors how `ms-python.python` depends on `ms-python.vscode-pylance` conceptually — one owns the language shell, the other owns the smarts.
-- Neither extension supersedes the other. If a user wants only highlighting, they install `wx-vsce-protobuf`. If they want analysis, they install `wx-vsce-protobuf-intellisense`, which brings in the first as a dependency.
-- The two packages share no runtime code. They share only the `proto3` language id string.
+- Registers the `proto3` language id, the `.proto` file association, the grammar, brackets/comments config, and snippets (the syntax-only surface that was already shipping at `0.1.0`).
+- Bundles the Rust analyzer via `wasm-pack` and registers the LSP-style providers (DocumentSymbol, WorkspaceSymbol, Diagnostics, and the Phase 2+ providers below).
+- Activates on `onLanguage:proto3`. Users who only want highlighting pay the activation cost once — a few milliseconds to load a ~350 KB WASM bundle — which is negligible compared to any real editing session.
+- Graceful degradation: if the WASM bundle is missing (e.g. a dev checkout before `pnpm run build:wasm`), the grammar still works; the analyzer providers log a warning and no-op.
 
 ## 2. Design Goals
 
@@ -323,7 +331,7 @@ Is Salsa-style incrementality in scope for v1? **No.** We get coarse incremental
 Activation follows the `wgsl-shader` pattern almost exactly, but registers many more providers:
 
 ```typescript
-// extensions/protobuf-intellisense/src/extension.ts
+// extensions/protobuf/src/extension.ts
 
 import * as vscode from 'vscode';
 import * as path from 'path';
@@ -579,20 +587,14 @@ vscode-extensions/
 
 ### 9.1 Decision on directory names
 
-The companion syntax-highlighting extension (under its own RFC/branch) will land at:
+One extension directory, one crate:
 
 ```
-extensions/protobuf/              (package name: wx-vsce-protobuf)
+extensions/protobuf/         (package name: wx-vsce-protobuf)
+crates/proto3-analyzer/      (Rust crate, compiled to WASM into extensions/protobuf/wasm/)
 ```
 
-The IntelliSense extension lives alongside it, explicitly named so it does not collide:
-
-```
-extensions/protobuf-intellisense/ (package name: wx-vsce-protobuf-intellisense)
-crates/proto3-analyzer/           (Rust crate)
-```
-
-**We deliberately do not use `extensions/proto3-language/`** because the language id is `proto3` but the user-facing product name and the filename association (`.proto`) are colloquially "protobuf". Mirroring that in both extension names keeps marketplace search consistent.
+**We deliberately do not use `extensions/proto3-language/`** because the language id is `proto3` but the user-facing product name and the filename association (`.proto`) are colloquially "protobuf". The directory name mirrors the marketplace display name.
 
 ### 9.2 Rust crate layout
 
@@ -658,11 +660,14 @@ crates/proto3-analyzer/
 ### 9.3 Extension layout
 
 ```
-extensions/protobuf-intellisense/
+extensions/protobuf/
 ├── package.json
 ├── tsconfig.json
 ├── tsdown.config.mts
 ├── .vscodeignore
+├── language-configuration.json
+├── syntaxes/
+│   └── proto3.tmLanguage.json
 ├── wasm/                               # output of wasm-pack (git-ignored)
 │   ├── proto3_analyzer.js
 │   ├── proto3_analyzer.d.ts
@@ -672,6 +677,7 @@ extensions/protobuf-intellisense/
 │   ├── analyzer.ts                     # AnalyzerBridge around the WASM module
 │   ├── workspaceBootstrap.ts           # preload .proto files, watch changes
 │   ├── includePaths.ts                 # config + buf.yaml auto-discovery
+│   ├── diagnostics.ts                  # refreshDiagnostics pump
 │   ├── providers/
 │   │   ├── definition.ts
 │   │   ├── references.ts
@@ -698,29 +704,41 @@ extensions/protobuf-intellisense/
 
 ```jsonc
 {
-  "name": "wx-vsce-protobuf-intellisense",
-  "displayName": "Protobuf IntelliSense",
-  "description": "IntelliSense (completion, go-to-def, hover, diagnostics, rename) for proto3 files, powered by a Rust analyzer compiled to WebAssembly.",
-  "version": "0.1.0",
+  "name": "wx-vsce-protobuf",
+  "displayName": "Protocol Buffers (proto3)",
+  "description": "Protocol Buffers (proto3) editing — syntax highlighting, outline, and diagnostics powered by a Rust analyzer compiled to WebAssembly.",
+  "version": "0.2.0",
   "private": true,
   "publisher": "weixu",
   "engines": { "vscode": "^1.96.0" },
   "categories": ["Programming Languages", "Linters"],
-  "extensionDependencies": [
-    "weixu.wx-vsce-protobuf"
-  ],
   "activationEvents": [
     "onLanguage:proto3"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "proto3",
+        "aliases": ["Protocol Buffers", "Proto3", "proto3", "proto"],
+        "extensions": [".proto"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "proto3",
+        "scopeName": "source.proto3",
+        "path": "./syntaxes/proto3.tmLanguage.json"
+      }
+    ],
     "commands": [
       { "command": "proto3.restart",         "title": "Proto3: Restart Analyzer",       "category": "Proto3" },
       { "command": "proto3.showSymbolTree",  "title": "Proto3: Show Workspace Symbols", "category": "Proto3" },
       { "command": "proto3.revealDefinition","title": "Proto3: Reveal Descriptor FQN",  "category": "Proto3" }
     ],
     "configuration": {
-      "title": "Protobuf IntelliSense",
+      "title": "Protocol Buffers (proto3)",
       "properties": {
         "proto3.includePaths": {
           "type": "array",
@@ -776,13 +794,13 @@ extensions/protobuf-intellisense/
           "type": "string",
           "enum": ["off", "messages", "verbose"],
           "default": "off",
-          "description": "Trace analyzer calls to the 'Protobuf IntelliSense' output channel."
+          "description": "Trace analyzer calls to the 'Protocol Buffers' output channel."
         }
       }
     }
   },
   "scripts": {
-    "build:wasm": "cd ../../crates/proto3-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/protobuf-intellisense/wasm --out-name proto3_analyzer",
+    "build:wasm": "cd ../../crates/proto3-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/protobuf/wasm --out-name proto3_analyzer",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",
@@ -806,7 +824,7 @@ extensions/protobuf-intellisense/
 
 **Note on `vscode-languageclient`:** Because we are embedding the analyzer in-process as WASM (transport A), we do **not** depend on `vscode-languageclient`. Providers are registered directly against VSCode's `vscode.languages.register*` APIs. Should we ever add transport B (native binary) as an alternate, we would add `vscode-languageclient: ^9.x` as a dependency and stand up a `LanguageClient` in `activate()` gated on a setting.
 
-**Note on `contributes.languages` / `contributes.grammars`:** Deliberately absent. Those live in `wx-vsce-protobuf` (the syntax-only extension). If the user installs the IntelliSense extension alone, VSCode's extension-dependency resolution ensures the grammar extension is installed too.
+**Note on `contributes.languages` / `contributes.grammars`:** Owned by this same extension. A user who only wants highlighting still installs the full package — activation cost is trivial (a few ms for the WASM instantiation).
 
 ## 11. `Cargo.toml` Sketch
 
@@ -874,7 +892,7 @@ Transport A (WASM, selected in §3.1) dictates a one-shot build flow that is a c
 cargo install wasm-pack
 
 # From the extension directory:
-cd extensions/protobuf-intellisense
+cd extensions/protobuf
 pnpm install
 pnpm run build:wasm      # compiles the Rust crate to wasm/, ~5-15 s
 pnpm run build           # bundles the TypeScript host code to dist/
@@ -904,8 +922,8 @@ A GitHub Actions workflow (or whatever this repo uses) runs:
 
 1. `cargo test -p proto3-analyzer` — unit + insta snapshot tests.
 2. `wasm-pack test --node crates/proto3-analyzer` — smoke-test the WASM boundary.
-3. `pnpm --filter wx-vsce-protobuf-intellisense run build:wasm && pnpm --filter wx-vsce-protobuf-intellisense run build`.
-4. `pnpm --filter wx-vsce-protobuf-intellisense run package` — produces the vsix as a build artifact.
+3. `pnpm --filter wx-vsce-protobuf run build:wasm && pnpm --filter wx-vsce-protobuf run build`.
+4. `pnpm --filter wx-vsce-protobuf run package` — produces the vsix as a build artifact.
 
 No platform matrix. A single Ubuntu runner suffices.
 
@@ -985,11 +1003,11 @@ We measure these with a harness in `crates/proto3-analyzer/benches/` (criterion-
 - Bundled well-known types (`include_str!`).
 - `features::document_symbols` (full tree: services, messages, nested, enums, rpcs, fields).
 - Diagnostics: all PROTO0001-0009 (parse errors) + PROTO0030-0034 (field-number + reserved) + PROTO0040-0042 (duplicates).
-- `extensions/protobuf-intellisense/` extension skeleton: activation, AnalyzerBridge, DocumentSymbolProvider, DiagnosticCollection wiring, `update_file` on edit/open.
+- `extensions/protobuf/` — grow the existing syntax-only extension into the full package: add activation, AnalyzerBridge, DocumentSymbolProvider, DiagnosticCollection wiring, and `update_file` on edit/open alongside the already-shipping grammar.
 - `package.json` with the config properties listed in §10, no formatter.
 - CI: `cargo test` + conformance gate + `wasm-pack test --node` + `pnpm run build:wasm && pnpm run build`.
 
-**Acceptance:** Open a single `.proto` file. Outline populates. Red squiggles on duplicate field numbers and syntax errors. Parser survives mid-statement edits without losing surrounding symbols. Corpus conformance diff against `protoc` is empty for all fixtures. Extension dependency on `wx-vsce-protobuf` satisfied.
+**Acceptance:** Open a single `.proto` file. Outline populates. Red squiggles on duplicate field numbers and syntax errors. Parser survives mid-statement edits without losing surrounding symbols. Corpus conformance diff against `protoc` is empty for all fixtures. Grammar highlighting and analyzer providers activate from the same `wx-vsce-protobuf` package.
 
 ### Phase 2 — Resolution + Hover + Completion + Go-to-Definition (3 weeks)
 

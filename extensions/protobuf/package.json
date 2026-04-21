@@ -1,17 +1,20 @@
 {
   "name": "wx-vsce-protobuf",
   "displayName": "Protocol Buffers (proto3)",
-  "description": "Protocol Buffers (proto3) syntax highlighting",
-  "version": "0.1.0",
+  "description": "Protocol Buffers (proto3) editing — syntax highlighting, outline, and diagnostics powered by a Rust analyzer compiled to WebAssembly.",
+  "version": "0.2.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
     "vscode": "^1.96.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Linters"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:proto3"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
@@ -35,14 +38,46 @@
         "scopeName": "source.proto3",
         "path": "./syntaxes/proto3.tmLanguage.json"
       }
-    ]
+    ],
+    "commands": [
+      { "command": "proto3.restart", "title": "Proto3: Restart Analyzer", "category": "Proto3" },
+      { "command": "proto3.showSymbolTree", "title": "Proto3: Show Workspace Symbols", "category": "Proto3" }
+    ],
+    "configuration": {
+      "title": "Protocol Buffers (proto3)",
+      "properties": {
+        "proto3.includePaths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "Additional `-I` include paths for `import \"…\"` resolution. Workspace-relative or absolute."
+        },
+        "proto3.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Emit diagnostics for parse errors, duplicate field numbers, reserved collisions, and unresolved imports."
+        },
+        "proto3.diagnostics.onType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Recompute diagnostics as you type (debounced). Turn off to only recompute on save."
+        },
+        "proto3.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace analyzer calls to the 'Protocol Buffers' output channel."
+        }
+      }
+    }
   },
   "scripts": {
+    "build:wasm": "cd ../../crates/proto3-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/protobuf/wasm --out-name proto3_analyzer",
     "build": "tsdown",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",
     "watch": "tsdown --watch",
-    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
     "vscode:prepublish": "tsdown --minify",
     "test": "vitest run",
     "test:watch": "vitest"

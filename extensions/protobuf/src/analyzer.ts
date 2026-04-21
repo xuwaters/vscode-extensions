@@ -24,7 +24,7 @@ export class AnalyzerBridge {
     const entry = path.join(extensionPath, 'wasm', 'proto3_analyzer.js');
     if (!fs.existsSync(entry)) {
       console.warn(
-        'proto3-analyzer WASM bundle not found. Run `pnpm run build:wasm` in extensions/protobuf-intellisense.',
+        'proto3-analyzer WASM bundle not found. Run `pnpm run build:wasm` in extensions/protobuf.',
       );
       return new AnalyzerBridge(null);
     }
