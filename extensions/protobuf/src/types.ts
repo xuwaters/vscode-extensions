@@ -58,6 +58,18 @@ export interface AnalyzerFoldingRange {
   kind: string;
 }
 
+export interface AnalyzerTextEdit {
+  file: string;
+  start: LineCol;
+  end: LineCol;
+  new_text: string;
+}
+
+export interface AnalyzerRange {
+  start: LineCol;
+  end: LineCol;
+}
+
 export interface AnalyzerChangedFiles {
   affected: string[];
 }
@@ -78,7 +90,8 @@ export interface WasmAnalyzer {
   hover(uri: string, line: number, col: number): string;
   definition(uri: string, line: number, col: number): string;
   folding_ranges(uri: string): string;
-  references(uri: string, line: number, col: number): string;
+  references(uri: string, line: number, col: number, includeDeclaration: boolean): string;
+  prepare_rename(uri: string, line: number, col: number): string;
   rename(uri: string, line: number, col: number, newName: string): string;
 }
 

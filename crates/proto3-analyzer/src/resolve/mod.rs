@@ -11,8 +11,10 @@
 //!    the FQN lands in the index and is visible through the importer's set
 //!    of (transitively public) imports.
 
+mod references;
 mod use_sites;
 
+pub use references::{RefSite, ReferenceIndex};
 pub use use_sites::{collect_type_use_sites, TypeUseSite};
 
 use crate::ast;

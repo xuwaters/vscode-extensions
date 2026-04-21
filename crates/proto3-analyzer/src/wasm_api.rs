@@ -2,7 +2,11 @@
 //! the TypeScript host can treat the module as "JSON in, JSON out".
 
 use crate::diagnostics::ProtoDiagnostic;
-use crate::features::{completion, definition, document_symbols, folding, hover, workspace_symbols};
+use crate::features::{
+    completion, definition, document_symbols, folding, hover, references, rename,
+    workspace_symbols,
+};
+use crate::resolve::ReferenceIndex;
 use crate::spans::{ByteSpan, LineCol, SpanTable};
 use crate::vfs::{FileUri, Workspace};
 use serde::Serialize;
@@ -65,6 +69,20 @@ struct LspFoldingRange {
     start_line: u32,
     end_line: u32,
     kind: String,
+}
+
+#[derive(Serialize)]
+struct LspTextEdit {
+    file: String,
+    start: LineCol,
+    end: LineCol,
+    new_text: String,
+}
+
+#[derive(Serialize)]
+struct LspRange {
+    start: LineCol,
+    end: LineCol,
 }
 
 #[wasm_bindgen]
@@ -198,13 +216,64 @@ impl Analyzer {
         serde_json::to_string(&lsp).unwrap_or_else(|_| "[]".into())
     }
 
-    // Phase-3 stubs — stable boundary, empty payloads.
-    pub fn references(&self, _uri: &str, _line: u32, _col: u32) -> String {
-        "[]".into()
+    pub fn references(&self, uri: &str, line: u32, col: u32, include_declaration: bool) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "[]".into() };
+        let offset = pf.spans.line_col_to_offset(&pf.source, LineCol { line, col });
+        let index = ws.build_index();
+        let ref_index = ReferenceIndex::build(&ws, &index);
+        let refs = references::references(&ws, &index, &ref_index, &uri, offset, include_declaration);
+        let lsp: Vec<LspTextEdit> = refs
+            .into_iter()
+            .map(|r| {
+                let target_pf = ws.file(&FileUri::new(&r.file));
+                let (start, end) = to_line_col_range(target_pf, r.range);
+                LspTextEdit { file: r.file, start, end, new_text: String::new() }
+            })
+            .collect();
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "[]".into())
     }
 
-    pub fn rename(&self, _uri: &str, _line: u32, _col: u32, _new_name: &str) -> String {
-        "null".into()
+    pub fn prepare_rename(&self, uri: &str, line: u32, col: u32) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "null".into() };
+        let offset = pf.spans.line_col_to_offset(&pf.source, LineCol { line, col });
+        let index = ws.build_index();
+        match rename::prepare_rename(&ws, &index, &uri, offset) {
+            Some(span) => {
+                let start = pf.spans.offset_to_line_col(&pf.source, span.start);
+                let end = pf.spans.offset_to_line_col(&pf.source, span.end);
+                serde_json::to_string(&LspRange { start, end }).unwrap_or_else(|_| "null".into())
+            }
+            None => "null".into(),
+        }
+    }
+
+    pub fn rename(&self, uri: &str, line: u32, col: u32, new_name: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "null".into() };
+        let offset = pf.spans.line_col_to_offset(&pf.source, LineCol { line, col });
+        let index = ws.build_index();
+        let Some(edit) = rename::rename(&ws, &index, &uri, offset, new_name) else {
+            return "null".into();
+        };
+        let mut out: Vec<LspTextEdit> = Vec::new();
+        for (file, edits) in &edit.changes {
+            let target_pf = ws.file(&FileUri::new(file));
+            for e in edits {
+                let (start, end) = to_line_col_range(target_pf, e.range);
+                out.push(LspTextEdit {
+                    file: file.clone(),
+                    start,
+                    end,
+                    new_text: e.new_text.clone(),
+                });
+            }
+        }
+        serde_json::to_string(&out).unwrap_or_else(|_| "null".into())
     }
 }
 

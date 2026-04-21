@@ -7,6 +7,8 @@ import type {
   AnalyzerFoldingRange,
   AnalyzerHover,
   AnalyzerLocation,
+  AnalyzerRange,
+  AnalyzerTextEdit,
   AnalyzerWorkspaceSymbolItem,
   WasmAnalyzer,
   WasmModule,
@@ -118,6 +120,35 @@ export class AnalyzerBridge {
       return JSON.parse(this.analyzer.folding_ranges(uri)) as AnalyzerFoldingRange[];
     } catch {
       return [];
+    }
+  }
+
+  references(uri: string, line: number, col: number, includeDeclaration: boolean): AnalyzerTextEdit[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(
+        this.analyzer.references(uri, line, col, includeDeclaration),
+      ) as AnalyzerTextEdit[];
+    } catch {
+      return [];
+    }
+  }
+
+  prepareRename(uri: string, line: number, col: number): AnalyzerRange | null {
+    if (!this.analyzer) return null;
+    try {
+      return JSON.parse(this.analyzer.prepare_rename(uri, line, col)) as AnalyzerRange | null;
+    } catch {
+      return null;
+    }
+  }
+
+  rename(uri: string, line: number, col: number, newName: string): AnalyzerTextEdit[] | null {
+    if (!this.analyzer) return null;
+    try {
+      return JSON.parse(this.analyzer.rename(uri, line, col, newName)) as AnalyzerTextEdit[] | null;
+    } catch {
+      return null;
     }
   }
 }

@@ -9,6 +9,8 @@ import { ProtoDefinitionProvider } from './providers/definition';
 import { ProtoHoverProvider } from './providers/hover';
 import { ProtoCompletionProvider } from './providers/completion';
 import { ProtoFoldingRangeProvider } from './providers/foldingRange';
+import { ProtoReferenceProvider } from './providers/references';
+import { ProtoRenameProvider } from './providers/rename';
 import { restart } from './commands/restart';
 import { showSymbolTree } from './commands/showSymbolTree';
 
@@ -35,6 +37,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       '/',
     ),
     vscode.languages.registerFoldingRangeProvider(PROTO3_SELECTOR, new ProtoFoldingRangeProvider(bridge)),
+    vscode.languages.registerReferenceProvider(PROTO3_SELECTOR, new ProtoReferenceProvider(bridge)),
+    vscode.languages.registerRenameProvider(PROTO3_SELECTOR, new ProtoRenameProvider(bridge)),
   );
 
   for (const doc of vscode.workspace.textDocuments) {
