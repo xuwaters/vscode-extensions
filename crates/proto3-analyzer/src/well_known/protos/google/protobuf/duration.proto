@@ -1,0 +1,8 @@
+syntax = "proto3";
+package google.protobuf;
+option go_package = "google.golang.org/protobuf/types/known/durationpb";
+// Signed span of time. Placeholder — overwritten by the vendoring step.
+message Duration {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}

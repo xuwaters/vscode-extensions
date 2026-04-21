@@ -1,0 +1,5 @@
+syntax = "proto3";
+package google.protobuf;
+option go_package = "google.golang.org/protobuf/types/known/emptypb";
+// A generic empty message. Placeholder — overwritten by the vendoring step.
+message Empty {}

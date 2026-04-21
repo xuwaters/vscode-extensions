@@ -1,0 +1,8 @@
+syntax = "proto3";
+package google.protobuf;
+option go_package = "google.golang.org/protobuf/types/known/anypb";
+// Dynamically-typed value. Placeholder — overwritten by the vendoring step.
+message Any {
+  string type_url = 1;
+  bytes value = 2;
+}

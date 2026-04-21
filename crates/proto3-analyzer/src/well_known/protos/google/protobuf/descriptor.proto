@@ -1,0 +1,15 @@
+syntax = "proto2";
+package google.protobuf;
+option go_package = "google.golang.org/protobuf/types/descriptorpb";
+// Descriptor definitions. Placeholder — overwritten by the vendoring step.
+message FileDescriptorSet {
+  repeated FileDescriptorProto file = 1;
+}
+message FileDescriptorProto {
+  optional string name = 1;
+  optional string package = 2;
+  repeated string dependency = 3;
+  repeated int32 public_dependency = 10;
+  repeated int32 weak_dependency = 11;
+  optional string syntax = 12;
+}
