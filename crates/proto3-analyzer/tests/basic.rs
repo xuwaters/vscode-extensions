@@ -107,6 +107,30 @@ message Outer {
 }
 
 #[test]
+fn bundled_well_known_types_parse_cleanly() {
+    // The workspace is pre-populated with google/protobuf/*.proto sources
+    // via include_str!; they must all parse without emitting diagnostics
+    // (except descriptor.proto which is proto2 syntax — we allow that one
+    // to surface proto2-specific notes but not outright errors).
+    let ws = Workspace::with_bundled_well_known_types();
+    for (uri, pf) in ws.files() {
+        let is_descriptor = uri.as_str().ends_with("descriptor.proto");
+        let diags = ws.diagnostics_for(uri);
+        let errors: Vec<_> = diags
+            .iter()
+            .filter(|d| d.severity == proto3_analyzer::diagnostics::Severity::Error)
+            .collect();
+        assert!(
+            errors.is_empty() || is_descriptor,
+            "{} produced errors: {:#?}\nsource first line: {:?}",
+            uri.as_str(),
+            errors,
+            pf.source.lines().next(),
+        );
+    }
+}
+
+#[test]
 fn recovers_from_syntax_error_and_continues() {
     let src = r#"
 syntax = "proto3";
