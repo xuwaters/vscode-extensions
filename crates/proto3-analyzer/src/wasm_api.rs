@@ -135,6 +135,34 @@ impl Analyzer {
         self.0.borrow_mut().remove_file(&FileUri::new(uri));
     }
 
+    /// Parse or re-parse a textproto document. Returns `"{}"` for API symmetry
+    /// with `update_file`; textproto documents don't participate in the
+    /// `.proto` import graph, so no affected list is computed.
+    pub fn update_textproto_file(&self, uri: &str, source: &str) -> String {
+        self.0
+            .borrow_mut()
+            .update_textproto_file(FileUri::new(uri), source.to_string());
+        "{}".into()
+    }
+
+    pub fn remove_textproto_file(&self, uri: &str) {
+        self.0.borrow_mut().remove_textproto_file(&FileUri::new(uri));
+    }
+
+    pub fn textproto_diagnostics(&self, uri: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pt) = ws.textproto_file(&uri) else {
+            return "[]".into();
+        };
+        let diags = ws.textproto_diagnostics_for(&uri);
+        let source = &pt.source;
+        let spans = &pt.spans;
+        let items: Vec<LspDiagnostic> =
+            diags.into_iter().map(|d| to_lsp_diag(d, source, spans)).collect();
+        serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
+    }
+
     pub fn diagnostics(&self, uri: &str) -> String {
         let ws = self.0.borrow();
         let uri = FileUri::new(uri);

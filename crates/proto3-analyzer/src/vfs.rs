@@ -8,6 +8,7 @@ use crate::diagnostics::{
 use crate::parse::{parse, ParsedFile};
 use crate::resolve::WorkspaceIndex;
 use crate::spans::ByteSpan;
+use crate::textproto;
 use crate::well_known;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,10 @@ pub struct ChangedFiles {
 
 pub struct Workspace {
     files: FxHashMap<FileUri, ParsedFile>,
+    /// Parsed textproto documents, keyed by URI. Tracked separately from
+    /// `.proto` files because their AST shape and validation pipeline are
+    /// different — see `crate::textproto`.
+    textproto_files: FxHashMap<FileUri, textproto::ParsedTextproto>,
     include_paths: Vec<IncludePath>,
     reverse_imports: FxHashMap<FileUri, FxHashSet<FileUri>>,
     style: StyleConfig,
@@ -66,6 +71,7 @@ impl Workspace {
     pub fn new() -> Self {
         Workspace {
             files: FxHashMap::default(),
+            textproto_files: FxHashMap::default(),
             include_paths: Vec::new(),
             reverse_imports: FxHashMap::default(),
             style: StyleConfig::default(),
@@ -216,6 +222,37 @@ impl Workspace {
     /// avoid rebuilding per query.
     pub fn build_index(&self) -> WorkspaceIndex {
         WorkspaceIndex::build(self)
+    }
+
+    // ── Textproto documents ─────────────────────────────────────────────
+
+    pub fn textproto_file(&self, uri: &FileUri) -> Option<&textproto::ParsedTextproto> {
+        self.textproto_files.get(uri)
+    }
+
+    pub fn textproto_files(&self) -> impl Iterator<Item = (&FileUri, &textproto::ParsedTextproto)> {
+        self.textproto_files.iter()
+    }
+
+    pub fn update_textproto_file(&mut self, uri: FileUri, source: String) {
+        let parsed = textproto::parse(uri.clone(), source);
+        self.textproto_files.insert(uri, parsed);
+    }
+
+    pub fn remove_textproto_file(&mut self, uri: &FileUri) {
+        self.textproto_files.remove(uri);
+    }
+
+    /// Collect diagnostics for a textproto document: parse + header +
+    /// schema-binding checks against the `.proto` sources in the workspace.
+    pub fn textproto_diagnostics_for(&self, uri: &FileUri) -> Vec<ProtoDiagnostic> {
+        let Some(pt) = self.textproto_files.get(uri) else {
+            return Vec::new();
+        };
+        let mut out = pt.diagnostics.clone();
+        let index = WorkspaceIndex::build(self);
+        out.extend(textproto::validate(self, &index, pt));
+        out
     }
 
     fn import_diagnostics(&self, uri: &FileUri, file: &ParsedFile) -> Vec<ProtoDiagnostic> {

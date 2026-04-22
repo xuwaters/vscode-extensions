@@ -117,6 +117,9 @@ export interface WasmAnalyzer {
   inlay_hints(uri: string): string;
   semantic_tokens(uri: string): string;
   code_actions(uri: string, line: number, col: number, diagCodesJson: string): string;
+  update_textproto_file(uri: string, source: string): string;
+  remove_textproto_file(uri: string): void;
+  textproto_diagnostics(uri: string): string;
 }
 
 export interface WasmModule {

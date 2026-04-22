@@ -58,6 +58,20 @@ pub enum DiagnosticCode {
     StyleEmptyMessage,         // PROTO0073
 
     Proto3RequiredForbidden,   // PROTO0090 internal
+
+    // Textproto (text format) parsing and schema validation. The textproto
+    // analyzer reuses this enum so the LSP diagnostic stream is uniform.
+    TextprotoParseError,           // PROTO0100
+    TextprotoHeaderUnknown,        // PROTO0101
+    TextprotoHeaderDuplicate,      // PROTO0102
+    TextprotoSchemaFileUnresolved, // PROTO0110
+    TextprotoSchemaMessageUnknown, // PROTO0111
+    TextprotoFieldUnknown,         // PROTO0112
+    TextprotoFieldTypeMismatch,    // PROTO0113
+    TextprotoEnumValueUnknown,     // PROTO0114
+    TextprotoDuplicateSingular,    // PROTO0115
+    TextprotoOneofConflict,        // PROTO0116
+    TextprotoAnyUnsupported,       // PROTO0117
 }
 
 impl DiagnosticCode {
@@ -92,6 +106,17 @@ impl DiagnosticCode {
             StyleScreamingSnake => "PROTO0072",
             StyleEmptyMessage => "PROTO0073",
             Proto3RequiredForbidden => "PROTO0090",
+            TextprotoParseError => "PROTO0100",
+            TextprotoHeaderUnknown => "PROTO0101",
+            TextprotoHeaderDuplicate => "PROTO0102",
+            TextprotoSchemaFileUnresolved => "PROTO0110",
+            TextprotoSchemaMessageUnknown => "PROTO0111",
+            TextprotoFieldUnknown => "PROTO0112",
+            TextprotoFieldTypeMismatch => "PROTO0113",
+            TextprotoEnumValueUnknown => "PROTO0114",
+            TextprotoDuplicateSingular => "PROTO0115",
+            TextprotoOneofConflict => "PROTO0116",
+            TextprotoAnyUnsupported => "PROTO0117",
         }
     }
 }

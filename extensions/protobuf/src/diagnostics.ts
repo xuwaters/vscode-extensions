@@ -9,14 +9,28 @@ const SEVERITY_MAP: Record<AnalyzerDiagnostic['severity'], vscode.DiagnosticSeve
   hint: vscode.DiagnosticSeverity.Hint,
 };
 
+export type AnalyzerLanguage = 'proto3' | 'textproto';
+
+export function isAnalyzerLanguage(languageId: string): languageId is AnalyzerLanguage {
+  return languageId === 'proto3' || languageId === 'textproto';
+}
+
 export function refreshDiagnostics(
   bridge: AnalyzerBridge,
   doc: vscode.TextDocument,
   collection: vscode.DiagnosticCollection,
 ): void {
-  if (doc.languageId !== 'proto3') return;
-  bridge.updateFile(doc.uri.toString(), doc.getText());
-  const items = bridge.diagnostics(doc.uri.toString());
+  const uri = doc.uri.toString();
+  let items: AnalyzerDiagnostic[];
+  if (doc.languageId === 'proto3') {
+    bridge.updateFile(uri, doc.getText());
+    items = bridge.diagnostics(uri);
+  } else if (doc.languageId === 'textproto') {
+    bridge.updateTextprotoFile(uri, doc.getText());
+    items = bridge.textprotoDiagnostics(uri);
+  } else {
+    return;
+  }
   const diags = items.map(
     (d) =>
       new vscode.Diagnostic(

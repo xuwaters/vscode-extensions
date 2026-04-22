@@ -196,4 +196,21 @@ export class AnalyzerBridge {
       return [];
     }
   }
+
+  updateTextprotoFile(uri: string, source: string): void {
+    this.analyzer?.update_textproto_file(uri, source);
+  }
+
+  removeTextprotoFile(uri: string): void {
+    this.analyzer?.remove_textproto_file(uri);
+  }
+
+  textprotoDiagnostics(uri: string): AnalyzerDiagnostic[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(this.analyzer.textproto_diagnostics(uri)) as AnalyzerDiagnostic[];
+    } catch {
+      return [];
+    }
+  }
 }

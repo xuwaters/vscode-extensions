@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { AnalyzerBridge } from './analyzer';
-import { refreshDiagnostics } from './diagnostics';
+import { isAnalyzerLanguage, refreshDiagnostics } from './diagnostics';
 import { resolveIncludePaths } from './includePaths';
 import { preloadWorkspace } from './workspaceBootstrap';
 import { ProtoDocumentSymbolProvider } from './providers/documentSymbol';
@@ -67,7 +67,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   for (const doc of vscode.workspace.textDocuments) {
-    if (doc.languageId === 'proto3') {
+    if (isAnalyzerLanguage(doc.languageId)) {
       refreshDiagnostics(bridge, doc, diagCollection);
     }
   }
@@ -75,17 +75,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let debounce: ReturnType<typeof setTimeout> | undefined;
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((doc) => {
-      if (doc.languageId === 'proto3') refreshDiagnostics(bridge, doc, diagCollection);
+      if (isAnalyzerLanguage(doc.languageId)) refreshDiagnostics(bridge, doc, diagCollection);
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
-      if (e.document.languageId !== 'proto3') return;
+      if (!isAnalyzerLanguage(e.document.languageId)) return;
       const onType = vscode.workspace.getConfiguration('proto3').get<boolean>('diagnostics.onType', true);
       if (!onType) return;
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => refreshDiagnostics(bridge, e.document, diagCollection), 150);
     }),
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (doc.languageId === 'proto3') refreshDiagnostics(bridge, doc, diagCollection);
+      if (isAnalyzerLanguage(doc.languageId)) refreshDiagnostics(bridge, doc, diagCollection);
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => {
       diagCollection.delete(doc.uri);
@@ -93,6 +93,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidDeleteFiles((e) => {
       for (const uri of e.files) {
         bridge.removeFile(uri.toString());
+        bridge.removeTextprotoFile(uri.toString());
         diagCollection.delete(uri);
       }
     }),
@@ -110,7 +111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         e.affectsConfiguration('proto3.diagnostics.style')
       ) {
         for (const doc of vscode.workspace.textDocuments) {
-          if (doc.languageId === 'proto3') refreshDiagnostics(bridge, doc, diagCollection);
+          if (isAnalyzerLanguage(doc.languageId)) refreshDiagnostics(bridge, doc, diagCollection);
         }
       }
     }),

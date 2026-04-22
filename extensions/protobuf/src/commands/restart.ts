@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { AnalyzerBridge } from '../analyzer';
 import { preloadWorkspace } from '../workspaceBootstrap';
 import { resolveIncludePaths } from '../includePaths';
-import { refreshDiagnostics } from '../diagnostics';
+import { isAnalyzerLanguage, refreshDiagnostics } from '../diagnostics';
 
 /**
  * Re-seed the analyzer with current include paths and all open/discoverable
@@ -16,7 +16,7 @@ export async function restart(
   bridge.setIncludePaths(resolveIncludePaths());
   await preloadWorkspace(bridge);
   for (const doc of vscode.workspace.textDocuments) {
-    if (doc.languageId === 'proto3') {
+    if (isAnalyzerLanguage(doc.languageId)) {
       refreshDiagnostics(bridge, doc, diagCollection);
     }
   }

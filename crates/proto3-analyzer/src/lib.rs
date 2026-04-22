@@ -19,6 +19,7 @@ pub mod parse;
 pub mod parser;
 pub mod resolve;
 pub mod spans;
+pub mod textproto;
 pub mod vfs;
 pub mod wasm_api;
 pub mod well_known;
