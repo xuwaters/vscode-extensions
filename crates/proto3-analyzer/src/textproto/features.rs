@@ -1017,6 +1017,45 @@ mod tests {
     }
 
     #[test]
+    fn completion_snippets_per_field_type() {
+        let proto = r#"syntax = "proto3"; package pkg;
+            enum Kind { K0 = 0; }
+            message Inner { string s = 1; }
+            message M {
+                string s = 1;
+                int64 n = 2;
+                bool b = 3;
+                Kind k = 4;
+                Inner inner = 5;
+                repeated string tags = 6;
+                repeated int32 xs = 7;
+                map<string, int32> counts = 8;
+            }
+        "#;
+        let tp = "# proto-file: pkg/m.proto\n# proto-message: pkg.M\n";
+        let (ws, uri) = make_ws(proto, "pkg/m.proto", tp);
+        let idx = ws.build_index();
+        let pt = ws.textproto_file(&uri).unwrap();
+        let off = pt.source.len() as u32;
+        let items = completion(&ws, &idx, pt, off);
+        let by_label: std::collections::HashMap<_, _> = items
+            .iter()
+            .map(|i| (i.label.as_str(), i.insert_text.as_str()))
+            .collect();
+        assert_eq!(by_label.get("s").copied(), Some("s: \"$0\""));
+        assert_eq!(by_label.get("n").copied(), Some("n: "));
+        assert_eq!(by_label.get("b").copied(), Some("b: "));
+        assert_eq!(by_label.get("k").copied(), Some("k: "));
+        assert_eq!(by_label.get("inner").copied(), Some("inner {\n\t$0\n}"));
+        assert_eq!(by_label.get("tags").copied(), Some("tags: [\"$0\"]"));
+        assert_eq!(by_label.get("xs").copied(), Some("xs: [$0]"));
+        assert_eq!(
+            by_label.get("counts").copied(),
+            Some("counts: { key: $1, value: $2 }")
+        );
+    }
+
+    #[test]
     fn completion_on_proto_message_header_lists_messages() {
         let proto = r#"syntax = "proto3"; package pkg;
             message Person { string name = 1; }
