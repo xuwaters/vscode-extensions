@@ -1,0 +1,330 @@
+{
+  "name": "Protocol Buffers Text Format",
+  "scopeName": "source.textproto",
+  "fileTypes": ["txtpb", "textproto", "textpb", "pbtxt", "prototext"],
+  "patterns": [
+    { "include": "#root" }
+  ],
+  "repository": {
+    "root": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#any_field_name" },
+        { "include": "#extension_field_name" },
+        { "include": "#field_name" },
+        { "include": "#message_block_brace" },
+        { "include": "#message_block_angle" },
+        { "include": "#list_block" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#constants" },
+        { "include": "#enum_identifier" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        { "include": "#header_comment" },
+        { "include": "#line_comment" }
+      ]
+    },
+    "header_comment": {
+      "comment": "Conventional header annotations: # proto-file: path.proto / # proto-message: Name / # proto-import: path.proto / # proto-syntax: proto3",
+      "name": "comment.line.number-sign.textproto",
+      "match": "^\\s*(#)\\s*(proto-file|proto-message|proto-import|proto-syntax)\\s*(:)\\s*(.*)$",
+      "captures": {
+        "1": { "name": "punctuation.definition.comment.textproto" },
+        "2": { "name": "storage.type.annotation.textproto" },
+        "3": { "name": "punctuation.separator.key-value.textproto" },
+        "4": { "name": "string.unquoted.textproto" }
+      }
+    },
+    "line_comment": {
+      "name": "comment.line.number-sign.textproto",
+      "begin": "#",
+      "end": "$",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.comment.textproto" }
+      }
+    },
+    "any_field_name": {
+      "comment": "[host.example.com/pkg.SubPkg.MessageType] — google.protobuf.Any type URL",
+      "begin": "(\\[)(?=[A-Za-z_][A-Za-z0-9_.-]*(?:\\.[A-Za-z_][A-Za-z0-9_.-]*)*/)",
+      "end": "(\\])",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.brackets.begin.textproto" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.brackets.end.textproto" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "match": "(/)([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)",
+          "captures": {
+            "1": { "name": "punctuation.separator.path.textproto" },
+            "2": {
+              "patterns": [
+                {
+                  "match": "[A-Z][A-Za-z0-9_]*",
+                  "name": "entity.name.type.textproto"
+                },
+                {
+                  "match": "[a-z_][A-Za-z0-9_]*",
+                  "name": "entity.name.namespace.textproto"
+                },
+                {
+                  "match": "\\.",
+                  "name": "punctuation.accessor.textproto"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "match": "[A-Za-z_][A-Za-z0-9_.-]*",
+          "name": "string.unquoted.host.textproto"
+        },
+        {
+          "match": "\\.",
+          "name": "punctuation.accessor.textproto"
+        }
+      ]
+    },
+    "extension_field_name": {
+      "comment": "[pkg.sub.extension_field] — extension field name, matched only when followed by a field-like continuation",
+      "begin": "(\\[)(?=[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\s*\\](?:\\s*(?://[^\\n]*|#[^\\n]*|/\\*(?:[^*]|\\*(?!/))*\\*/))*\\s*(?::|\\{|<))",
+      "end": "(\\])",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.brackets.begin.textproto" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.brackets.end.textproto" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "match": "[A-Z][A-Za-z0-9_]*",
+          "name": "entity.name.type.textproto"
+        },
+        {
+          "match": "[a-z_][A-Za-z0-9_]*",
+          "name": "variable.other.extension.textproto"
+        },
+        {
+          "match": "\\.",
+          "name": "punctuation.accessor.textproto"
+        }
+      ]
+    },
+    "field_name": {
+      "patterns": [
+        {
+          "comment": "Scalar / message field followed by ':'",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)",
+          "captures": {
+            "1": { "name": "variable.other.field.textproto" },
+            "2": { "name": "punctuation.separator.key-value.textproto" }
+          }
+        },
+        {
+          "comment": "Message field without ':' followed by '{' or '<'",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\{|<)",
+          "captures": {
+            "1": { "name": "variable.other.field.textproto" }
+          }
+        }
+      ]
+    },
+    "message_block_brace": {
+      "name": "meta.message.braces.textproto",
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.braces.begin.textproto" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.braces.end.textproto" }
+      },
+      "patterns": [
+        { "include": "#root" }
+      ]
+    },
+    "message_block_angle": {
+      "name": "meta.message.angle.textproto",
+      "begin": "<",
+      "end": ">",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.angle.begin.textproto" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.angle.end.textproto" }
+      },
+      "patterns": [
+        { "include": "#root" }
+      ]
+    },
+    "list_block": {
+      "comment": "Repeated value list: field: [v1, v2, ...] or field: [{...}, {...}]",
+      "name": "meta.list.textproto",
+      "begin": "\\[",
+      "end": "\\]",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.brackets.begin.textproto" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.brackets.end.textproto" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#message_block_brace" },
+        { "include": "#message_block_angle" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#constants" },
+        { "include": "#enum_identifier" },
+        {
+          "match": ",",
+          "name": "punctuation.separator.list.textproto"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        { "include": "#string_double" },
+        { "include": "#string_single" }
+      ]
+    },
+    "string_double": {
+      "name": "string.quoted.double.textproto",
+      "begin": "\"",
+      "end": "\"|(?<!\\\\)$",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.textproto" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.textproto" }
+      },
+      "patterns": [
+        { "include": "#string_escape" }
+      ]
+    },
+    "string_single": {
+      "name": "string.quoted.single.textproto",
+      "begin": "'",
+      "end": "'|(?<!\\\\)$",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.textproto" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.textproto" }
+      },
+      "patterns": [
+        { "include": "#string_escape" }
+      ]
+    },
+    "string_escape": {
+      "patterns": [
+        {
+          "comment": "Hex escape: \\xHH (1-2 hex digits)",
+          "name": "constant.character.escape.hex.textproto",
+          "match": "\\\\[xX][0-9a-fA-F]{1,2}"
+        },
+        {
+          "comment": "Octal escape: \\NNN (1-3 octal digits)",
+          "name": "constant.character.escape.octal.textproto",
+          "match": "\\\\[0-7]{1,3}"
+        },
+        {
+          "comment": "Unicode escape: \\uHHHH",
+          "name": "constant.character.escape.unicode.textproto",
+          "match": "\\\\u[0-9a-fA-F]{4}"
+        },
+        {
+          "comment": "Long unicode escape: \\UHHHHHHHH",
+          "name": "constant.character.escape.unicode.textproto",
+          "match": "\\\\U[0-9a-fA-F]{8}"
+        },
+        {
+          "comment": "Simple C-style escapes",
+          "name": "constant.character.escape.textproto",
+          "match": "\\\\[abfnrtv\\\\'\"?]"
+        },
+        {
+          "comment": "Invalid escape sequence",
+          "name": "invalid.illegal.escape.textproto",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "comment": "Hexadecimal integer, with optional sign",
+          "name": "constant.numeric.hex.textproto",
+          "match": "(?<![A-Za-z0-9_])[-+]?0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "comment": "Octal integer (leading zero), with optional sign",
+          "name": "constant.numeric.octal.textproto",
+          "match": "(?<![A-Za-z0-9_])[-+]?0[0-7]+\\b"
+        },
+        {
+          "comment": "Float with exponent and optional f/F suffix",
+          "name": "constant.numeric.float.textproto",
+          "match": "(?<![A-Za-z0-9_])[-+]?\\d+\\.\\d*(?:[eE][+-]?\\d+)?[fF]?(?![A-Za-z0-9_])"
+        },
+        {
+          "comment": "Float starting with dot",
+          "name": "constant.numeric.float.textproto",
+          "match": "(?<![A-Za-z0-9_])[-+]?\\.\\d+(?:[eE][+-]?\\d+)?[fF]?(?![A-Za-z0-9_])"
+        },
+        {
+          "comment": "Integer/float with just exponent or bare f suffix",
+          "name": "constant.numeric.float.textproto",
+          "match": "(?<![A-Za-z0-9_])[-+]?\\d+(?:[eE][+-]?\\d+|[fF])(?![A-Za-z0-9_])"
+        },
+        {
+          "comment": "Decimal integer",
+          "name": "constant.numeric.decimal.textproto",
+          "match": "(?<![A-Za-z0-9_])[-+]?\\d+(?![A-Za-z0-9_])"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "comment": "Boolean literals — accepted forms per the text format spec",
+          "name": "constant.language.boolean.textproto",
+          "match": "\\b(?:true|false|True|False|t|f)\\b"
+        },
+        {
+          "comment": "Float special values — inf, infinity, nan (case-insensitive), optionally signed",
+          "name": "constant.language.float.textproto",
+          "match": "(?<![A-Za-z0-9_])[-+]?(?:[iI][nN][fF](?:[iI][nN][iI][tT][yY])?|[nN][aA][nN])\\b"
+        }
+      ]
+    },
+    "enum_identifier": {
+      "comment": "Bare identifier used as an enum value",
+      "name": "variable.other.enummember.textproto",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "match": ";",
+          "name": "punctuation.terminator.textproto"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.textproto"
+        },
+        {
+          "match": ":",
+          "name": "punctuation.separator.key-value.textproto"
+        }
+      ]
+    }
+  }
+}

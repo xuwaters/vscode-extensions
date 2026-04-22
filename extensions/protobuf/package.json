@@ -30,6 +30,23 @@
           ".proto"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "textproto",
+        "aliases": [
+          "Protocol Buffers Text Format",
+          "Protobuf Text Format",
+          "textproto",
+          "txtpb"
+        ],
+        "extensions": [
+          ".txtpb",
+          ".textproto",
+          ".textpb",
+          ".pbtxt",
+          ".prototext"
+        ],
+        "configuration": "./language-configuration.textproto.json"
       }
     ],
     "grammars": [
@@ -37,6 +54,11 @@
         "language": "proto3",
         "scopeName": "source.proto3",
         "path": "./syntaxes/proto3.tmLanguage.json"
+      },
+      {
+        "language": "textproto",
+        "scopeName": "source.textproto",
+        "path": "./syntaxes/textproto.tmLanguage.json"
       }
     ],
     "commands": [
