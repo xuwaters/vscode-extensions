@@ -1,10 +1,10 @@
 //! WASM entry points. The surface is intentionally flat and string-typed so
 //! the TypeScript host can treat the module as "JSON in, JSON out".
 
-use crate::diagnostics::ProtoDiagnostic;
+use crate::diagnostics::{ProtoDiagnostic, StyleConfig};
 use crate::features::{
-    completion, definition, document_symbols, folding, hover, references, rename,
-    workspace_symbols,
+    code_actions, completion, definition, document_symbols, folding, formatting, hover,
+    inlay_hints, references, rename, semantic_tokens, workspace_symbols,
 };
 use crate::resolve::ReferenceIndex;
 use crate::spans::{ByteSpan, LineCol, SpanTable};
@@ -85,6 +85,28 @@ struct LspRange {
     end: LineCol,
 }
 
+#[derive(Serialize)]
+struct LspInlayHint {
+    line: u32,
+    col: u32,
+    label: String,
+}
+
+#[derive(Serialize)]
+struct LspSemanticToken {
+    line: u32,
+    col: u32,
+    length: u32,
+    token_type: String,
+}
+
+#[derive(Serialize)]
+struct LspCodeAction {
+    title: String,
+    kind: String,
+    edits: Vec<LspTextEdit>,
+}
+
 #[wasm_bindgen]
 impl Analyzer {
     #[wasm_bindgen(constructor)]
@@ -95,6 +117,10 @@ impl Analyzer {
     pub fn set_include_paths(&self, paths_json: &str) {
         let paths: Vec<String> = serde_json::from_str(paths_json).unwrap_or_default();
         self.0.borrow_mut().set_include_paths(paths);
+    }
+
+    pub fn set_style_enabled(&self, enabled: bool) {
+        self.0.borrow_mut().set_style_config(StyleConfig { enabled });
     }
 
     pub fn update_file(&self, uri: &str, source: &str) -> String {
@@ -274,6 +300,85 @@ impl Analyzer {
             }
         }
         serde_json::to_string(&out).unwrap_or_else(|_| "null".into())
+    }
+
+    pub fn formatting(&self, uri: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "null".into() };
+        let Some(text) = formatting::format_file(pf) else { return "null".into() };
+        let end = pf.spans.offset_to_line_col(&pf.source, pf.source.len() as u32);
+        let lsp = LspTextEdit {
+            file: uri.as_str().to_string(),
+            start: LineCol { line: 0, col: 0 },
+            end,
+            new_text: text,
+        };
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "null".into())
+    }
+
+    pub fn inlay_hints(&self, uri: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "[]".into() };
+        let index = ws.build_index();
+        let hints = inlay_hints::inlay_hints(&ws, &index, &uri);
+        let lsp: Vec<LspInlayHint> = hints
+            .into_iter()
+            .map(|h| {
+                let lc = pf.spans.offset_to_line_col(&pf.source, h.at.start);
+                LspInlayHint { line: lc.line, col: lc.col, label: h.label }
+            })
+            .collect();
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn semantic_tokens(&self, uri: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "[]".into() };
+        let index = ws.build_index();
+        let tokens = semantic_tokens::semantic_tokens(&ws, &index, &uri);
+        let lsp: Vec<LspSemanticToken> = tokens
+            .into_iter()
+            .map(|t| {
+                let start = pf.spans.offset_to_line_col(&pf.source, t.span.start);
+                LspSemanticToken {
+                    line: start.line,
+                    col: start.col,
+                    length: t.span.len(),
+                    token_type: format!("{:?}", t.ty),
+                }
+            })
+            .collect();
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn code_actions(&self, uri: &str, line: u32, col: u32, diag_codes_json: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else { return "[]".into() };
+        let offset = pf.spans.line_col_to_offset(&pf.source, LineCol { line, col });
+        let codes: Vec<String> = serde_json::from_str(diag_codes_json).unwrap_or_default();
+        let index = ws.build_index();
+        let actions = code_actions::code_actions(&ws, &index, &uri, offset, &codes);
+        let lsp: Vec<LspCodeAction> = actions
+            .into_iter()
+            .map(|a| LspCodeAction {
+                title: a.title,
+                kind: a.kind,
+                edits: a
+                    .edits
+                    .into_iter()
+                    .map(|e| {
+                        let target_pf = ws.file(&FileUri::new(&e.file));
+                        let (start, end) = to_line_col_range(target_pf, e.range);
+                        LspTextEdit { file: e.file, start, end, new_text: e.new_text }
+                    })
+                    .collect(),
+            })
+            .collect();
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "[]".into())
     }
 }
 

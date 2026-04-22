@@ -70,6 +70,25 @@ export interface AnalyzerRange {
   end: LineCol;
 }
 
+export interface AnalyzerInlayHint {
+  line: number;
+  col: number;
+  label: string;
+}
+
+export interface AnalyzerSemanticToken {
+  line: number;
+  col: number;
+  length: number;
+  token_type: string;
+}
+
+export interface AnalyzerCodeAction {
+  title: string;
+  kind: string;
+  edits: AnalyzerTextEdit[];
+}
+
 export interface AnalyzerChangedFiles {
   affected: string[];
 }
@@ -81,6 +100,7 @@ export interface WasmAnalyzerCtor {
 
 export interface WasmAnalyzer {
   set_include_paths(paths_json: string): void;
+  set_style_enabled(enabled: boolean): void;
   update_file(uri: string, source: string): string;
   remove_file(uri: string): void;
   diagnostics(uri: string): string;
@@ -93,6 +113,10 @@ export interface WasmAnalyzer {
   references(uri: string, line: number, col: number, includeDeclaration: boolean): string;
   prepare_rename(uri: string, line: number, col: number): string;
   rename(uri: string, line: number, col: number, newName: string): string;
+  formatting(uri: string): string;
+  inlay_hints(uri: string): string;
+  semantic_tokens(uri: string): string;
+  code_actions(uri: string, line: number, col: number, diagCodesJson: string): string;
 }
 
 export interface WasmModule {

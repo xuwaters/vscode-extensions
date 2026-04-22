@@ -1,13 +1,16 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import type {
+  AnalyzerCodeAction,
   AnalyzerCompletionItem,
   AnalyzerDiagnostic,
   AnalyzerDocumentSymbol,
   AnalyzerFoldingRange,
   AnalyzerHover,
+  AnalyzerInlayHint,
   AnalyzerLocation,
   AnalyzerRange,
+  AnalyzerSemanticToken,
   AnalyzerTextEdit,
   AnalyzerWorkspaceSymbolItem,
   WasmAnalyzer,
@@ -50,6 +53,10 @@ export class AnalyzerBridge {
 
   setIncludePaths(paths: string[]): void {
     this.analyzer?.set_include_paths(JSON.stringify(paths));
+  }
+
+  setStyleEnabled(enabled: boolean): void {
+    this.analyzer?.set_style_enabled(enabled);
   }
 
   updateFile(uri: string, source: string): void {
@@ -149,6 +156,44 @@ export class AnalyzerBridge {
       return JSON.parse(this.analyzer.rename(uri, line, col, newName)) as AnalyzerTextEdit[] | null;
     } catch {
       return null;
+    }
+  }
+
+  formatting(uri: string): AnalyzerTextEdit | null {
+    if (!this.analyzer) return null;
+    try {
+      return JSON.parse(this.analyzer.formatting(uri)) as AnalyzerTextEdit | null;
+    } catch {
+      return null;
+    }
+  }
+
+  inlayHints(uri: string): AnalyzerInlayHint[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(this.analyzer.inlay_hints(uri)) as AnalyzerInlayHint[];
+    } catch {
+      return [];
+    }
+  }
+
+  semanticTokens(uri: string): AnalyzerSemanticToken[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(this.analyzer.semantic_tokens(uri)) as AnalyzerSemanticToken[];
+    } catch {
+      return [];
+    }
+  }
+
+  codeActions(uri: string, line: number, col: number, diagCodes: string[]): AnalyzerCodeAction[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(
+        this.analyzer.code_actions(uri, line, col, JSON.stringify(diagCodes)),
+      ) as AnalyzerCodeAction[];
+    } catch {
+      return [];
     }
   }
 }

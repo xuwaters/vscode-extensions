@@ -5,9 +5,11 @@ use serde::{Deserialize, Serialize};
 
 mod checks;
 mod resolve_checks;
+mod style;
 
 pub use checks::run_all_checks;
 pub use resolve_checks::run_resolve_checks;
+pub use style::{run_style_checks, StyleConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -50,6 +52,11 @@ pub enum DiagnosticCode {
     PackedInvalid,             // PROTO0060
     MapKeyTypeInvalid,         // PROTO0061
 
+    StyleUpperCamel,           // PROTO0070 (messages/enums/services/rpcs)
+    StyleLowerSnake,           // PROTO0071 (field names)
+    StyleScreamingSnake,       // PROTO0072 (enum values)
+    StyleEmptyMessage,         // PROTO0073
+
     Proto3RequiredForbidden,   // PROTO0090 internal
 }
 
@@ -80,6 +87,10 @@ impl DiagnosticCode {
             OneofInvalidField => "PROTO0052",
             PackedInvalid => "PROTO0060",
             MapKeyTypeInvalid => "PROTO0061",
+            StyleUpperCamel => "PROTO0070",
+            StyleLowerSnake => "PROTO0071",
+            StyleScreamingSnake => "PROTO0072",
+            StyleEmptyMessage => "PROTO0073",
             Proto3RequiredForbidden => "PROTO0090",
         }
     }

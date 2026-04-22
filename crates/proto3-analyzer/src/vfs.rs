@@ -1,7 +1,10 @@
 //! Virtual file system and workspace — tracks parsed files, import graph,
 //! and include-path resolution.
 
-use crate::diagnostics::{run_all_checks, run_resolve_checks, DiagnosticCode, ProtoDiagnostic, Severity};
+use crate::diagnostics::{
+    run_all_checks, run_resolve_checks, run_style_checks, DiagnosticCode, ProtoDiagnostic,
+    Severity, StyleConfig,
+};
 use crate::parse::{parse, ParsedFile};
 use crate::resolve::WorkspaceIndex;
 use crate::spans::ByteSpan;
@@ -50,6 +53,7 @@ pub struct Workspace {
     files: FxHashMap<FileUri, ParsedFile>,
     include_paths: Vec<IncludePath>,
     reverse_imports: FxHashMap<FileUri, FxHashSet<FileUri>>,
+    style: StyleConfig,
 }
 
 impl Default for Workspace {
@@ -64,7 +68,12 @@ impl Workspace {
             files: FxHashMap::default(),
             include_paths: Vec::new(),
             reverse_imports: FxHashMap::default(),
+            style: StyleConfig::default(),
         }
+    }
+
+    pub fn set_style_config(&mut self, cfg: StyleConfig) {
+        self.style = cfg;
     }
 
     pub fn with_bundled_well_known_types() -> Self {
@@ -198,6 +207,7 @@ impl Workspace {
         out.extend(self.import_diagnostics(uri, file));
         let index = WorkspaceIndex::build(self);
         out.extend(run_resolve_checks(self, &index, uri));
+        out.extend(run_style_checks(&file.ast, self.style));
         out
     }
 

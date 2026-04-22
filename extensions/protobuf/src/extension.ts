@@ -11,6 +11,13 @@ import { ProtoCompletionProvider } from './providers/completion';
 import { ProtoFoldingRangeProvider } from './providers/foldingRange';
 import { ProtoReferenceProvider } from './providers/references';
 import { ProtoRenameProvider } from './providers/rename';
+import { ProtoFormattingProvider } from './providers/formatting';
+import { ProtoInlayHintsProvider } from './providers/inlayHints';
+import {
+  ProtoSemanticTokensProvider,
+  SEMANTIC_TOKENS_LEGEND,
+} from './providers/semanticTokens';
+import { ProtoCodeActionProvider } from './providers/codeActions';
 import { restart } from './commands/restart';
 import { showSymbolTree } from './commands/showSymbolTree';
 
@@ -23,6 +30,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(diagCollection);
 
   bridge.setIncludePaths(resolveIncludePaths());
+  bridge.setStyleEnabled(
+    vscode.workspace.getConfiguration('proto3').get<string>('diagnostics.style', 'off') === 'on',
+  );
   await preloadWorkspace(bridge);
 
   context.subscriptions.push(
@@ -39,6 +49,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.languages.registerFoldingRangeProvider(PROTO3_SELECTOR, new ProtoFoldingRangeProvider(bridge)),
     vscode.languages.registerReferenceProvider(PROTO3_SELECTOR, new ProtoReferenceProvider(bridge)),
     vscode.languages.registerRenameProvider(PROTO3_SELECTOR, new ProtoRenameProvider(bridge)),
+    vscode.languages.registerDocumentFormattingEditProvider(
+      PROTO3_SELECTOR,
+      new ProtoFormattingProvider(bridge),
+    ),
+    vscode.languages.registerInlayHintsProvider(PROTO3_SELECTOR, new ProtoInlayHintsProvider(bridge)),
+    vscode.languages.registerDocumentSemanticTokensProvider(
+      PROTO3_SELECTOR,
+      new ProtoSemanticTokensProvider(bridge),
+      SEMANTIC_TOKENS_LEGEND,
+    ),
+    vscode.languages.registerCodeActionsProvider(
+      PROTO3_SELECTOR,
+      new ProtoCodeActionProvider(bridge),
+      { providedCodeActionKinds: ProtoCodeActionProvider.providedKinds },
+    ),
   );
 
   for (const doc of vscode.workspace.textDocuments) {
@@ -74,6 +99,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('proto3.includePaths')) {
         bridge.setIncludePaths(resolveIncludePaths());
+      }
+      if (e.affectsConfiguration('proto3.diagnostics.style')) {
+        bridge.setStyleEnabled(
+          vscode.workspace.getConfiguration('proto3').get<string>('diagnostics.style', 'off') === 'on',
+        );
+      }
+      if (
+        e.affectsConfiguration('proto3.includePaths') ||
+        e.affectsConfiguration('proto3.diagnostics.style')
+      ) {
         for (const doc of vscode.workspace.textDocuments) {
           if (doc.languageId === 'proto3') refreshDiagnostics(bridge, doc, diagCollection);
         }
