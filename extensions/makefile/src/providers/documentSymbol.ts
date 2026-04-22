@@ -20,8 +20,21 @@ export class MakefileDocumentSymbolProvider implements vscode.DocumentSymbolProv
     const uri = document.uri.toString();
     this.bridge.updateFile(uri, document.getText());
     const raw = this.bridge.documentSymbols(uri);
-    return raw.map(toVsCodeSymbol);
+    const showPhony = vscode.workspace
+      .getConfiguration('makefile')
+      .get<boolean>('outline.showPhonyDeclarations', false);
+    const visible = showPhony ? raw : filterPhonyDeclarations(raw);
+    return visible.map(toVsCodeSymbol);
   }
+}
+
+function filterPhonyDeclarations(symbols: AnalyzerDocumentSymbol[]): AnalyzerDocumentSymbol[] {
+  const out: AnalyzerDocumentSymbol[] = [];
+  for (const s of symbols) {
+    if (s.name === '.PHONY') continue;
+    out.push({ ...s, children: filterPhonyDeclarations(s.children) });
+  }
+  return out;
 }
 
 function toVsCodeSymbol(s: AnalyzerDocumentSymbol): vscode.DocumentSymbol {

@@ -2,7 +2,7 @@
   "name": "wx-vsce-makefile",
   "displayName": "Makefile",
   "description": "Makefile (GNU Make) editing — syntax highlighting and outline powered by a Rust analyzer compiled to WebAssembly.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -56,6 +56,11 @@
           "type": "boolean",
           "default": true,
           "description": "Recompute diagnostics as you type (debounced). Turn off to only recompute on save."
+        },
+        "makefile.outline.showPhonyDeclarations": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show `.PHONY: ...` declaration lines in the document outline. Hidden by default since they duplicate information already conveyed by the phony marker on the real targets."
         }
       }
     }
