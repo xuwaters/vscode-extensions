@@ -2,7 +2,7 @@
   "name": "wx-vsce-protobuf",
   "displayName": "Protocol Buffers (proto3)",
   "description": "Protocol Buffers (proto3) editing — syntax highlighting, outline, and diagnostics powered by a Rust analyzer compiled to WebAssembly.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -13,7 +13,8 @@
     "Linters"
   ],
   "activationEvents": [
-    "onLanguage:proto3"
+    "onLanguage:proto3",
+    "onLanguage:textproto"
   ],
   "main": "./dist/extension.js",
   "contributes": {

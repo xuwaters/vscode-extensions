@@ -8,14 +8,18 @@ export class ProtoDefinitionProvider implements vscode.DefinitionProvider {
     document: vscode.TextDocument,
     position: vscode.Position,
   ): vscode.Definition | null {
-    const loc = this.bridge.definition(document.uri.toString(), position.line, position.character);
+    const docUri = document.uri.toString();
+    const loc =
+      document.languageId === 'textproto'
+        ? this.bridge.textprotoDefinition(docUri, position.line, position.character)
+        : this.bridge.definition(docUri, position.line, position.character);
     if (!loc) return null;
-    const uri = parseUri(loc.file);
+    const target = parseUri(loc.file);
     const range = new vscode.Range(
       new vscode.Position(loc.start.line, loc.start.col),
       new vscode.Position(loc.end.line, loc.end.col),
     );
-    return new vscode.Location(uri, range);
+    return new vscode.Location(target, range);
   }
 }
 

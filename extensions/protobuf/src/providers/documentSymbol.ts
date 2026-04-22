@@ -17,8 +17,15 @@ export class ProtoDocumentSymbolProvider implements vscode.DocumentSymbolProvide
   constructor(private readonly bridge: AnalyzerBridge) {}
 
   provideDocumentSymbols(document: vscode.TextDocument): vscode.DocumentSymbol[] {
-    this.bridge.updateFile(document.uri.toString(), document.getText());
-    const raw = this.bridge.documentSymbols(document.uri.toString());
+    const uri = document.uri.toString();
+    let raw;
+    if (document.languageId === 'textproto') {
+      this.bridge.updateTextprotoFile(uri, document.getText());
+      raw = this.bridge.textprotoDocumentSymbols(uri);
+    } else {
+      this.bridge.updateFile(uri, document.getText());
+      raw = this.bridge.documentSymbols(uri);
+    }
     return raw.map(toVsCodeSymbol);
   }
 }

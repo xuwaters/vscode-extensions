@@ -5,7 +5,11 @@ export class ProtoFoldingRangeProvider implements vscode.FoldingRangeProvider {
   constructor(private readonly bridge: AnalyzerBridge) {}
 
   provideFoldingRanges(document: vscode.TextDocument): vscode.FoldingRange[] {
-    const raw = this.bridge.foldingRanges(document.uri.toString());
+    const uri = document.uri.toString();
+    const raw =
+      document.languageId === 'textproto'
+        ? this.bridge.textprotoFoldingRanges(uri)
+        : this.bridge.foldingRanges(uri);
     return raw
       .filter((r) => r.end_line > r.start_line)
       .map((r) => {

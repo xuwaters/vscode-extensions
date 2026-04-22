@@ -15,6 +15,7 @@
 //! value kinds, enum members, singular duplication, and oneof conflicts.
 
 pub mod ast;
+pub mod features;
 pub mod header;
 pub mod lexer;
 pub mod parse;

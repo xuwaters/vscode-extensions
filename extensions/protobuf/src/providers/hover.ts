@@ -5,7 +5,11 @@ export class ProtoHoverProvider implements vscode.HoverProvider {
   constructor(private readonly bridge: AnalyzerBridge) {}
 
   provideHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | null {
-    const h = this.bridge.hover(document.uri.toString(), position.line, position.character);
+    const uri = document.uri.toString();
+    const h =
+      document.languageId === 'textproto'
+        ? this.bridge.textprotoHover(uri, position.line, position.character)
+        : this.bridge.hover(uri, position.line, position.character);
     if (!h) return null;
     const range = new vscode.Range(
       new vscode.Position(h.start.line, h.start.col),

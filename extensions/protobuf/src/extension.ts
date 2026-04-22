@@ -22,6 +22,7 @@ import { restart } from './commands/restart';
 import { showSymbolTree } from './commands/showSymbolTree';
 
 const PROTO3_SELECTOR: vscode.DocumentSelector = { scheme: 'file', language: 'proto3' };
+const TEXTPROTO_SELECTOR: vscode.DocumentSelector = { scheme: 'file', language: 'textproto' };
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const bridge = AnalyzerBridge.load(context.extensionPath);
@@ -35,18 +36,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   await preloadWorkspace(bridge);
 
+  const documentSymbolProvider = new ProtoDocumentSymbolProvider(bridge);
+  const definitionProvider = new ProtoDefinitionProvider(bridge);
+  const hoverProvider = new ProtoHoverProvider(bridge);
+  const completionProvider = new ProtoCompletionProvider(bridge);
+  const foldingProvider = new ProtoFoldingRangeProvider(bridge);
+
   context.subscriptions.push(
-    vscode.languages.registerDocumentSymbolProvider(PROTO3_SELECTOR, new ProtoDocumentSymbolProvider(bridge)),
+    vscode.languages.registerDocumentSymbolProvider(PROTO3_SELECTOR, documentSymbolProvider),
+    vscode.languages.registerDocumentSymbolProvider(TEXTPROTO_SELECTOR, documentSymbolProvider),
     vscode.languages.registerWorkspaceSymbolProvider(new ProtoWorkspaceSymbolProvider(bridge)),
-    vscode.languages.registerDefinitionProvider(PROTO3_SELECTOR, new ProtoDefinitionProvider(bridge)),
-    vscode.languages.registerHoverProvider(PROTO3_SELECTOR, new ProtoHoverProvider(bridge)),
+    vscode.languages.registerDefinitionProvider(PROTO3_SELECTOR, definitionProvider),
+    vscode.languages.registerDefinitionProvider(TEXTPROTO_SELECTOR, definitionProvider),
+    vscode.languages.registerHoverProvider(PROTO3_SELECTOR, hoverProvider),
+    vscode.languages.registerHoverProvider(TEXTPROTO_SELECTOR, hoverProvider),
     vscode.languages.registerCompletionItemProvider(
       PROTO3_SELECTOR,
-      new ProtoCompletionProvider(bridge),
+      completionProvider,
       '.',
       '/',
     ),
-    vscode.languages.registerFoldingRangeProvider(PROTO3_SELECTOR, new ProtoFoldingRangeProvider(bridge)),
+    vscode.languages.registerCompletionItemProvider(
+      TEXTPROTO_SELECTOR,
+      completionProvider,
+      ':',
+      ' ',
+    ),
+    vscode.languages.registerFoldingRangeProvider(PROTO3_SELECTOR, foldingProvider),
+    vscode.languages.registerFoldingRangeProvider(TEXTPROTO_SELECTOR, foldingProvider),
     vscode.languages.registerReferenceProvider(PROTO3_SELECTOR, new ProtoReferenceProvider(bridge)),
     vscode.languages.registerRenameProvider(PROTO3_SELECTOR, new ProtoRenameProvider(bridge)),
     vscode.languages.registerDocumentFormattingEditProvider(

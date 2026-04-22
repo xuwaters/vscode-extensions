@@ -81,9 +81,9 @@ pub fn validate(
     out
 }
 
-struct Ctx<'a> {
-    ws: &'a Workspace,
-    index: &'a WorkspaceIndex,
+pub(super) struct Ctx<'a> {
+    pub(super) ws: &'a Workspace,
+    pub(super) index: &'a WorkspaceIndex,
 }
 
 fn check_fields(
@@ -439,7 +439,7 @@ fn descend_unknown_fields(_ctx: &Ctx<'_>, _fields: &[ast::Field], _out: &mut Vec
 
 // ───────────────────────── workspace resolution ─────────────────────────
 
-fn resolve_header_file(ws: &Workspace, hint: &str) -> Option<FileUri> {
+pub(super) fn resolve_header_file(ws: &Workspace, hint: &str) -> Option<FileUri> {
     // The header may be "pkg/foo.proto" (relative to include path) or an
     // absolute file URI. Try the workspace's regular import router first.
     let dummy_importer = FileUri::new("<textproto>");
@@ -455,7 +455,7 @@ fn resolve_header_file(ws: &Workspace, hint: &str) -> Option<FileUri> {
     None
 }
 
-fn resolve_message_fqn(
+pub(super) fn resolve_message_fqn(
     index: &WorkspaceIndex,
     scope_file: Option<&FileUri>,
     name: &str,
@@ -485,7 +485,7 @@ fn resolve_message_fqn(
     None
 }
 
-fn resolve_scope_aware(index: &WorkspaceIndex, scope_fqn: &str, name: &str) -> Option<Symbol> {
+pub(super) fn resolve_scope_aware(index: &WorkspaceIndex, scope_fqn: &str, name: &str) -> Option<Symbol> {
     // Imitate proto3's innermost-out scope walk.
     let mut cur = scope_fqn.to_string();
     loop {
@@ -511,21 +511,21 @@ fn resolve_scope_aware(index: &WorkspaceIndex, scope_fqn: &str, name: &str) -> O
 
 /// Cache of a resolved message schema — every field by name and every
 /// oneof → field mapping for quick lookup.
-struct ResolvedMessage<'a> {
-    fqn: String,
-    fields: Vec<&'a proto_ast::FieldDecl>,
-    oneofs: Vec<(SmolStr, Vec<SmolStr>)>,
+pub(super) struct ResolvedMessage<'a> {
+    pub(super) fqn: String,
+    pub(super) fields: Vec<&'a proto_ast::FieldDecl>,
+    pub(super) oneofs: Vec<(SmolStr, Vec<SmolStr>)>,
 }
 
 impl<'a> ResolvedMessage<'a> {
-    fn field_by_name(&self, name: &str) -> Option<&proto_ast::FieldDecl> {
+    pub(super) fn field_by_name(&self, name: &str) -> Option<&proto_ast::FieldDecl> {
         self.fields
             .iter()
             .find(|f| f.name.name == name)
             .copied()
     }
 
-    fn oneof_of(&self, field_name: &str) -> Option<SmolStr> {
+    pub(super) fn oneof_of(&self, field_name: &str) -> Option<SmolStr> {
         for (oneof, members) in &self.oneofs {
             if members.iter().any(|m| m.as_str() == field_name) {
                 return Some(oneof.clone());
@@ -535,7 +535,7 @@ impl<'a> ResolvedMessage<'a> {
     }
 }
 
-fn lookup_message<'a>(ctx: &'a Ctx<'_>, fqn: &str) -> Option<ResolvedMessage<'a>> {
+pub(super) fn lookup_message<'a>(ctx: &'a Ctx<'_>, fqn: &str) -> Option<ResolvedMessage<'a>> {
     let sym = ctx.index.lookup(fqn)?;
     if sym.kind != SymbolKind::Message {
         return None;

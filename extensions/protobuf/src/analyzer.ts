@@ -213,4 +213,51 @@ export class AnalyzerBridge {
       return [];
     }
   }
+
+  textprotoDocumentSymbols(uri: string): AnalyzerDocumentSymbol[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(this.analyzer.textproto_document_symbols(uri)) as AnalyzerDocumentSymbol[];
+    } catch {
+      return [];
+    }
+  }
+
+  textprotoFoldingRanges(uri: string): AnalyzerFoldingRange[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(this.analyzer.textproto_folding_ranges(uri)) as AnalyzerFoldingRange[];
+    } catch {
+      return [];
+    }
+  }
+
+  textprotoHover(uri: string, line: number, col: number): AnalyzerHover | null {
+    if (!this.analyzer) return null;
+    try {
+      return JSON.parse(this.analyzer.textproto_hover(uri, line, col)) as AnalyzerHover | null;
+    } catch {
+      return null;
+    }
+  }
+
+  textprotoDefinition(uri: string, line: number, col: number): AnalyzerLocation | null {
+    if (!this.analyzer) return null;
+    try {
+      return JSON.parse(this.analyzer.textproto_definition(uri, line, col)) as AnalyzerLocation | null;
+    } catch {
+      return null;
+    }
+  }
+
+  textprotoCompletion(uri: string, line: number, col: number): AnalyzerCompletionItem[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(
+        this.analyzer.textproto_completion(uri, line, col),
+      ) as AnalyzerCompletionItem[];
+    } catch {
+      return [];
+    }
+  }
 }

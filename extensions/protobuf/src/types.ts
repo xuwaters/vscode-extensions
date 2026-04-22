@@ -120,6 +120,11 @@ export interface WasmAnalyzer {
   update_textproto_file(uri: string, source: string): string;
   remove_textproto_file(uri: string): void;
   textproto_diagnostics(uri: string): string;
+  textproto_document_symbols(uri: string): string;
+  textproto_folding_ranges(uri: string): string;
+  textproto_hover(uri: string, line: number, col: number): string;
+  textproto_definition(uri: string, line: number, col: number): string;
+  textproto_completion(uri: string, line: number, col: number): string;
 }
 
 export interface WasmModule {

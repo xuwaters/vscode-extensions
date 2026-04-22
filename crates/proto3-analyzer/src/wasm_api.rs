@@ -8,6 +8,7 @@ use crate::features::{
 };
 use crate::resolve::ReferenceIndex;
 use crate::spans::{ByteSpan, LineCol, SpanTable};
+use crate::textproto::features as tp_features;
 use crate::vfs::{FileUri, Workspace};
 use serde::Serialize;
 use std::cell::RefCell;
@@ -161,6 +162,91 @@ impl Analyzer {
         let items: Vec<LspDiagnostic> =
             diags.into_iter().map(|d| to_lsp_diag(d, source, spans)).collect();
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn textproto_document_symbols(&self, uri: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pt) = ws.textproto_file(&uri) else { return "[]".into() };
+        let symbols = tp_features::document_symbols(pt);
+        let items: Vec<LspDocumentSymbol> = symbols
+            .into_iter()
+            .map(|s| to_lsp_symbol(s, &pt.source, &pt.spans))
+            .collect();
+        serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn textproto_folding_ranges(&self, uri: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pt) = ws.textproto_file(&uri) else { return "[]".into() };
+        let ranges = tp_features::folding_ranges(pt);
+        let lsp: Vec<LspFoldingRange> = ranges
+            .into_iter()
+            .map(|r| {
+                let start = pt.spans.offset_to_line_col(&pt.source, r.span.start);
+                let end = pt.spans.offset_to_line_col(&pt.source, r.span.end);
+                LspFoldingRange {
+                    start_line: start.line,
+                    end_line: end.line,
+                    kind: format!("{:?}", r.kind),
+                }
+            })
+            .collect();
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn textproto_hover(&self, uri: &str, line: u32, col: u32) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pt) = ws.textproto_file(&uri) else { return "null".into() };
+        let offset = pt.spans.line_col_to_offset(&pt.source, LineCol { line, col });
+        let index = ws.build_index();
+        match tp_features::hover(&ws, &index, pt, offset) {
+            Some(h) => {
+                let start = pt.spans.offset_to_line_col(&pt.source, h.range.start);
+                let end = pt.spans.offset_to_line_col(&pt.source, h.range.end);
+                let lsp = LspHover { markdown: h.markdown, start, end };
+                serde_json::to_string(&lsp).unwrap_or_else(|_| "null".into())
+            }
+            None => "null".into(),
+        }
+    }
+
+    pub fn textproto_definition(&self, uri: &str, line: u32, col: u32) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pt) = ws.textproto_file(&uri) else { return "null".into() };
+        let offset = pt.spans.line_col_to_offset(&pt.source, LineCol { line, col });
+        let index = ws.build_index();
+        match tp_features::definition(&ws, &index, pt, offset) {
+            Some(loc) => {
+                let target_pf = ws.file(&FileUri::new(&loc.file));
+                let (start, end) = to_line_col_range(target_pf, loc.range);
+                let lsp = LspLocation { file: loc.file, start, end };
+                serde_json::to_string(&lsp).unwrap_or_else(|_| "null".into())
+            }
+            None => "null".into(),
+        }
+    }
+
+    pub fn textproto_completion(&self, uri: &str, line: u32, col: u32) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pt) = ws.textproto_file(&uri) else { return "[]".into() };
+        let offset = pt.spans.line_col_to_offset(&pt.source, LineCol { line, col });
+        let index = ws.build_index();
+        let items = tp_features::completion(&ws, &index, pt, offset);
+        let lsp: Vec<LspCompletionItem> = items
+            .into_iter()
+            .map(|c| LspCompletionItem {
+                label: c.label,
+                insert_text: c.insert_text,
+                kind: format!("{:?}", c.kind),
+                detail: c.detail,
+            })
+            .collect();
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "[]".into())
     }
 
     pub fn diagnostics(&self, uri: &str) -> String {
