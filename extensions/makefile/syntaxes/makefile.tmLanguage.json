@@ -1,0 +1,187 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Makefile",
+  "scopeName": "source.makefile",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#directive" },
+    { "include": "#conditional" },
+    { "include": "#define-block" },
+    { "include": "#include-directive" },
+    { "include": "#recipe-line" },
+    { "include": "#assignment" },
+    { "include": "#rule-header" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "^\\s*(#).*$",
+      "captures": {
+        "1": { "name": "punctuation.definition.comment.makefile" }
+      },
+      "name": "comment.line.number-sign.makefile"
+    },
+    "directive": {
+      "patterns": [
+        {
+          "match": "^\\s*(export|unexport|override|private|undefine|vpath)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.directive.makefile" }
+          }
+        }
+      ]
+    },
+    "conditional": {
+      "patterns": [
+        {
+          "match": "^\\s*(ifeq|ifneq|ifdef|ifndef|else|endif)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.conditional.makefile" }
+          }
+        }
+      ]
+    },
+    "define-block": {
+      "begin": "^\\s*(define)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(=|:=|::=|\\?=|\\+=|!=)?",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.define.makefile" },
+        "2": { "name": "variable.other.makefile" },
+        "3": { "name": "keyword.operator.assignment.makefile" }
+      },
+      "end": "^\\s*(endef)\\b",
+      "endCaptures": {
+        "1": { "name": "keyword.control.define.makefile" }
+      },
+      "patterns": [
+        { "include": "#variable-reference" },
+        { "include": "#automatic-variable" }
+      ]
+    },
+    "include-directive": {
+      "match": "^\\s*(-include|sinclude|include)\\s+(.+)$",
+      "captures": {
+        "1": { "name": "keyword.control.include.makefile" },
+        "2": { "name": "string.unquoted.include.makefile" }
+      }
+    },
+    "recipe-line": {
+      "begin": "^\\t",
+      "end": "$",
+      "name": "meta.scope.recipe.makefile",
+      "patterns": [
+        { "include": "#recipe-prefix" },
+        { "include": "#variable-reference" },
+        { "include": "#automatic-variable" },
+        { "include": "#function-call" },
+        { "include": "#string-double" },
+        { "include": "#string-single" },
+        { "include": "#string-backtick" },
+        { "include": "#line-continuation" },
+        { "include": "#shell-comment" }
+      ]
+    },
+    "recipe-prefix": {
+      "match": "^\\t([@\\-+])+",
+      "captures": {
+        "1": { "name": "keyword.control.recipe-prefix.makefile" }
+      }
+    },
+    "shell-comment": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.recipe.makefile"
+    },
+    "line-continuation": {
+      "match": "\\\\$",
+      "name": "constant.character.escape.line-continuation.makefile"
+    },
+    "assignment": {
+      "match": "^\\s*(?:(export|override|private)\\s+)?([A-Za-z_][A-Za-z0-9_.]*)\\s*(\\?=|:=|::=|\\+=|!=|=)",
+      "captures": {
+        "1": { "name": "keyword.control.directive.makefile" },
+        "2": { "name": "variable.other.assignment.makefile" },
+        "3": { "name": "keyword.operator.assignment.makefile" }
+      }
+    },
+    "rule-header": {
+      "match": "^([^\\t#=:]+?)\\s*(::|:)(?!=)(.*)$",
+      "captures": {
+        "1": { "name": "entity.name.function.target.makefile" },
+        "2": { "name": "punctuation.separator.key-value.makefile" },
+        "3": {
+          "patterns": [
+            { "include": "#variable-reference" },
+            { "include": "#automatic-variable" },
+            {
+              "match": "[^\\s]+",
+              "name": "string.unquoted.prerequisite.makefile"
+            }
+          ]
+        }
+      }
+    },
+    "variable-reference": {
+      "patterns": [
+        {
+          "match": "\\$\\(([A-Za-z_][A-Za-z0-9_]*)\\)",
+          "captures": {
+            "0": { "name": "variable.other.makefile" }
+          }
+        },
+        {
+          "match": "\\$\\{([A-Za-z_][A-Za-z0-9_]*)\\}",
+          "captures": {
+            "0": { "name": "variable.other.makefile" }
+          }
+        },
+        {
+          "match": "\\$\\$",
+          "name": "constant.character.escape.makefile"
+        }
+      ]
+    },
+    "automatic-variable": {
+      "match": "\\$[@<^*?+|%]|\\$\\([@<^*?+|%][DF]?\\)",
+      "name": "variable.language.automatic.makefile"
+    },
+    "function-call": {
+      "begin": "\\$\\(([a-z-]+)\\s",
+      "beginCaptures": {
+        "1": { "name": "support.function.builtin.makefile" }
+      },
+      "end": "\\)",
+      "patterns": [
+        { "include": "#variable-reference" },
+        { "include": "#automatic-variable" },
+        { "include": "#function-call" },
+        { "include": "#string-double" },
+        { "include": "#string-single" }
+      ]
+    },
+    "string-double": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.makefile",
+      "patterns": [
+        { "include": "#variable-reference" },
+        { "include": "#automatic-variable" },
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.makefile"
+        }
+      ]
+    },
+    "string-single": {
+      "begin": "'",
+      "end": "'",
+      "name": "string.quoted.single.makefile"
+    },
+    "string-backtick": {
+      "begin": "`",
+      "end": "`",
+      "name": "string.interpolated.backtick.makefile",
+      "patterns": [
+        { "include": "#variable-reference" },
+        { "include": "#automatic-variable" }
+      ]
+    }
+  }
+}
