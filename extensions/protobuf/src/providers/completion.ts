@@ -20,16 +20,21 @@ export class ProtoCompletionProvider implements vscode.CompletionItemProvider {
     position: vscode.Position,
   ): vscode.CompletionItem[] {
     const uri = document.uri.toString();
-    const raw =
-      document.languageId === 'textproto'
-        ? this.bridge.textprotoCompletion(uri, position.line, position.character)
-        : this.bridge.completion(uri, position.line, position.character);
+    let raw;
+    if (document.languageId === 'textproto') {
+      this.bridge.updateTextprotoFile(uri, document.getText());
+      raw = this.bridge.textprotoCompletion(uri, position.line, position.character);
+    } else {
+      raw = this.bridge.completion(uri, position.line, position.character);
+    }
     return raw.map((c) => {
       const item = new vscode.CompletionItem(
         c.label,
         KIND_MAP[c.kind] ?? vscode.CompletionItemKind.Text,
       );
-      item.insertText = c.insert_text;
+      item.insertText = c.insert_text.includes('$')
+        ? new vscode.SnippetString(c.insert_text)
+        : c.insert_text;
       item.detail = c.detail;
       return item;
     });

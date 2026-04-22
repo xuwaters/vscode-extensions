@@ -584,7 +584,13 @@ pub fn completion(
     pt: &ParsedTextproto,
     offset: u32,
 ) -> Vec<CompletionItem> {
+    // Cursor on a `#` comment line — offer header keys/values.
+    if let Some(items) = header_completion(ws, index, pt, offset) {
+        return items;
+    }
     let Some(fqn) = enclosing_message_fqn(ws, index, pt, offset) else {
+        // No schema binding — still offer header-key completion for a new `#`
+        // line so the user can start typing `# proto-message: …`.
         return Vec::new();
     };
     let ctx = Ctx { ws, index };
@@ -594,7 +600,7 @@ pub fn completion(
     let out: Vec<CompletionItem> = resolved
         .fields
         .iter()
-        .map(|fd| completion_for_field(fd))
+        .map(|fd| completion_for_field(fd, &fqn, index))
         .collect();
 
     // Cursor on an enum-valued field's value: prepend value completions.
@@ -620,8 +626,172 @@ pub fn completion(
     out
 }
 
-fn completion_for_field(fd: &proto_ast::FieldDecl) -> CompletionItem {
-    let insert = insert_snippet_for(fd);
+// ─────────────────────────── header completion ─────────────────────────
+
+const HEADER_KEYS: &[&str] = &["proto-file", "proto-message", "proto-import", "proto-syntax"];
+
+/// If `offset` lies on a `#` comment line, return either key or value
+/// suggestions for the recognised header annotations. Returns `None` when
+/// the cursor isn't on a `#` line so the caller can fall back to field
+/// completion.
+fn header_completion(
+    ws: &Workspace,
+    index: &WorkspaceIndex,
+    pt: &ParsedTextproto,
+    offset: u32,
+) -> Option<Vec<CompletionItem>> {
+    let src = pt.source.as_str();
+    let off = (offset as usize).min(src.len());
+    let line_start = src[..off].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_end = src[off..]
+        .find('\n')
+        .map(|i| off + i)
+        .unwrap_or(src.len());
+    let line = &src[line_start..line_end];
+    let trimmed_start = line.trim_start();
+    let leading_ws = line.len() - trimmed_start.len();
+    let after_ws_col = line_start + leading_ws;
+    // Only treat as a header line if `#` is the first non-whitespace char and
+    // the cursor sits at-or-after that `#`.
+    if !trimmed_start.starts_with('#') || off < after_ws_col {
+        return None;
+    }
+    let body_start = after_ws_col + 1; // skip `#`
+    if off < body_start {
+        // Cursor is literally on the `#` character — offer header keys.
+        return Some(header_key_items(""));
+    }
+    let body = &src[body_start..line_end];
+    let body_rel = off - body_start;
+    // Split at the first `:` to distinguish key from value region.
+    match body.find(':') {
+        None => {
+            // No colon yet — we're in the key part. Offer header keys.
+            let key_text = body[..body_rel].trim_start();
+            Some(header_key_items(key_text))
+        }
+        Some(colon) if body_rel <= colon => {
+            let key_text = body[..body_rel].trim_start();
+            Some(header_key_items(key_text))
+        }
+        Some(colon) => {
+            // Cursor is on the value side.
+            let key = body[..colon].trim();
+            let key = key.trim_start_matches('#').trim();
+            match key {
+                "proto-message" => Some(message_fqn_items(ws, index, pt)),
+                "proto-file" | "proto-import" => Some(proto_file_items(ws)),
+                "proto-syntax" => Some(proto_syntax_items()),
+                _ => None,
+            }
+        }
+    }
+}
+
+fn header_key_items(prefix: &str) -> Vec<CompletionItem> {
+    let prefix = prefix.trim_start_matches('#').trim();
+    HEADER_KEYS
+        .iter()
+        .filter(|k| prefix.is_empty() || k.starts_with(prefix))
+        .map(|k| CompletionItem {
+            label: (*k).into(),
+            insert_text: format!("{}: $0", k),
+            kind: CompletionKind::Keyword,
+            detail: "header annotation".into(),
+        })
+        .collect()
+}
+
+fn message_fqn_items(
+    ws: &Workspace,
+    index: &WorkspaceIndex,
+    pt: &ParsedTextproto,
+) -> Vec<CompletionItem> {
+    // If a `# proto-file:` hint is present and resolves, restrict to messages
+    // defined in that file. Otherwise list every message in the workspace.
+    let scope_file: Option<FileUri> = pt
+        .header()
+        .proto_file
+        .as_ref()
+        .and_then(|h| resolve_header_file(ws, &h.value));
+    let mut out = Vec::new();
+    for sym in index.all_symbols() {
+        if sym.kind != SymbolKind::Message {
+            continue;
+        }
+        if let Some(f) = &scope_file {
+            if &sym.file != f {
+                continue;
+            }
+        }
+        out.push(CompletionItem {
+            label: sym.fqn.to_string(),
+            insert_text: sym.fqn.to_string(),
+            kind: CompletionKind::Message,
+            detail: sym
+                .detail
+                .clone()
+                .unwrap_or_else(|| "message".into()),
+        });
+    }
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    out
+}
+
+fn proto_file_items(ws: &Workspace) -> Vec<CompletionItem> {
+    let mut out = Vec::new();
+    for (uri, _) in ws.files() {
+        let path = short_path_for(ws, uri);
+        if path.is_empty() {
+            continue;
+        }
+        out.push(CompletionItem {
+            label: path.clone(),
+            insert_text: path,
+            kind: CompletionKind::Keyword,
+            detail: uri.as_str().to_string(),
+        });
+    }
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    out.dedup_by(|a, b| a.label == b.label);
+    out
+}
+
+fn short_path_for(ws: &Workspace, uri: &FileUri) -> String {
+    let s = uri.as_str();
+    if let Some(rest) = s.strip_prefix("proto3-wkt:/") {
+        return rest.to_string();
+    }
+    // Prefer the include-path-relative form, matching the resolver.
+    for inc in ws.include_paths() {
+        let prefix = format!("{}/", inc.0.trim_end_matches('/'));
+        if let Some(rest) = s.strip_prefix(&prefix) {
+            return rest.to_string();
+        }
+    }
+    // Fall back to the URI's last path component — a best-effort label the
+    // user can edit before accepting.
+    s.rsplit('/').next().unwrap_or(s).to_string()
+}
+
+fn proto_syntax_items() -> Vec<CompletionItem> {
+    ["proto2", "proto3", "editions"]
+        .iter()
+        .map(|v| CompletionItem {
+            label: (*v).into(),
+            insert_text: (*v).into(),
+            kind: CompletionKind::Keyword,
+            detail: "syntax".into(),
+        })
+        .collect()
+}
+
+fn completion_for_field(
+    fd: &proto_ast::FieldDecl,
+    parent_fqn: &str,
+    index: &WorkspaceIndex,
+) -> CompletionItem {
+    let insert = insert_snippet_for(fd, parent_fqn, index);
     let detail = format!("{}{}", label_str(fd.label), type_label(&fd.ty));
     CompletionItem {
         label: fd.name.name.to_string(),
@@ -647,31 +817,57 @@ fn enum_value_items(index: &WorkspaceIndex, enum_fqn: &str) -> Vec<CompletionIte
     out
 }
 
-fn insert_snippet_for(fd: &proto_ast::FieldDecl) -> String {
+/// Pick an insert string for a field completion. Scalars get a plain
+/// `name: ` so the cursor naturally lands at the end; strings/bytes wrap the
+/// value site in quotes with the cursor between them; messages open a
+/// `{ … }` block with the cursor inside. Snippets (`$0`, `$1`) are only used
+/// where a non-trailing cursor position is required — callers detect them on
+/// the TS side and wrap in `SnippetString`.
+fn insert_snippet_for(
+    fd: &proto_ast::FieldDecl,
+    parent_fqn: &str,
+    index: &WorkspaceIndex,
+) -> String {
+    use proto_ast::ScalarType::*;
+    let name = &fd.name.name;
     let is_repeated = matches!(fd.label, proto_ast::FieldLabel::Repeated);
-    let is_map = matches!(&fd.ty, proto_ast::TypeRef::Map(_));
-    let is_message = is_message_type(&fd.ty);
 
-    if is_map {
-        return format!("{}: {{ key: $1, value: $2 }}", fd.name.name);
-    }
-    if is_repeated {
-        if is_message {
-            return format!("{} {{\n\t$0\n}}", fd.name.name);
+    match &fd.ty {
+        proto_ast::TypeRef::Map(_) => {
+            format!("{}: {{ key: $1, value: $2 }}", name)
         }
-        return format!("{}: [$0]", fd.name.name);
+        proto_ast::TypeRef::Named(q) => {
+            let s = q.to_display();
+            let trimmed = s.trim_start_matches('.').to_string();
+            let kind = resolve_scope_aware(index, parent_fqn, &trimmed).map(|s| s.kind);
+            match kind {
+                Some(SymbolKind::Enum) => {
+                    // Enum: `name: ` — cursor at end; enum-value completion
+                    // kicks in once the user types or re-triggers.
+                    format!("{}: ", name)
+                }
+                _ => {
+                    // Default to message form — `name {\n\t$0\n}`.
+                    format!("{} {{\n\t$0\n}}", name)
+                }
+            }
+        }
+        proto_ast::TypeRef::Scalar(scalar, _) => {
+            let is_string = matches!(scalar, String | Bytes);
+            if is_repeated {
+                if is_string {
+                    format!("{}: [\"$0\"]", name)
+                } else {
+                    format!("{}: [$0]", name)
+                }
+            } else if is_string {
+                format!("{}: \"$0\"", name)
+            } else {
+                format!("{}: ", name)
+            }
+        }
+        proto_ast::TypeRef::Missing(_) => format!("{}: ", name),
     }
-    if is_message {
-        return format!("{} {{\n\t$0\n}}", fd.name.name);
-    }
-    format!("{}: $0", fd.name.name)
-}
-
-fn is_message_type(t: &proto_ast::TypeRef) -> bool {
-    // Heuristic: named references are typically messages or enums. We don't
-    // have the index wired through here; treating Named as "might be message"
-    // is fine because the worst case is an extra `{}` wrap the user can undo.
-    matches!(t, proto_ast::TypeRef::Named(_))
 }
 
 fn label_str(l: proto_ast::FieldLabel) -> &'static str {
@@ -818,6 +1014,84 @@ mod tests {
         assert!(labels.contains(&"city"), "labels: {:?}", labels);
         assert!(labels.contains(&"zip"), "labels: {:?}", labels);
         assert!(!labels.contains(&"address"), "should not list parent fields");
+    }
+
+    #[test]
+    fn completion_on_proto_message_header_lists_messages() {
+        let proto = r#"syntax = "proto3"; package pkg;
+            message Person { string name = 1; }
+            message Dog { string breed = 1; }
+        "#;
+        let tp = "# proto-message: \n";
+        let (ws, uri) = make_ws(proto, "pkg/p.proto", tp);
+        let idx = ws.build_index();
+        let pt = ws.textproto_file(&uri).unwrap();
+        // Cursor on the value side, just after the colon+space.
+        let off = offset_of(&ws, &uri, ": ") + 2;
+        let items = completion(&ws, &idx, pt, off);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"pkg.Person"), "labels: {:?}", labels);
+        assert!(labels.contains(&"pkg.Dog"), "labels: {:?}", labels);
+    }
+
+    #[test]
+    fn completion_on_proto_message_header_restricts_to_proto_file() {
+        let mut ws = Workspace::new();
+        ws.update_file(
+            FileUri::new("pkg/a.proto"),
+            "syntax = \"proto3\"; package pkg; message A { string x = 1; }".into(),
+        );
+        ws.update_file(
+            FileUri::new("pkg/b.proto"),
+            "syntax = \"proto3\"; package pkg; message B { string y = 1; }".into(),
+        );
+        let tp_uri = FileUri::new("mem://doc.textproto");
+        let tp = "# proto-file: pkg/a.proto\n# proto-message: \n";
+        ws.update_textproto_file(tp_uri.clone(), tp.to_string());
+        let idx = ws.build_index();
+        let pt = ws.textproto_file(&tp_uri).unwrap();
+        let off = (pt.source.rfind(": ").unwrap() + 2) as u32;
+        let items = completion(&ws, &idx, pt, off);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"pkg.A"), "labels: {:?}", labels);
+        assert!(!labels.contains(&"pkg.B"), "labels: {:?}", labels);
+    }
+
+    #[test]
+    fn completion_on_proto_file_header_lists_paths() {
+        let mut ws = Workspace::new();
+        ws.update_file(
+            FileUri::new("/ws/pkg/a.proto"),
+            "syntax = \"proto3\"; package pkg;".into(),
+        );
+        ws.set_include_paths(vec!["/ws".into()]);
+        let tp_uri = FileUri::new("mem://doc.textproto");
+        let tp = "# proto-file: \n";
+        ws.update_textproto_file(tp_uri.clone(), tp.to_string());
+        let idx = ws.build_index();
+        let pt = ws.textproto_file(&tp_uri).unwrap();
+        let off = (pt.source.find(": ").unwrap() + 2) as u32;
+        let items = completion(&ws, &idx, pt, off);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| l == &"pkg/a.proto"),
+            "labels: {:?}",
+            labels
+        );
+    }
+
+    #[test]
+    fn completion_on_header_key_offers_keys() {
+        let proto = r#"syntax = "proto3"; message M {}"#;
+        let tp = "# proto-\n";
+        let (ws, uri) = make_ws(proto, "m.proto", tp);
+        let idx = ws.build_index();
+        let pt = ws.textproto_file(&uri).unwrap();
+        let off = offset_of(&ws, &uri, "proto-") + 6;
+        let items = completion(&ws, &idx, pt, off);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"proto-file"));
+        assert!(labels.contains(&"proto-message"));
     }
 
     #[test]
