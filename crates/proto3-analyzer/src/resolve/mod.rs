@@ -403,7 +403,15 @@ impl WorkspaceIndex {
             scope_candidates(enclosing_scope, name_str)
         };
 
+        let local = self.by_file.get(importer);
         for cand in &candidates {
+            // Prefer a definition in the importer's own file: `by_fqn` keeps
+            // only the first occurrence of each FQN, so when the same name is
+            // declared in several files the local copy may not win — picking
+            // it here avoids spurious "defined in X but not imported" errors.
+            if let Some(sym) = local.and_then(|fs| fs.entries.get(cand.as_str())) {
+                return Resolution::Found { symbol: sym.clone(), visibility_ok: true };
+            }
             if let Some(sym) = self.by_fqn.get(cand.as_str()) {
                 let visibility_ok = self
                     .visible_from

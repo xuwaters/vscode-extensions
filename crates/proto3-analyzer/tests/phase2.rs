@@ -182,6 +182,36 @@ message Bar { int32 x = 1; }
 }
 
 #[test]
+fn duplicate_fqn_in_local_file_does_not_report_unknown_type() {
+    // Both files define `demo.Shared`. `main.proto` does not import
+    // `other.proto`, but it still has its own `Shared` — the resolver must
+    // pick the local copy and not flag the use as missing-import.
+    let ws = ws_with(&[
+        (
+            "test://other.proto",
+            r#"syntax = "proto3";
+package demo;
+message Shared { int32 a = 1; }
+"#,
+        ),
+        (
+            "test://main.proto",
+            r#"syntax = "proto3";
+package demo;
+message Shared { int32 b = 1; }
+message User { Shared s = 1; }
+"#,
+        ),
+    ]);
+    let diags = ws.diagnostics_for(&FileUri::new("test://main.proto"));
+    let unk: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code == DiagnosticCode::UnknownType)
+        .collect();
+    assert!(unk.is_empty(), "unexpected: {:#?}", diags);
+}
+
+#[test]
 fn public_import_chains_transit_visibility() {
     let ws = ws_with(&[
         (
