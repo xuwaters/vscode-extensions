@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { AnalyzerBridge } from './analyzer';
+import { buildExcludeGlob } from './gitignore';
 
 /**
  * Scan the workspace for `.proto` files on activation and feed their
@@ -8,7 +9,8 @@ import type { AnalyzerBridge } from './analyzer';
  */
 export async function preloadWorkspace(bridge: AnalyzerBridge): Promise<void> {
   if (!bridge.ready) return;
-  const files = await vscode.workspace.findFiles('**/*.proto', '**/node_modules/**', 2000);
+  const exclude = await buildExcludeGlob();
+  const files = await vscode.workspace.findFiles('**/*.proto', exclude, 2000);
   for (const uri of files) {
     try {
       const bytes = await vscode.workspace.fs.readFile(uri);
