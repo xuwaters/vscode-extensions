@@ -1,16 +1,20 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import type {
+  AnalyzerCompletionItem,
   AnalyzerDiagnostic,
   AnalyzerDocumentSymbol,
   AnalyzerFoldingRange,
+  AnalyzerHover,
+  AnalyzerLocation,
+  AnalyzerWorkspaceSymbol,
   WasmAnalyzer,
   WasmModule,
 } from './types';
 
 /**
  * Thin wrapper around the WASM `Analyzer` handle. Owns one long-lived
- * instance for the extension host and translates the `JSON in, JSON out`
+ * instance for the extension host and translates the JSON-in / JSON-out
  * surface into typed callers.
  */
 export class AnalyzerBridge {
@@ -42,8 +46,16 @@ export class AnalyzerBridge {
     return this.analyzer !== null;
   }
 
+  setIncludePaths(paths: string[]): void {
+    this.analyzer?.set_include_paths(JSON.stringify(paths));
+  }
+
   updateFile(uri: string, source: string): void {
     this.analyzer?.update_file(uri, source);
+  }
+
+  preloadFile(uri: string, source: string): void {
+    this.analyzer?.preload_file(uri, source);
   }
 
   removeFile(uri: string): void {
@@ -52,28 +64,36 @@ export class AnalyzerBridge {
 
   diagnostics(uri: string): AnalyzerDiagnostic[] {
     if (!this.analyzer) return [];
-    try {
-      return JSON.parse(this.analyzer.diagnostics(uri)) as AnalyzerDiagnostic[];
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(this.analyzer.diagnostics(uri)) as AnalyzerDiagnostic[]; } catch { return []; }
   }
 
   documentSymbols(uri: string): AnalyzerDocumentSymbol[] {
     if (!this.analyzer) return [];
-    try {
-      return JSON.parse(this.analyzer.document_symbols(uri)) as AnalyzerDocumentSymbol[];
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(this.analyzer.document_symbols(uri)) as AnalyzerDocumentSymbol[]; } catch { return []; }
   }
 
   foldingRanges(uri: string): AnalyzerFoldingRange[] {
     if (!this.analyzer) return [];
-    try {
-      return JSON.parse(this.analyzer.folding_ranges(uri)) as AnalyzerFoldingRange[];
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(this.analyzer.folding_ranges(uri)) as AnalyzerFoldingRange[]; } catch { return []; }
+  }
+
+  hover(uri: string, line: number, col: number): AnalyzerHover | null {
+    if (!this.analyzer) return null;
+    try { return JSON.parse(this.analyzer.hover(uri, line, col)) as AnalyzerHover | null; } catch { return null; }
+  }
+
+  definition(uri: string, line: number, col: number): AnalyzerLocation | null {
+    if (!this.analyzer) return null;
+    try { return JSON.parse(this.analyzer.definition(uri, line, col)) as AnalyzerLocation | null; } catch { return null; }
+  }
+
+  completion(uri: string, line: number, col: number): AnalyzerCompletionItem[] {
+    if (!this.analyzer) return [];
+    try { return JSON.parse(this.analyzer.completion(uri, line, col)) as AnalyzerCompletionItem[]; } catch { return []; }
+  }
+
+  workspaceSymbols(query: string): AnalyzerWorkspaceSymbol[] {
+    if (!this.analyzer) return [];
+    try { return JSON.parse(this.analyzer.workspace_symbols(query)) as AnalyzerWorkspaceSymbol[]; } catch { return []; }
   }
 }

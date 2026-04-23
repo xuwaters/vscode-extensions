@@ -20,6 +20,7 @@ pub mod diagnostics;
 pub mod features;
 pub mod lexer;
 pub mod parser;
+pub mod resolve;
 pub mod spans;
 pub mod vfs;
 pub mod wasm_api;

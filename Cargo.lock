@@ -68,6 +68,7 @@ name = "capnp-analyzer"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "indexmap",
  "pretty_assertions",
  "rustc-hash 2.1.2",
  "serde",

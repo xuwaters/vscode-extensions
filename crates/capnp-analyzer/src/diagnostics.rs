@@ -1,18 +1,21 @@
-//! Diagnostics over a parsed [`File`]. This first cut ships three checks:
+//! Diagnostics.
 //!
-//! - Parse errors surfaced from the parser (`CAPNP0001`).
-//! - Missing top-level file id (`CAPNP0002`) — every Cap'n Proto schema must
-//!   open with `@0x…;`.
-//! - Duplicate field / enumerant / method ordinals within the same scope
-//!   (`CAPNP0010`).
+//! Two entry points:
 //!
-//! Name resolution (undefined type references, duplicate declarations,
-//! import path validation) is deferred to a follow-up change that will also
-//! maintain cross-file state in the VFS.
+//! - [`analyze`] runs the per-file checks during parse: parse errors
+//!   (`CAPNP0001`), missing top-level file id (`CAPNP0002`), duplicate
+//!   field / enumerant / method ordinals within the same scope
+//!   (`CAPNP0010`). It does not require a workspace and is safe to call
+//!   during `update_file`.
+//! - [`workspace_diagnostics`] adds cross-file checks that need a built
+//!   [`WorkspaceIndex`]: unresolved `import "…"` paths (`CAPNP0020`) and
+//!   unresolved type references (`CAPNP0030`).
 
 use crate::ast::*;
 use crate::parser::{parse, ParseError};
+use crate::resolve::{collect_type_use_sites, Resolution, WorkspaceIndex};
 use crate::spans::ByteSpan;
+use crate::vfs::{FileUri, Workspace};
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 
@@ -169,6 +172,83 @@ fn check_interface(i: &Interface, out: &mut Vec<CapnpDiagnostic>) {
     }
 }
 
+/// Workspace-level diagnostics that need a resolved symbol index:
+/// unresolved imports and unresolved type references.
+pub fn workspace_diagnostics(
+    ws: &Workspace,
+    index: &WorkspaceIndex,
+    uri: &FileUri,
+) -> Vec<CapnpDiagnostic> {
+    let Some(state) = ws.file(uri) else { return Vec::new() };
+    let mut out = Vec::new();
+
+    // Unresolved imports (`using X = import "…";`).
+    for d in &state.analysis.file.decls {
+        if let Decl::Using(u) = d {
+            if let Some(path) = &u.import_path {
+                if ws.resolve_import_path(uri, &path.value).is_none() {
+                    out.push(CapnpDiagnostic {
+                        code: "CAPNP0020",
+                        severity: Severity::Warning,
+                        message: format!("cannot resolve import \"{}\"", path.value),
+                        span: path.span,
+                    });
+                }
+            }
+        }
+    }
+
+    // Unresolved type references.
+    for site in collect_type_use_sites(&state.analysis.file) {
+        if site.path.len() == 1 && is_builtin(&site.path[0].text) {
+            continue;
+        }
+        match index.resolve_type(uri, site.enclosing_scope.as_str(), &site.path) {
+            Resolution::Found { visibility_ok: false, symbol } => {
+                out.push(CapnpDiagnostic {
+                    code: "CAPNP0031",
+                    severity: Severity::Warning,
+                    message: format!(
+                        "type `{}` is defined in {} but that file is not imported here",
+                        symbol.fqn,
+                        symbol.file.as_str(),
+                    ),
+                    span: site.span,
+                });
+            }
+            Resolution::Unknown { .. } => {
+                let shown = site
+                    .path
+                    .iter()
+                    .map(|i| i.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                out.push(CapnpDiagnostic {
+                    code: "CAPNP0030",
+                    severity: Severity::Warning,
+                    message: format!("unknown type `{}`", shown),
+                    span: site.span,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    out
+}
+
+fn is_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "Void"
+            | "Bool"
+            | "Int8" | "Int16" | "Int32" | "Int64"
+            | "UInt8" | "UInt16" | "UInt32" | "UInt64"
+            | "Float32" | "Float64"
+            | "Text" | "Data" | "List" | "AnyPointer" | "Capability"
+    )
+}
+
 fn check_ordinal(
     ord: &Ordinal,
     seen: &mut FxHashMap<u32, ByteSpan>,
@@ -209,5 +289,33 @@ mod tests {
     fn clean_file_has_no_diagnostics() {
         let a = analyze("@0x1; struct X { a @0 :UInt32; b @1 :Text; }");
         assert!(a.diagnostics.is_empty(), "{:?}", a.diagnostics);
+    }
+
+    #[test]
+    fn workspace_reports_unresolved_type() {
+        use crate::resolve::WorkspaceIndex;
+        use crate::vfs::{FileUri, Workspace};
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; struct S { f @0 :DoesNotExist; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let diags = workspace_diagnostics(&ws, &idx, &FileUri("file:///a.capnp".into()));
+        assert!(diags.iter().any(|d| d.code == "CAPNP0030"));
+    }
+
+    #[test]
+    fn workspace_reports_unresolved_import() {
+        use crate::resolve::WorkspaceIndex;
+        use crate::vfs::{FileUri, Workspace};
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; using X = import \"missing.capnp\";".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let diags = workspace_diagnostics(&ws, &idx, &FileUri("file:///a.capnp".into()));
+        assert!(diags.iter().any(|d| d.code == "CAPNP0020"));
     }
 }

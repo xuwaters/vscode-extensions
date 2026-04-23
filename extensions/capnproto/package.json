@@ -44,6 +44,12 @@
     "configuration": {
       "title": "Cap'n Proto",
       "properties": {
+        "capnp.includePaths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "Additional include paths for `using X = import \"…\"` resolution. Workspace-relative or absolute. Workspace roots are always searched in addition to this list."
+        },
         "capnp.diagnostics.enabled": {
           "type": "boolean",
           "default": true,
