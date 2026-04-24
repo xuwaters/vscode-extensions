@@ -78,6 +78,39 @@ mod tests {
     }
 
     #[test]
+    fn jump_from_using_import_filename() {
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///file-a.capnp",
+            "@0xa1; struct TypeName { id @0 :UInt32; }".into(),
+        );
+        let b = "@0xb1; using import \"file-a.capnp\".TypeName;";
+        ws.update("file:///file-b.capnp", b.into());
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///file-b.capnp".into());
+        // Cursor inside the `"file-a.capnp"` string literal.
+        let offset = (b.find("file-a.capnp").unwrap() + 2) as u32;
+        let loc = definition(&ws, &idx, &uri, offset).expect("expected a definition");
+        assert_eq!(loc.file, "file:///file-a.capnp");
+    }
+
+    #[test]
+    fn jump_from_inline_import_filename() {
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///file-a.capnp",
+            "@0xa1; struct Foo { id @0 :UInt32; }".into(),
+        );
+        let b = "@0xb1; struct Bar { f @0 :import \"file-a.capnp\".Foo; }";
+        ws.update("file:///file-b.capnp", b.into());
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///file-b.capnp".into());
+        let offset = (b.find("file-a.capnp").unwrap() + 2) as u32;
+        let loc = definition(&ws, &idx, &uri, offset).expect("expected a definition");
+        assert_eq!(loc.file, "file:///file-a.capnp");
+    }
+
+    #[test]
     fn jump_from_using_import_target() {
         let mut ws = Workspace::new();
         ws.update(

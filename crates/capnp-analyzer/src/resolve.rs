@@ -483,19 +483,24 @@ pub fn collect_type_use_sites(file: &File) -> Vec<TypeUseSite> {
 }
 
 fn visit_using(scope: &str, u: &Using, out: &mut Vec<TypeUseSite>) {
-    let (Some(path), Some(first), Some(last)) = (
-        u.import_path.as_ref(),
-        u.import_target.first(),
-        u.import_target.last(),
-    ) else {
-        return;
-    };
+    let Some(path) = u.import_path.as_ref() else { return };
+    // Site covering just the `"…"` string — lets F12/hover on the filename
+    // resolve to the imported file itself.
     out.push(TypeUseSite {
         import_path: Some(path.value.clone()),
-        path: u.import_target.clone(),
+        path: Vec::new(),
         enclosing_scope: SmolStr::new(scope),
-        span: first.span.join(last.span),
+        span: path.span,
     });
+    // Site covering the `.Foo.Bar` dotted tail, if present.
+    if let (Some(first), Some(last)) = (u.import_target.first(), u.import_target.last()) {
+        out.push(TypeUseSite {
+            import_path: Some(path.value.clone()),
+            path: u.import_target.clone(),
+            enclosing_scope: SmolStr::new(scope),
+            span: first.span.join(last.span),
+        });
+    }
 }
 
 fn visit_struct(scope: &str, s: &Struct, out: &mut Vec<TypeUseSite>) {
@@ -566,9 +571,27 @@ fn visit_member(scope: &str, m: &StructMember, out: &mut Vec<TypeUseSite>) {
 }
 
 fn visit_type_ref(scope: &str, t: &TypeRef, out: &mut Vec<TypeUseSite>) {
-    if t.import_path.is_some() || !t.path.is_empty() {
+    if let Some(import) = &t.import_path {
+        // Site over the `"…"` string alone so F12 on the filename jumps to
+        // the imported file. The dotted tail (if any) gets its own narrower
+        // site below so cursor-on-ident resolves to the referenced type.
         out.push(TypeUseSite {
-            import_path: t.import_path.as_ref().map(|s| s.value.clone()),
+            import_path: Some(import.value.clone()),
+            path: Vec::new(),
+            enclosing_scope: SmolStr::new(scope),
+            span: import.span,
+        });
+        if let (Some(first), Some(last)) = (t.path.first(), t.path.last()) {
+            out.push(TypeUseSite {
+                import_path: Some(import.value.clone()),
+                path: t.path.clone(),
+                enclosing_scope: SmolStr::new(scope),
+                span: first.span.join(last.span),
+            });
+        }
+    } else if !t.path.is_empty() {
+        out.push(TypeUseSite {
+            import_path: None,
             path: t.path.clone(),
             enclosing_scope: SmolStr::new(scope),
             span: t.span,
