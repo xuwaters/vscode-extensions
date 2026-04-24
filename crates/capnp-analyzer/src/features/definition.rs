@@ -78,6 +78,39 @@ mod tests {
     }
 
     #[test]
+    fn jump_from_using_import_target() {
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///file-a.capnp",
+            "@0xa1; struct TypeName { id @0 :UInt32; }".into(),
+        );
+        let b = "@0xb1; using import \"file-a.capnp\".TypeName;";
+        ws.update("file:///file-b.capnp", b.into());
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///file-b.capnp".into());
+        // Cursor on `TypeName` in the using clause.
+        let offset = (b.find("TypeName").unwrap() + 1) as u32;
+        let loc = definition(&ws, &idx, &uri, offset).expect("expected a definition");
+        assert_eq!(loc.file, "file:///file-a.capnp");
+    }
+
+    #[test]
+    fn jump_from_using_named_import_target() {
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///file-a.capnp",
+            "@0xa1; struct Original { id @0 :UInt32; }".into(),
+        );
+        let b = "@0xb1; using Renamed = import \"file-a.capnp\".Original;";
+        ws.update("file:///file-b.capnp", b.into());
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///file-b.capnp".into());
+        let offset = (b.find(".Original").unwrap() + 2) as u32;
+        let loc = definition(&ws, &idx, &uri, offset).expect("expected a definition");
+        assert_eq!(loc.file, "file:///file-a.capnp");
+    }
+
+    #[test]
     fn jump_to_type_in_method_result() {
         let mut ws = Workspace::new();
         ws.update(

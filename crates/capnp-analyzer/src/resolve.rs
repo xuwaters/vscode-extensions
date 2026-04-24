@@ -466,6 +466,7 @@ pub fn collect_type_use_sites(file: &File) -> Vec<TypeUseSite> {
     let mut out = Vec::new();
     for d in &file.decls {
         match d {
+            Decl::Using(u) => visit_using("", u, &mut out),
             Decl::Struct(s) => visit_struct("", s, &mut out),
             Decl::Enum(_) => {}
             Decl::Interface(i) => visit_interface("", i, &mut out),
@@ -479,6 +480,22 @@ pub fn collect_type_use_sites(file: &File) -> Vec<TypeUseSite> {
         }
     }
     out
+}
+
+fn visit_using(scope: &str, u: &Using, out: &mut Vec<TypeUseSite>) {
+    let (Some(path), Some(first), Some(last)) = (
+        u.import_path.as_ref(),
+        u.import_target.first(),
+        u.import_target.last(),
+    ) else {
+        return;
+    };
+    out.push(TypeUseSite {
+        import_path: Some(path.value.clone()),
+        path: u.import_target.clone(),
+        enclosing_scope: SmolStr::new(scope),
+        span: first.span.join(last.span),
+    });
 }
 
 fn visit_struct(scope: &str, s: &Struct, out: &mut Vec<TypeUseSite>) {
@@ -544,7 +561,7 @@ fn visit_member(scope: &str, m: &StructMember, out: &mut Vec<TypeUseSite>) {
                 visit_type_ref(scope, ty, out);
             }
         }
-        StructMember::Using(_) => {}
+        StructMember::Using(u) => visit_using(scope, u, out),
     }
 }
 
