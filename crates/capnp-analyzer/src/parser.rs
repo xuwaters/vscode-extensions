@@ -321,11 +321,15 @@ impl Parser {
             return members;
         }
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
+            let before = self.pos;
             match self.parse_struct_member() {
                 Some(m) => members.push(m),
                 None => {
                     self.skip_to_semi_or_brace();
                 }
+            }
+            if self.pos == before {
+                self.bump();
             }
         }
         self.expect(&TokenKind::RBrace, "struct body");
@@ -358,12 +362,16 @@ impl Parser {
         self.expect(&TokenKind::LBrace, "union body");
         let mut members = Vec::new();
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
+            let before = self.pos;
             if let TokenKind::Ident(_) = self.peek().kind {
                 members.push(self.parse_field());
             } else {
                 let span = self.peek().span;
                 self.error(span, "expected field in union");
                 self.skip_to_semi_or_brace();
+            }
+            if self.pos == before {
+                self.bump();
             }
         }
         self.expect(&TokenKind::RBrace, "union body");
@@ -497,8 +505,12 @@ impl Parser {
                     TokenKind::RParen => { self.bump(); break; }
                     TokenKind::Eof => break,
                     _ => {
+                        let before = self.pos;
                         args.push(self.parse_type_ref());
                         if matches!(self.peek().kind, TokenKind::Comma) { self.bump(); }
+                        if self.pos == before {
+                            self.bump();
+                        }
                     }
                 }
             }
@@ -522,12 +534,16 @@ impl Parser {
         self.expect(&TokenKind::LBrace, "enum body");
         let mut enumerants = Vec::new();
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
+            let before = self.pos;
             if let TokenKind::Ident(_) = self.peek().kind {
                 enumerants.push(self.parse_enumerant());
             } else {
                 let span = self.peek().span;
                 self.error(span, "expected enumerant");
                 self.skip_to_semi_or_brace();
+            }
+            if self.pos == before {
+                self.bump();
             }
         }
         self.expect(&TokenKind::RBrace, "enum body");
@@ -563,8 +579,12 @@ impl Parser {
                         TokenKind::RParen => { self.bump(); break; }
                         TokenKind::Eof => break,
                         _ => {
+                            let before = self.pos;
                             superclasses.push(self.parse_type_ref());
                             if matches!(self.peek().kind, TokenKind::Comma) { self.bump(); }
+                            if self.pos == before {
+                                self.bump();
+                            }
                         }
                     }
                 }
@@ -575,6 +595,7 @@ impl Parser {
         let mut methods = Vec::new();
         let mut nested = Vec::new();
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
+            let before = self.pos;
             match self.peek().kind {
                 TokenKind::KwStruct => nested.push(StructMember::Struct(self.parse_struct())),
                 TokenKind::KwEnum => nested.push(StructMember::Enum(self.parse_enum())),
@@ -588,6 +609,9 @@ impl Parser {
                     self.error(span, "expected method or nested declaration");
                     self.skip_to_semi_or_brace();
                 }
+            }
+            if self.pos == before {
+                self.bump();
             }
         }
         self.expect(&TokenKind::RBrace, "interface body");
@@ -940,6 +964,15 @@ interface Admin {
             "@0x1; struct S { }  }",
             "@0x1; interface I { foo @0 () -> (info :\n}",
             "@0x1; interface I { foo @0 () -> (info :WorkerInfo\n}",
+            // Stray `)` inside a body — `skip_to_semi_or_brace` returns
+            // without advancing at `)` at depth 0, so each of these used to
+            // pin the enclosing loop forever.
+            "@0x1; struct S { f @0 :Text; ) }",
+            "@0x1; interface I { ) }",
+            "@0x1; union U { ) }",
+            "@0x1; enum E { ) }",
+            "@0x1; struct S { f @0 :List(@0); }",
+            "@0x1; interface I extends (@) { foo @0 () -> (); }",
         ];
         for s in snippets {
             let _ = parse(s);
