@@ -200,10 +200,26 @@ pub fn workspace_diagnostics(
 
     // Unresolved type references.
     for site in collect_type_use_sites(&state.analysis.file) {
-        if site.path.len() == 1 && is_builtin(&site.path[0].text) {
+        if site.import_path.is_none() && site.path.len() == 1 && is_builtin(&site.path[0].text) {
             continue;
         }
-        match index.resolve_type(uri, site.enclosing_scope.as_str(), &site.path) {
+        if let Some(import_path) = &site.import_path {
+            if ws.resolve_import_path(uri, import_path).is_none() {
+                out.push(CapnpDiagnostic {
+                    code: "CAPNP0020",
+                    severity: Severity::Warning,
+                    message: format!("cannot resolve import \"{}\"", import_path),
+                    span: site.span,
+                });
+                continue;
+            }
+        }
+        match index.resolve_type_with_import(
+            uri,
+            site.enclosing_scope.as_str(),
+            site.import_path.as_deref(),
+            &site.path,
+        ) {
             Resolution::Found { visibility_ok: false, symbol } => {
                 out.push(CapnpDiagnostic {
                     code: "CAPNP0031",
@@ -313,6 +329,20 @@ mod tests {
         ws.update(
             "file:///a.capnp",
             "@0x1; using X = import \"missing.capnp\";".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let diags = workspace_diagnostics(&ws, &idx, &FileUri("file:///a.capnp".into()));
+        assert!(diags.iter().any(|d| d.code == "CAPNP0020"));
+    }
+
+    #[test]
+    fn workspace_reports_unresolved_inline_import() {
+        use crate::resolve::WorkspaceIndex;
+        use crate::vfs::{FileUri, Workspace};
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; struct S { f @0 :import \"missing.capnp\".Foo; }".into(),
         );
         let idx = WorkspaceIndex::build(&ws);
         let diags = workspace_diagnostics(&ws, &idx, &FileUri("file:///a.capnp".into()));

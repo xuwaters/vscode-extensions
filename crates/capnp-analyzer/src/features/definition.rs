@@ -22,7 +22,12 @@ pub fn definition(
 ) -> Option<Location> {
     let file = &ws.file(uri)?.analysis.file;
     let site = type_use_at(file, offset)?;
-    match index.resolve_type(uri, site.enclosing_scope.as_str(), &site.path) {
+    match index.resolve_type_with_import(
+        uri,
+        site.enclosing_scope.as_str(),
+        site.import_path.as_deref(),
+        &site.path,
+    ) {
         Resolution::Found { symbol, .. } => Some(Location {
             file: symbol.file.as_str().into(),
             range: symbol.name_span,

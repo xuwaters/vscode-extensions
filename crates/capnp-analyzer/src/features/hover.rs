@@ -32,7 +32,12 @@ pub fn hover(
     }
 
     let site = type_use_at(file, offset)?;
-    let markdown = match index.resolve_type(uri, site.enclosing_scope.as_str(), &site.path) {
+    let markdown = match index.resolve_type_with_import(
+        uri,
+        site.enclosing_scope.as_str(),
+        site.import_path.as_deref(),
+        &site.path,
+    ) {
         Resolution::Found { symbol, visibility_ok } => render_symbol(&symbol, visibility_ok),
         Resolution::FileAlias { file, .. } => {
             format!("```capnp\nimport \"…\"\n```\n\nFile alias → `{}`", file.as_str())

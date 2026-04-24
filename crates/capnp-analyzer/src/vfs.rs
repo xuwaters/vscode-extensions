@@ -84,11 +84,7 @@ impl Workspace {
         let Some(state) = self.files.get(uri) else { return Vec::new() };
         let mut out = Vec::new();
         for d in &state.analysis.file.decls {
-            if let crate::ast::Decl::Using(u) = d {
-                if let Some(path) = &u.import_path {
-                    out.push(path.value.clone());
-                }
-            }
+            collect_decl_imports(d, &mut out);
         }
         out
     }
@@ -180,6 +176,90 @@ fn importer_dir(uri: &FileUri) -> Option<String> {
     let s = &uri.0;
     let slash = s.rfind('/')?;
     Some(s[..slash].to_string())
+}
+
+fn collect_decl_imports(d: &crate::ast::Decl, out: &mut Vec<String>) {
+    use crate::ast::*;
+    match d {
+        Decl::Using(u) => {
+            if let Some(path) = &u.import_path {
+                out.push(path.value.clone());
+            }
+        }
+        Decl::Struct(s) => {
+            for m in &s.members {
+                collect_member_imports(m, out);
+            }
+        }
+        Decl::Interface(i) => {
+            for sup in &i.superclasses {
+                collect_type_ref_imports(sup, out);
+            }
+            for n in &i.nested {
+                collect_member_imports(n, out);
+            }
+        }
+        Decl::Const(c) => collect_type_ref_imports(&c.ty, out),
+        Decl::Annotation(a) => {
+            if let Some(ty) = &a.ty {
+                collect_type_ref_imports(ty, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_member_imports(m: &crate::ast::StructMember, out: &mut Vec<String>) {
+    use crate::ast::*;
+    match m {
+        StructMember::Field(f) => match &f.body {
+            FieldBody::Slot { ty, .. } => collect_type_ref_imports(ty, out),
+            FieldBody::NamedUnion(ub) => {
+                for inner in &ub.members {
+                    collect_member_imports(&StructMember::Field(inner.clone()), out);
+                }
+            }
+            FieldBody::NamedGroup(gb) => {
+                for inner in &gb.members {
+                    collect_member_imports(inner, out);
+                }
+            }
+        },
+        StructMember::AnonUnion(ub) => {
+            for inner in &ub.members {
+                collect_member_imports(&StructMember::Field(inner.clone()), out);
+            }
+        }
+        StructMember::Struct(s) => {
+            for m in &s.members {
+                collect_member_imports(m, out);
+            }
+        }
+        StructMember::Interface(i) => {
+            for sup in &i.superclasses {
+                collect_type_ref_imports(sup, out);
+            }
+            for n in &i.nested {
+                collect_member_imports(n, out);
+            }
+        }
+        StructMember::Const(c) => collect_type_ref_imports(&c.ty, out),
+        StructMember::Annotation(a) => {
+            if let Some(ty) = &a.ty {
+                collect_type_ref_imports(ty, out);
+            }
+        }
+        StructMember::Enum(_) | StructMember::Using(_) => {}
+    }
+}
+
+fn collect_type_ref_imports(t: &crate::ast::TypeRef, out: &mut Vec<String>) {
+    if let Some(p) = &t.import_path {
+        out.push(p.value.clone());
+    }
+    for a in &t.args {
+        collect_type_ref_imports(a, out);
+    }
 }
 
 fn join_path(dir: &str, rel: &str) -> String {

@@ -54,6 +54,9 @@ pub struct Using {
     /// The imported path string if present (`import "foo.capnp"`). A plain
     /// `using Name = Something;` may have no import path.
     pub import_path: Option<StringLit>,
+    /// Dotted path after the import string, e.g. `.Foo.Bar` in
+    /// `using X = import "foo.capnp".Foo.Bar;`.
+    pub import_target: Vec<Ident>,
     pub span: ByteSpan,
 }
 
@@ -204,6 +207,11 @@ pub struct AnnotationApp {
 
 #[derive(Debug, Clone)]
 pub struct TypeRef {
+    /// When the reference opens with `import "foo.capnp"`, the string literal
+    /// is captured here and [`path`](Self::path) holds the dotted tail
+    /// (`Foo.Bar` in `import "foo.capnp".Foo.Bar`). A bare `import "foo.capnp"`
+    /// has `path` empty.
+    pub import_path: Option<StringLit>,
     /// Dotted name path: `Foo`, `Foo.Bar`, `List(Int32)` keeps the head `List`.
     pub path: Vec<Ident>,
     /// Type arguments inside `(...)`. Nested types are parsed recursively.

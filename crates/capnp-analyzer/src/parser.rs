@@ -149,8 +149,17 @@ impl Parser {
         let start = self.peek().span;
         self.bump(); // 'using'
 
+        // `using import "file".Tag;` — no explicit alias name. The last
+        // component of the import target becomes the implicit alias.
+        if matches!(self.peek().kind, TokenKind::KwImport) {
+            let (import_path, import_target) = self.parse_import_expr();
+            let name = import_target.last().cloned();
+            let end = self.peek().span;
+            self.expect(&TokenKind::Semi, "using");
+            return Using { name, import_path, import_target, span: start.join(end) };
+        }
+
         let mut name = None;
-        // `using Name = import "x";` — or `using import "x";`
         if let TokenKind::Ident(_) = self.peek().kind {
             name = Some(self.parse_ident());
             // Optional `= ...`
@@ -160,13 +169,11 @@ impl Parser {
         }
 
         let mut import_path = None;
+        let mut import_target = Vec::new();
         if matches!(self.peek().kind, TokenKind::KwImport) {
-            self.bump();
-            if let TokenKind::StringLit(_) = self.peek().kind.clone() {
-                let t = self.bump();
-                let value = if let TokenKind::StringLit(s) = t.kind { s } else { String::new() };
-                import_path = Some(StringLit { value, span: t.span });
-            }
+            let (p, t) = self.parse_import_expr();
+            import_path = p;
+            import_target = t;
         } else {
             // Right-hand side is a type reference; we just skip to `;` keeping no data.
             while !self.at_eof() && !matches!(self.peek().kind, TokenKind::Semi) {
@@ -175,7 +182,28 @@ impl Parser {
         }
         let end = self.peek().span;
         self.expect(&TokenKind::Semi, "using");
-        Using { name, import_path, span: start.join(end) }
+        Using { name, import_path, import_target, span: start.join(end) }
+    }
+
+    /// Parse `import "path"[.Ident[.Ident…]]` starting at the `import`
+    /// keyword. Returns the string literal and the dotted path that follows.
+    fn parse_import_expr(&mut self) -> (Option<StringLit>, Vec<Ident>) {
+        self.bump(); // 'import'
+        let mut import_path = None;
+        if let TokenKind::StringLit(_) = self.peek().kind.clone() {
+            let t = self.bump();
+            let value = if let TokenKind::StringLit(s) = t.kind { s } else { String::new() };
+            import_path = Some(StringLit { value, span: t.span });
+        } else {
+            let span = self.peek().span;
+            self.error(span, "expected string literal after 'import'");
+        }
+        let mut target = Vec::new();
+        while matches!(self.peek().kind, TokenKind::Dot) {
+            self.bump();
+            target.push(self.parse_type_ident());
+        }
+        (import_path, target)
     }
 
     fn parse_ident(&mut self) -> Ident {
@@ -373,7 +401,7 @@ impl Parser {
         } else {
             let span = self.peek().span;
             self.error(span, "expected ':' in field");
-            let dummy = TypeRef { path: Vec::new(), args: Vec::new(), span };
+            let dummy = TypeRef { import_path: None, path: Vec::new(), args: Vec::new(), span };
             FieldBody::Slot { ty: dummy, default_span: None }
         };
 
@@ -442,11 +470,18 @@ impl Parser {
 
     fn parse_type_ref(&mut self) -> TypeRef {
         let start = self.peek().span;
+        let mut import_path = None;
         let mut path = Vec::new();
-        path.push(self.parse_type_ident());
-        while matches!(self.peek().kind, TokenKind::Dot) {
-            self.bump();
+        if matches!(self.peek().kind, TokenKind::KwImport) {
+            let (p, target) = self.parse_import_expr();
+            import_path = p;
+            path = target;
+        } else {
             path.push(self.parse_type_ident());
+            while matches!(self.peek().kind, TokenKind::Dot) {
+                self.bump();
+                path.push(self.parse_type_ident());
+            }
         }
         let mut args = Vec::new();
         if matches!(self.peek().kind, TokenKind::LParen) {
@@ -463,7 +498,7 @@ impl Parser {
             }
         }
         let end = self.prev_span();
-        TypeRef { path, args, span: start.join(end) }
+        TypeRef { import_path, path, args, span: start.join(end) }
     }
 
     fn parse_type_ident(&mut self) -> Ident {
@@ -733,5 +768,58 @@ interface Greeter {
         // Parser should still surface the struct even though it flagged an error.
         assert!(!r.errors.is_empty());
         assert_eq!(r.file.decls.len(), 1);
+    }
+
+    #[test]
+    fn parses_inline_import_in_type_ref() {
+        let src = r#"@0x1; struct S { f @0 :import "other.capnp".Foo; }"#;
+        let r = parse(src);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+        let s = match &r.file.decls[0] {
+            Decl::Struct(s) => s,
+            _ => panic!("expected struct"),
+        };
+        let field = match &s.members[0] {
+            StructMember::Field(f) => f,
+            _ => panic!("expected field"),
+        };
+        let ty = match &field.body {
+            FieldBody::Slot { ty, .. } => ty,
+            _ => panic!("expected slot"),
+        };
+        assert_eq!(ty.import_path.as_ref().map(|p| p.value.as_str()), Some("other.capnp"));
+        assert_eq!(ty.path.len(), 1);
+        assert_eq!(ty.path[0].text.as_str(), "Foo");
+    }
+
+    #[test]
+    fn parses_using_with_import_type_rhs() {
+        let src = r#"@0x1; using Foo = import "other.capnp".Foo.Bar;"#;
+        let r = parse(src);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+        let u = match &r.file.decls[0] {
+            Decl::Using(u) => u,
+            _ => panic!("expected using"),
+        };
+        assert_eq!(u.name.as_ref().map(|i| i.text.as_str()), Some("Foo"));
+        assert_eq!(u.import_path.as_ref().map(|p| p.value.as_str()), Some("other.capnp"));
+        let target: Vec<&str> = u.import_target.iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(target, vec!["Foo", "Bar"]);
+    }
+
+    #[test]
+    fn parses_using_import_shorthand() {
+        let src = r#"@0x1; using import "types.capnp".Tag;"#;
+        let r = parse(src);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+        let u = match &r.file.decls[0] {
+            Decl::Using(u) => u,
+            _ => panic!("expected using"),
+        };
+        // No explicit alias; last path component becomes the implicit name.
+        assert_eq!(u.name.as_ref().map(|i| i.text.as_str()), Some("Tag"));
+        assert_eq!(u.import_path.as_ref().map(|p| p.value.as_str()), Some("types.capnp"));
+        let target: Vec<&str> = u.import_target.iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(target, vec!["Tag"]);
     }
 }

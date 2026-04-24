@@ -54,14 +54,22 @@ pub struct Symbol {
     pub doc: Option<String>,
 }
 
-/// One declaration of a file-level `using Alias = …;`. We track two shapes:
+/// One declaration of a file-level `using Alias = …;`. We track three shapes:
 /// - `Alias = import "path.capnp"` (a whole file alias)
-/// - `Alias = Type.Path` (a type alias)
+/// - `Alias = import "path.capnp".Foo.Bar` (a specific type in another file)
+/// - `Alias = Type.Path` (a type alias within the current file)
 #[derive(Debug, Clone)]
 pub enum UsingAlias {
     File {
         name: SmolStr,
         import_path: String,
+        span: ByteSpan,
+    },
+    ImportType {
+        name: SmolStr,
+        import_path: String,
+        /// Dotted path inside the imported file.
+        target: Vec<SmolStr>,
         span: ByteSpan,
     },
     Type {
@@ -75,7 +83,9 @@ pub enum UsingAlias {
 impl UsingAlias {
     pub fn name(&self) -> &SmolStr {
         match self {
-            UsingAlias::File { name, .. } | UsingAlias::Type { name, .. } => name,
+            UsingAlias::File { name, .. }
+            | UsingAlias::ImportType { name, .. }
+            | UsingAlias::Type { name, .. } => name,
         }
     }
 }
@@ -161,9 +171,17 @@ pub fn index_file(file_uri: &FileUri, file: &File, source: &str) -> FileSymbols 
 fn using_to_alias(u: &Using, _source: &str) -> Option<UsingAlias> {
     let name = u.name.as_ref()?;
     if let Some(path) = &u.import_path {
-        return Some(UsingAlias::File {
+        if u.import_target.is_empty() {
+            return Some(UsingAlias::File {
+                name: name.text.clone(),
+                import_path: path.value.clone(),
+                span: u.span,
+            });
+        }
+        return Some(UsingAlias::ImportType {
             name: name.text.clone(),
             import_path: path.value.clone(),
+            target: u.import_target.iter().map(|i| i.text.clone()).collect(),
             span: u.span,
         });
     }
@@ -433,6 +451,9 @@ pub fn extract_doc_comment(source: &str, decl_start: u32) -> Option<String> {
 
 #[derive(Debug, Clone)]
 pub struct TypeUseSite {
+    /// When the reference is written as `import "foo.capnp".Foo`, this is the
+    /// raw import string. [`path`](Self::path) holds the dotted tail.
+    pub import_path: Option<String>,
     /// Dotted path tokens as written in source (e.g. ["Foo", "Bar"]).
     pub path: Vec<Ident>,
     /// Enclosing scope FQN — drives the resolver's scope walk.
@@ -518,8 +539,9 @@ fn visit_member(scope: &str, m: &StructMember, out: &mut Vec<TypeUseSite>) {
 }
 
 fn visit_type_ref(scope: &str, t: &TypeRef, out: &mut Vec<TypeUseSite>) {
-    if !t.path.is_empty() {
+    if t.import_path.is_some() || !t.path.is_empty() {
         out.push(TypeUseSite {
+            import_path: t.import_path.as_ref().map(|s| s.value.clone()),
             path: t.path.clone(),
             enclosing_scope: SmolStr::new(scope),
             span: t.span,
@@ -545,6 +567,14 @@ pub struct WorkspaceIndex {
     /// URI -> file-alias name -> resolved file uri. Populated from each
     /// file's `using X = import "…";` aliases.
     file_aliases: FxHashMap<FileUri, FxHashMap<SmolStr, FileUri>>,
+    /// URI -> type-alias name -> (resolved file uri, target path within it).
+    /// Populated from `using X = import "…".Foo.Bar;` and
+    /// `using import "…".Tag;` forms.
+    type_aliases: FxHashMap<FileUri, FxHashMap<SmolStr, (FileUri, Vec<SmolStr>)>>,
+    /// URI -> raw `import "…"` string -> resolved file uri. Lets inline
+    /// `import "foo.capnp".Bar` expressions resolve at query time without
+    /// needing the workspace.
+    inline_imports: FxHashMap<FileUri, FxHashMap<String, FileUri>>,
     /// URI -> set of URIs it can see (itself + direct imports).
     visible_from: FxHashMap<FileUri, FxHashSet<FileUri>>,
 }
@@ -555,6 +585,10 @@ impl WorkspaceIndex {
         let mut by_file: FxHashMap<FileUri, FileSymbols> = FxHashMap::default();
         let mut file_aliases: FxHashMap<FileUri, FxHashMap<SmolStr, FileUri>> =
             FxHashMap::default();
+        let mut type_aliases: FxHashMap<FileUri, FxHashMap<SmolStr, (FileUri, Vec<SmolStr>)>> =
+            FxHashMap::default();
+        let mut inline_imports: FxHashMap<FileUri, FxHashMap<String, FileUri>> =
+            FxHashMap::default();
         let mut direct_imports: FxHashMap<FileUri, FxHashSet<FileUri>> = FxHashMap::default();
 
         for (uri, state) in ws.files() {
@@ -563,16 +597,39 @@ impl WorkspaceIndex {
                 by_fqn.entry(fqn.clone()).or_insert_with(|| sym.clone());
             }
             let mut aliases: FxHashMap<SmolStr, FileUri> = FxHashMap::default();
+            let mut t_aliases: FxHashMap<SmolStr, (FileUri, Vec<SmolStr>)> = FxHashMap::default();
             let mut deps: FxHashSet<FileUri> = FxHashSet::default();
             for a in &fs.aliases {
-                if let UsingAlias::File { name, import_path, .. } = a {
+                match a {
+                    UsingAlias::File { name, import_path, .. } => {
+                        if let Some(target) = ws.resolve_import_path(uri, import_path) {
+                            aliases.insert(name.clone(), target.clone());
+                            deps.insert(target);
+                        }
+                    }
+                    UsingAlias::ImportType { name, import_path, target, .. } => {
+                        if let Some(file) = ws.resolve_import_path(uri, import_path) {
+                            t_aliases.insert(name.clone(), (file.clone(), target.clone()));
+                            deps.insert(file);
+                        }
+                    }
+                    UsingAlias::Type { .. } => {}
+                }
+            }
+            // Also track inline `import "…"` expressions in type positions so
+            // the importer can see the target file even without a `using`.
+            let mut inlines: FxHashMap<String, FileUri> = FxHashMap::default();
+            for site in collect_type_use_sites(&state.analysis.file) {
+                if let Some(import_path) = &site.import_path {
                     if let Some(target) = ws.resolve_import_path(uri, import_path) {
-                        aliases.insert(name.clone(), target.clone());
-                        deps.insert(target);
+                        deps.insert(target.clone());
+                        inlines.insert(import_path.clone(), target);
                     }
                 }
             }
             file_aliases.insert(uri.clone(), aliases);
+            type_aliases.insert(uri.clone(), t_aliases);
+            inline_imports.insert(uri.clone(), inlines);
             direct_imports.insert(uri.clone(), deps);
             by_file.insert(uri.clone(), fs);
         }
@@ -589,7 +646,14 @@ impl WorkspaceIndex {
             visible_from.insert(uri.clone(), seen);
         }
 
-        WorkspaceIndex { by_fqn, by_file, file_aliases, visible_from }
+        WorkspaceIndex {
+            by_fqn,
+            by_file,
+            file_aliases,
+            type_aliases,
+            inline_imports,
+            visible_from,
+        }
     }
 
     pub fn lookup(&self, fqn: &str) -> Option<&Symbol> {
@@ -612,6 +676,47 @@ impl WorkspaceIndex {
         enclosing_scope: &str,
         path: &[Ident],
     ) -> Resolution {
+        self.resolve_type_with_import(importer, enclosing_scope, None, path)
+    }
+
+    /// Like [`resolve_type`](Self::resolve_type), but also accepts an inline
+    /// `import "…"` prefix. When `import_path` is `Some`, resolution goes
+    /// directly through that file and ignores the scope walk.
+    pub fn resolve_type_with_import(
+        &self,
+        importer: &FileUri,
+        enclosing_scope: &str,
+        import_path: Option<&str>,
+        path: &[Ident],
+    ) -> Resolution {
+        // Inline `import "foo.capnp"[.Path]` — resolve into the named file.
+        if let Some(import_path) = import_path {
+            let target_file = self
+                .inline_imports
+                .get(importer)
+                .and_then(|m| m.get(import_path))
+                .cloned();
+            let Some(target_file) = target_file else {
+                return Resolution::Unknown {
+                    candidates: vec![format!("import \"{}\"", import_path)],
+                };
+            };
+            if path.is_empty() {
+                // Bare `import "…"` — resolves to the file itself.
+                let span_source = path.first().map(|i| i.span).unwrap_or(ByteSpan::EMPTY);
+                return Resolution::FileAlias { file: target_file, span_source };
+            }
+            let joined = path.iter().map(|i| i.text.as_str()).collect::<Vec<_>>().join(".");
+            if let Some(fs) = self.by_file.get(&target_file) {
+                if let Some(sym) = fs.entries.get(joined.as_str()) {
+                    return Resolution::Found { symbol: sym.clone(), visibility_ok: true };
+                }
+            }
+            return Resolution::Unknown {
+                candidates: vec![format!("{} (in import \"{}\")", joined, import_path)],
+            };
+        }
+
         if path.is_empty() {
             return Resolution::Unknown { candidates: Vec::new() };
         }
@@ -640,6 +745,30 @@ impl WorkspaceIndex {
                 }
                 return Resolution::Unknown {
                     candidates: vec![format!("{} (via alias {})", rest_joined, head)],
+                };
+            }
+        }
+
+        // Type alias: `using Tag = import "…".Tag;` then `Tag` (or `Tag.Sub`)
+        // resolves to that type in the target file, possibly with an
+        // additional suffix appended.
+        if let Some(type_aliases) = self.type_aliases.get(importer) {
+            if let Some((target_file, base)) = type_aliases.get(head) {
+                let mut full: Vec<&str> = base.iter().map(|s| s.as_str()).collect();
+                for r in &rest_names {
+                    full.push(r);
+                }
+                let joined = full.join(".");
+                if let Some(fs) = self.by_file.get(target_file) {
+                    if let Some(sym) = fs.entries.get(joined.as_str()) {
+                        return Resolution::Found {
+                            symbol: sym.clone(),
+                            visibility_ok: true,
+                        };
+                    }
+                }
+                return Resolution::Unknown {
+                    candidates: vec![format!("{} (via alias {})", joined, head)],
                 };
             }
         }
@@ -764,5 +893,65 @@ mod tests {
             &[Ident { text: "C".into(), span: ByteSpan::EMPTY }],
         );
         assert_eq!(cand, vec!["A.B.C".to_string(), "A.C".into(), "C".into()]);
+    }
+
+    #[test]
+    fn resolves_inline_import_type() {
+        use crate::vfs::Workspace;
+        let mut ws = Workspace::new();
+        ws.update("file:///a.capnp", "@0x1; struct Foo { id @0 :UInt32; }".into());
+        ws.update(
+            "file:///b.capnp",
+            "@0x2; struct Bar { f @0 :import \"a.capnp\".Foo; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let b_uri = FileUri("file:///b.capnp".into());
+        let path = vec![Ident { text: "Foo".into(), span: ByteSpan::EMPTY }];
+        match idx.resolve_type_with_import(&b_uri, "Bar", Some("a.capnp"), &path) {
+            Resolution::Found { symbol, visibility_ok: true } => {
+                assert_eq!(symbol.fqn.as_str(), "Foo");
+            }
+            other => panic!("expected Found via inline import, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolves_using_import_type_alias() {
+        use crate::vfs::Workspace;
+        let mut ws = Workspace::new();
+        ws.update("file:///types.capnp", "@0x1; enum Tag { a @0; b @1; }".into());
+        ws.update(
+            "file:///b.capnp",
+            "@0x2; using import \"types.capnp\".Tag; struct S { t @0 :Tag; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let b_uri = FileUri("file:///b.capnp".into());
+        let path = vec![Ident { text: "Tag".into(), span: ByteSpan::EMPTY }];
+        match idx.resolve_type(&b_uri, "S", &path) {
+            Resolution::Found { symbol, visibility_ok: true } => {
+                assert_eq!(symbol.fqn.as_str(), "Tag");
+            }
+            other => panic!("expected Found via using-import alias, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolves_using_named_import_type_alias() {
+        use crate::vfs::Workspace;
+        let mut ws = Workspace::new();
+        ws.update("file:///types.capnp", "@0x1; enum Tag { a @0; b @1; }".into());
+        ws.update(
+            "file:///b.capnp",
+            "@0x2; using T = import \"types.capnp\".Tag; struct S { t @0 :T; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let b_uri = FileUri("file:///b.capnp".into());
+        let path = vec![Ident { text: "T".into(), span: ByteSpan::EMPTY }];
+        match idx.resolve_type(&b_uri, "S", &path) {
+            Resolution::Found { symbol, visibility_ok: true } => {
+                assert_eq!(symbol.fqn.as_str(), "Tag");
+            }
+            other => panic!("expected Found via named import-type alias, got {:?}", other),
+        }
     }
 }
