@@ -78,6 +78,43 @@ mod tests {
     }
 
     #[test]
+    fn jump_to_type_in_method_result() {
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///file-b.capnp",
+            "@0xb1; struct WorkerInfo { id @0 :UInt32; }".into(),
+        );
+        let a = "@0xa1; using import \"file-b.capnp\".WorkerInfo; \
+                 interface Admin { info @1 () -> (info :WorkerInfo); }";
+        ws.update("file:///file-a.capnp", a.into());
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///file-a.capnp".into());
+        // Cursor lands on the `WorkerInfo` inside `(info :WorkerInfo)`.
+        let needle = ":WorkerInfo)";
+        let offset = (a.find(needle).unwrap() + 2) as u32;
+        let loc = definition(&ws, &idx, &uri, offset).expect("expected a definition");
+        assert_eq!(loc.file, "file:///file-b.capnp");
+    }
+
+    #[test]
+    fn jump_to_type_in_method_params() {
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///file-b.capnp",
+            "@0xb1; struct Req { id @0 :UInt32; }".into(),
+        );
+        let a = "@0xa1; using import \"file-b.capnp\".Req; \
+                 interface Admin { send @0 (r :Req) -> (); }";
+        ws.update("file:///file-a.capnp", a.into());
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///file-a.capnp".into());
+        let needle = ":Req)";
+        let offset = (a.find(needle).unwrap() + 2) as u32;
+        let loc = definition(&ws, &idx, &uri, offset).expect("expected a definition");
+        assert_eq!(loc.file, "file:///file-b.capnp");
+    }
+
+    #[test]
     fn jump_to_inline_import_type() {
         let mut ws = Workspace::new();
         ws.update("file:///a.capnp", "@0x1; struct Foo { id @0 :UInt32; }".into());

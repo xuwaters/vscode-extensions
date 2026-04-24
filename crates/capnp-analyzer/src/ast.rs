@@ -170,10 +170,22 @@ pub struct Interface {
 pub struct Method {
     pub name: Ident,
     pub ordinal: Option<Ordinal>,
-    /// Entire `(params)` span. Parameter list is not broken out in this
-    /// iteration — we just keep the raw span so hover/folding can reach it.
+    /// Parsed parameter list, if the method has a `(…)` params form.
+    pub params: Option<Vec<MethodParam>>,
+    /// Entire `(params)` span — preserved so hover/folding can reach it.
     pub params_span: Option<ByteSpan>,
+    /// Parsed result list, if the method has a `-> (…)` results form.
+    pub results: Option<Vec<MethodParam>>,
     pub results_span: Option<ByteSpan>,
+    pub annotations: Vec<AnnotationApp>,
+    pub span: ByteSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct MethodParam {
+    pub name: Ident,
+    pub ty: TypeRef,
+    pub default_span: Option<ByteSpan>,
     pub annotations: Vec<AnnotationApp>,
     pub span: ByteSpan,
 }

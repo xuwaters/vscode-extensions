@@ -496,8 +496,18 @@ fn visit_interface(scope: &str, i: &Interface, out: &mut Vec<TypeUseSite>) {
     for sup in &i.superclasses {
         visit_type_ref(&fqn, sup, out);
     }
-    // Method param/result bodies are not in the AST in detail yet, so we
-    // skip them until we parse them structurally.
+    for m in &i.methods {
+        if let Some(params) = &m.params {
+            for p in params {
+                visit_type_ref(&fqn, &p.ty, out);
+            }
+        }
+        if let Some(results) = &m.results {
+            for p in results {
+                visit_type_ref(&fqn, &p.ty, out);
+            }
+        }
+    }
     for n in &i.nested {
         visit_member(&fqn, n, out);
     }

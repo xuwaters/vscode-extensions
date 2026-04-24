@@ -597,25 +597,97 @@ impl Parser {
         } else {
             None
         };
-        let params_span = if matches!(self.peek().kind, TokenKind::LParen) {
-            Some(self.skip_parenthesised())
+        let (params, params_span) = if matches!(self.peek().kind, TokenKind::LParen) {
+            let (list, span) = self.parse_method_param_list();
+            (Some(list), Some(span))
         } else {
-            None
+            (None, None)
         };
-        let results_span = if matches!(self.peek().kind, TokenKind::Arrow) {
+        let (results, results_span) = if matches!(self.peek().kind, TokenKind::Arrow) {
             self.bump();
             if matches!(self.peek().kind, TokenKind::LParen) {
-                Some(self.skip_parenthesised())
+                let (list, span) = self.parse_method_param_list();
+                (Some(list), Some(span))
             } else {
-                None
+                (None, None)
             }
         } else {
-            None
+            (None, None)
         };
         let annotations = self.parse_annotations();
         let end = self.peek().span;
         self.expect(&TokenKind::Semi, "method");
-        Method { name, ordinal, params_span, results_span, annotations, span: start.join(end) }
+        Method {
+            name,
+            ordinal,
+            params,
+            params_span,
+            results,
+            results_span,
+            annotations,
+            span: start.join(end),
+        }
+    }
+
+    /// Parse `(name :Type [= default], …)` starting at the `(`. Returns the
+    /// parsed list plus the whole-parens span.
+    fn parse_method_param_list(&mut self) -> (Vec<MethodParam>, ByteSpan) {
+        let lparen = self.bump().span; // '('
+        let mut out = Vec::new();
+        let mut last = lparen;
+        loop {
+            match self.peek().kind {
+                TokenKind::RParen => {
+                    last = self.peek().span;
+                    self.bump();
+                    break;
+                }
+                TokenKind::Eof => break,
+                TokenKind::Comma => {
+                    self.bump();
+                    continue;
+                }
+                _ => {
+                    if let Some(p) = self.parse_method_param() {
+                        last = p.span;
+                        out.push(p);
+                    } else {
+                        // Recovery: skip to next ',' or ')'.
+                        while !self.at_eof()
+                            && !matches!(self.peek().kind, TokenKind::Comma | TokenKind::RParen)
+                        {
+                            self.bump();
+                        }
+                    }
+                }
+            }
+        }
+        (out, lparen.join(last))
+    }
+
+    fn parse_method_param(&mut self) -> Option<MethodParam> {
+        let start = self.peek().span;
+        if !matches!(self.peek().kind, TokenKind::Ident(_)) {
+            let span = self.peek().span;
+            self.error(span, "expected parameter name");
+            return None;
+        }
+        let name = self.parse_ident();
+        if !matches!(self.peek().kind, TokenKind::Colon) {
+            let span = self.peek().span;
+            self.error(span, "expected ':' in parameter");
+            return None;
+        }
+        self.bump(); // ':'
+        let ty = self.parse_type_ref();
+        let default_span = if matches!(self.peek().kind, TokenKind::Eq) {
+            Some(self.skip_expr_to_end())
+        } else {
+            None
+        };
+        let annotations = self.parse_annotations();
+        let end = self.prev_span();
+        Some(MethodParam { name, ty, default_span, annotations, span: start.join(end) })
     }
 
     fn parse_const(&mut self) -> ConstDecl {

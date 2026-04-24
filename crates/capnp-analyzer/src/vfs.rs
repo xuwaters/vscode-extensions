@@ -195,6 +195,18 @@ fn collect_decl_imports(d: &crate::ast::Decl, out: &mut Vec<String>) {
             for sup in &i.superclasses {
                 collect_type_ref_imports(sup, out);
             }
+            for m in &i.methods {
+                if let Some(params) = &m.params {
+                    for p in params {
+                        collect_type_ref_imports(&p.ty, out);
+                    }
+                }
+                if let Some(results) = &m.results {
+                    for p in results {
+                        collect_type_ref_imports(&p.ty, out);
+                    }
+                }
+            }
             for n in &i.nested {
                 collect_member_imports(n, out);
             }
@@ -238,6 +250,18 @@ fn collect_member_imports(m: &crate::ast::StructMember, out: &mut Vec<String>) {
         StructMember::Interface(i) => {
             for sup in &i.superclasses {
                 collect_type_ref_imports(sup, out);
+            }
+            for m in &i.methods {
+                if let Some(params) = &m.params {
+                    for p in params {
+                        collect_type_ref_imports(&p.ty, out);
+                    }
+                }
+                if let Some(results) = &m.results {
+                    for p in results {
+                        collect_type_ref_imports(&p.ty, out);
+                    }
+                }
             }
             for n in &i.nested {
                 collect_member_imports(n, out);

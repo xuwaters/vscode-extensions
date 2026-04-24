@@ -2,7 +2,7 @@
   "name": "wx-vsce-capnproto",
   "displayName": "Cap'n Proto",
   "description": "Cap'n Proto (.capnp) schema editing — syntax highlighting, outline, and diagnostics powered by a Rust analyzer compiled to WebAssembly.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
