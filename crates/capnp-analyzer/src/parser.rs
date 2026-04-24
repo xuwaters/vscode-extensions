@@ -95,6 +95,7 @@ impl Parser {
 
         let mut decls = Vec::new();
         while !self.at_eof() {
+            let before = self.pos;
             match self.parse_top_decl() {
                 Some(d) => decls.push(d),
                 None => {
@@ -102,6 +103,11 @@ impl Parser {
                     self.error(bad, "expected top-level declaration");
                     self.skip_to_semi_or_brace();
                 }
+            }
+            // Forward-progress guard: a stray `}` (or any token a sub-parser
+            // decided not to consume) must not pin the top-level loop.
+            if self.pos == before {
+                self.bump();
             }
         }
 
@@ -630,7 +636,9 @@ impl Parser {
     }
 
     /// Parse `(name :Type [= default], …)` starting at the `(`. Returns the
-    /// parsed list plus the whole-parens span.
+    /// parsed list plus the whole-parens span. Recovers at the first `)`,
+    /// `{`/`}` (we've escaped the enclosing body), or `;`, so a malformed
+    /// param list can't eat tokens that belong to the enclosing declaration.
     fn parse_method_param_list(&mut self) -> (Vec<MethodParam>, ByteSpan) {
         let lparen = self.bump().span; // '('
         let mut out = Vec::new();
@@ -642,22 +650,39 @@ impl Parser {
                     self.bump();
                     break;
                 }
-                TokenKind::Eof => break,
+                TokenKind::Eof
+                | TokenKind::LBrace
+                | TokenKind::RBrace
+                | TokenKind::Semi => break,
                 TokenKind::Comma => {
                     self.bump();
                     continue;
                 }
                 _ => {
+                    let before = self.pos;
                     if let Some(p) = self.parse_method_param() {
                         last = p.span;
                         out.push(p);
                     } else {
-                        // Recovery: skip to next ',' or ')'.
+                        // Recovery: skip to the next boundary without
+                        // crossing the enclosing body.
                         while !self.at_eof()
-                            && !matches!(self.peek().kind, TokenKind::Comma | TokenKind::RParen)
+                            && !matches!(
+                                self.peek().kind,
+                                TokenKind::Comma
+                                    | TokenKind::RParen
+                                    | TokenKind::LBrace
+                                    | TokenKind::RBrace
+                                    | TokenKind::Semi
+                            )
                         {
                             self.bump();
                         }
+                    }
+                    // Guarantee forward progress even if a sub-parser failed
+                    // to advance (e.g. empty type ref at EOF).
+                    if self.pos == before {
+                        self.bump();
                     }
                 }
             }
@@ -877,6 +902,48 @@ interface Greeter {
         assert_eq!(u.import_path.as_ref().map(|p| p.value.as_str()), Some("other.capnp"));
         let target: Vec<&str> = u.import_target.iter().map(|i| i.text.as_str()).collect();
         assert_eq!(target, vec!["Foo", "Bar"]);
+    }
+
+    #[test]
+    fn terminates_on_user_scenario() {
+        let src = r#"@0xa1;
+using import "file-b.capnp".WorkerInfo;
+interface Admin {
+    info @1 () -> (info: WorkerInfo);
+}
+"#;
+        let _ = parse(src); // must not hang
+    }
+
+    #[test]
+    fn terminates_on_half_typed_forms() {
+        // Each of these fragments has been observed or is plausible while
+        // the user is mid-edit. None should make the parser spin.
+        let snippets = [
+            "@0x1; using import",
+            "@0x1; using import \"",
+            "@0x1; using import \"x.capnp\"",
+            "@0x1; using import \"x.capnp\".",
+            "@0x1; using import \"x.capnp\".Foo",
+            "@0x1; struct S { f @0 :import; }",
+            "@0x1; struct S { f @0 :import \"x.capnp\"; }",
+            "@0x1; struct S { f @0 :import \"x.capnp\".; }",
+            "@0x1; interface I { foo @0 (",
+            "@0x1; interface I { foo @0 () ->",
+            "@0x1; interface I { foo @0 () -> (",
+            "@0x1; interface I { foo @0 () -> (info :",
+            "@0x1; interface I { foo @0 () -> (info :Foo",
+            "@0x1; interface I { foo @0 () -> Text; }",
+            "@0x1; interface I { foo @0 (a :Text, b :Int32 = 5) -> (r :Text); }",
+            "@0x1; interface I { foo @0 (a :import \"x\".T) -> (r :import \"y\".U); }",
+            "@0x1; }",
+            "@0x1; struct S { }  }",
+            "@0x1; interface I { foo @0 () -> (info :\n}",
+            "@0x1; interface I { foo @0 () -> (info :WorkerInfo\n}",
+        ];
+        for s in snippets {
+            let _ = parse(s);
+        }
     }
 
     #[test]
