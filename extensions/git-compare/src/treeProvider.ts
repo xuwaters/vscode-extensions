@@ -284,7 +284,7 @@ function groupMeta(group: GroupKind): {
         label: 'Changed Files',
         icon: 'diff',
         tooltip: 'All files differing between the working copy and the compared ref',
-        expanded: true,
+        expanded: false,
       };
   }
 }
