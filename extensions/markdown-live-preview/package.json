@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-live-preview",
   "displayName": "Markdown Live Preview",
   "description": "Obsidian-style live preview editor for Markdown files with source, read, and live preview modes",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "publisher": "weixu",
   "engines": {

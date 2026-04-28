@@ -2,7 +2,7 @@
   "name": "wx-vsce-base64-tools",
   "displayName": "Base64 Tools",
   "description": "Encode and decode Base64 of selected text in the VS Code editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "publisher": "weixu",
   "engines": {
