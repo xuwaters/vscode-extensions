@@ -277,14 +277,14 @@ function groupMeta(group: GroupKind): {
         label: 'Ahead',
         icon: 'arrow-up',
         tooltip: 'Files changed in commits HEAD has but the compared ref does not',
-        expanded: false,
+        expanded: true,
       };
     case 'changed':
       return {
         label: 'Changed Files',
         icon: 'diff',
         tooltip: 'All files differing between the working copy and the compared ref',
-        expanded: true,
+        expanded: false,
       };
   }
 }
