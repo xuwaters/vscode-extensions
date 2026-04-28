@@ -85,6 +85,9 @@ export interface Repository {
   readonly state: RepositoryState;
   diffWith(ref: string): Promise<Change[]>;
   diffWith(ref: string, path: string): Promise<string>;
+  diffBetween(ref1: string, ref2: string): Promise<Change[]>;
+  diffBetween(ref1: string, ref2: string, path: string): Promise<string>;
+  getMergeBase(ref1: string, ref2: string): Promise<string | undefined>;
   getCommit(ref: string): Promise<Commit>;
   show(ref: string, path: string): Promise<string>;
   getRefs?(query: RefQuery, cancellationToken?: vscode.CancellationToken): Promise<Ref[]>;

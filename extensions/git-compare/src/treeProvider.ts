@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { GitAPI, Repository } from './gitApi';
+import type { Change, GitAPI, Repository } from './gitApi';
 import {
   type FileEntry,
   type FileTreeNode,
@@ -13,11 +13,20 @@ import {
 } from './fileTree';
 import { CompareState, type ComparisonSelection } from './state';
 
+export type GroupKind = 'behind' | 'ahead' | 'changed';
+
+interface GroupData {
+  kind: GroupKind;
+  entries: FileEntry[];
+  tree: TreeNode[];
+}
+
 export type CompareNode =
   | { kind: 'choose' } // shown when no comparison selected — call to action
-  | { kind: 'root'; selection: ComparisonSelection; fileCount: number } // shown when a ref is selected
+  | { kind: 'root'; selection: ComparisonSelection } // shown when a ref is selected
   | { kind: 'message'; message: string }
-  | { kind: 'tree'; parent: ComparisonSelection; node: TreeNode };
+  | { kind: 'group'; selection: ComparisonSelection; group: GroupKind; fileCount: number }
+  | { kind: 'tree'; parent: ComparisonSelection; group: GroupKind; node: TreeNode };
 
 const FILE_CONTEXT = 'gitCompare.file';
 const ROOT_CONTEXT = 'gitCompare.root';
@@ -27,8 +36,7 @@ export class CompareTreeDataProvider implements vscode.TreeDataProvider<CompareN
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   private cachedSelection: ComparisonSelection | undefined;
-  private cachedEntries: FileEntry[] = [];
-  private cachedTree: TreeNode[] = [];
+  private cachedGroups: Record<GroupKind, GroupData> = emptyGroups();
   private cachedError: string | undefined;
   private loading = false;
 
@@ -56,19 +64,21 @@ export class CompareTreeDataProvider implements vscode.TreeDataProvider<CompareN
         return item;
       }
       case 'root': {
-        const { selection, fileCount } = node;
+        const { selection } = node;
         const repoName = pathBasename(selection.repoRoot);
         const item = new vscode.TreeItem(
           `Compare with: ${selection.label}`,
           vscode.TreeItemCollapsibleState.Expanded,
         );
-        item.description = `${fileCount} file${fileCount === 1 ? '' : 's'} changed`;
+        const total = this.cachedGroups.changed.entries.length;
+        item.description = `${total} file${total === 1 ? '' : 's'} changed`;
         item.iconPath = new vscode.ThemeIcon('git-compare');
         item.tooltip = `Comparing working copy in ${repoName} with ${selection.label} (${selection.ref})\nClick the pencil icon to pick a different ref.`;
-        // Expose a stable contextValue so the inline "change ref" icon hooks
-        // in via package.json's view/item/context contribution.
         item.contextValue = ROOT_CONTEXT;
         return item;
+      }
+      case 'group': {
+        return groupItem(node, this.cachedGroups[node.group]);
       }
       case 'message': {
         const item = new vscode.TreeItem(node.message, vscode.TreeItemCollapsibleState.None);
@@ -76,7 +86,7 @@ export class CompareTreeDataProvider implements vscode.TreeDataProvider<CompareN
         return item;
       }
       case 'tree': {
-        return treeNodeItem(node.node, node.parent);
+        return treeNodeItem(node.node, node.parent, node.group);
       }
     }
   }
@@ -84,7 +94,6 @@ export class CompareTreeDataProvider implements vscode.TreeDataProvider<CompareN
   async getChildren(element?: CompareNode): Promise<CompareNode[]> {
     if (!element) {
       if (this.gitApi.repositories.length === 0) {
-        // Returning empty lets the registered viewsWelcome message show.
         return [];
       }
       const selection = this.state.get();
@@ -96,30 +105,39 @@ export class CompareTreeDataProvider implements vscode.TreeDataProvider<CompareN
         return [{ kind: 'message', message: this.cachedError }];
       }
 
-      // Single root row that announces the current comparison and acts as
-      // the parent of the file tree — collapsing the previous two-row layout
-      // (chooser + header) into one self-describing item.
-      return [
-        {
-          kind: 'root',
-          selection,
-          fileCount: this.cachedEntries.length,
-        },
-      ];
+      return [{ kind: 'root', selection }];
     }
 
     if (element.kind === 'root') {
       if (this.loading) return [{ kind: 'message', message: 'Loading…' }];
-      if (this.cachedEntries.length === 0) {
-        return [{ kind: 'message', message: 'No differences' }];
+      const selection = element.selection;
+      const groups: GroupKind[] = ['behind', 'ahead', 'changed'];
+      return groups.map((g) => ({
+        kind: 'group',
+        selection,
+        group: g,
+        fileCount: this.cachedGroups[g].entries.length,
+      }));
+    }
+
+    if (element.kind === 'group') {
+      const data = this.cachedGroups[element.group];
+      if (data.entries.length === 0) {
+        return [{ kind: 'message', message: emptyMessage(element.group) }];
       }
-      return this.cachedTree.map((n) => ({ kind: 'tree', parent: element.selection, node: n }));
+      return data.tree.map((n) => ({
+        kind: 'tree',
+        parent: element.selection,
+        group: element.group,
+        node: n,
+      }));
     }
 
     if (element.kind === 'tree' && element.node.kind === 'folder') {
       return element.node.children.map((n) => ({
         kind: 'tree',
         parent: element.parent,
+        group: element.group,
         node: n,
       }));
     }
@@ -142,21 +160,28 @@ export class CompareTreeDataProvider implements vscode.TreeDataProvider<CompareN
       const repo = this.findRepo(selection.repoRoot);
       if (!repo) {
         this.cachedError = `Repository not found: ${selection.repoRoot}`;
-        this.cachedEntries = [];
-        this.cachedTree = [];
+        this.cachedGroups = emptyGroups();
         return;
       }
-      const changes = await repo.diffWith(selection.ref);
-      this.cachedEntries = buildFileEntries(changes, repo.rootUri);
+
       const compact = vscode.workspace
         .getConfiguration('gitCompare')
         .get<boolean>('compactFolders', true);
-      this.cachedTree = buildTree(this.cachedEntries, compact);
+
+      const [changedChanges, behindAhead] = await Promise.all([
+        repo.diffWith(selection.ref),
+        loadBehindAhead(repo, selection.ref),
+      ]);
+
+      this.cachedGroups = {
+        behind: makeGroup('behind', behindAhead.behind, repo.rootUri, compact),
+        ahead: makeGroup('ahead', behindAhead.ahead, repo.rootUri, compact),
+        changed: makeGroup('changed', changedChanges, repo.rootUri, compact),
+      };
       this.cachedSelection = selection;
     } catch (err) {
       this.cachedError = `Failed to compare with ${selection.ref}: ${(err as Error).message}`;
-      this.cachedEntries = [];
-      this.cachedTree = [];
+      this.cachedGroups = emptyGroups();
     } finally {
       this.loading = false;
     }
@@ -173,11 +198,117 @@ export class CompareTreeDataProvider implements vscode.TreeDataProvider<CompareN
   }
 }
 
-function treeNodeItem(node: TreeNode, parent: ComparisonSelection): vscode.TreeItem {
+function emptyGroups(): Record<GroupKind, GroupData> {
+  return {
+    behind: { kind: 'behind', entries: [], tree: [] },
+    ahead: { kind: 'ahead', entries: [], tree: [] },
+    changed: { kind: 'changed', entries: [], tree: [] },
+  };
+}
+
+function makeGroup(
+  kind: GroupKind,
+  changes: readonly Change[],
+  repoRoot: vscode.Uri,
+  compact: boolean,
+): GroupData {
+  const entries = buildFileEntries(changes, repoRoot);
+  const tree = buildTree(entries, compact);
+  return { kind, entries, tree };
+}
+
+// "Behind" and "Ahead" use triple-dot semantics relative to the merge-base —
+// so each side reflects the commits unique to that branch, not the full diff.
+// Falls back to empty lists if the histories are unrelated or the API is
+// unavailable.
+async function loadBehindAhead(
+  repo: Repository,
+  ref: string,
+): Promise<{ behind: Change[]; ahead: Change[] }> {
+  try {
+    const mergeBase = await repo.getMergeBase('HEAD', ref);
+    if (!mergeBase) return { behind: [], ahead: [] };
+    const [behind, ahead] = await Promise.all([
+      repo.diffBetween(mergeBase, ref),
+      repo.diffBetween(mergeBase, 'HEAD'),
+    ]);
+    return { behind, ahead };
+  } catch {
+    return { behind: [], ahead: [] };
+  }
+}
+
+function groupItem(
+  node: Extract<CompareNode, { kind: 'group' }>,
+  data: GroupData,
+): vscode.TreeItem {
+  const meta = groupMeta(node.group);
+  const collapsed =
+    data.entries.length === 0
+      ? vscode.TreeItemCollapsibleState.Collapsed
+      : meta.expanded
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.Collapsed;
+  const item = new vscode.TreeItem(meta.label, collapsed);
+  item.iconPath = new vscode.ThemeIcon(meta.icon);
+  const count = data.entries.length;
+  item.description = `${count} file${count === 1 ? '' : 's'}`;
+  item.tooltip = meta.tooltip;
+  item.contextValue = `gitCompare.group.${node.group}`;
+  return item;
+}
+
+function groupMeta(group: GroupKind): {
+  label: string;
+  icon: string;
+  tooltip: string;
+  expanded: boolean;
+} {
+  switch (group) {
+    case 'behind':
+      return {
+        label: 'Behind',
+        icon: 'arrow-down',
+        tooltip: 'Files changed in commits the compared ref has but HEAD does not',
+        expanded: false,
+      };
+    case 'ahead':
+      return {
+        label: 'Ahead',
+        icon: 'arrow-up',
+        tooltip: 'Files changed in commits HEAD has but the compared ref does not',
+        expanded: false,
+      };
+    case 'changed':
+      return {
+        label: 'Changed Files',
+        icon: 'diff',
+        tooltip: 'All files differing between the working copy and the compared ref',
+        expanded: true,
+      };
+  }
+}
+
+function emptyMessage(group: GroupKind): string {
+  switch (group) {
+    case 'behind':
+      return 'No incoming changes';
+    case 'ahead':
+      return 'No outgoing changes';
+    case 'changed':
+      return 'No differences';
+  }
+}
+
+function treeNodeItem(
+  node: TreeNode,
+  parent: ComparisonSelection,
+  group: GroupKind,
+): vscode.TreeItem {
   if (node.kind === 'folder') {
     return folderItem(node);
   }
-  return fileItem(node, parent);
+  return fileItem(node, parent, group);
 }
 
 function folderItem(node: FolderTreeNode): vscode.TreeItem {
@@ -188,18 +319,22 @@ function folderItem(node: FolderTreeNode): vscode.TreeItem {
   return item;
 }
 
-function fileItem(node: FileTreeNode, parent: ComparisonSelection): vscode.TreeItem {
+function fileItem(
+  node: FileTreeNode,
+  parent: ComparisonSelection,
+  group: GroupKind,
+): vscode.TreeItem {
   const entry = node.entry;
   const item = new vscode.TreeItem(node.segment, vscode.TreeItemCollapsibleState.None);
   item.resourceUri = entry.change.uri;
   item.description = describeStatus(entry);
-  item.tooltip = buildTooltip(entry, parent);
+  item.tooltip = buildTooltip(entry, parent, group);
   item.contextValue = FILE_CONTEXT;
   item.iconPath = vscode.ThemeIcon.File;
   item.command = {
     command: 'gitCompare.openDiff',
     title: 'Open Diff',
-    arguments: [{ entry, parent } satisfies FileNodePayload],
+    arguments: [{ entry, parent, group } satisfies FileNodePayload],
   };
   // VSCode colors decorations from the resourceUri, which would clash with the
   // git decoration provider; we keep our own status letter in `description`.
@@ -211,13 +346,24 @@ function fileItem(node: FileTreeNode, parent: ComparisonSelection): vscode.TreeI
   return item;
 }
 
-function buildTooltip(entry: FileEntry, parent: ComparisonSelection): string {
+function buildTooltip(entry: FileEntry, parent: ComparisonSelection, group: GroupKind): string {
   const lines = [
     `${entry.relPath}`,
     `${entry.originalRelPath ? `Renamed from ${entry.originalRelPath}` : statusName(entry)}`,
-    `Comparing with ${parent.label}`,
+    groupTooltipLine(group, parent),
   ];
   return lines.join('\n');
+}
+
+function groupTooltipLine(group: GroupKind, parent: ComparisonSelection): string {
+  switch (group) {
+    case 'behind':
+      return `Behind ${parent.label} (incoming)`;
+    case 'ahead':
+      return `Ahead of ${parent.label} (outgoing)`;
+    case 'changed':
+      return `Comparing with ${parent.label}`;
+  }
 }
 
 function statusName(entry: FileEntry): string {
@@ -235,4 +381,5 @@ function pathBasename(p: string): string {
 export interface FileNodePayload {
   entry: FileEntry;
   parent: ComparisonSelection;
+  group: GroupKind;
 }

@@ -55,13 +55,13 @@ function extractPayload(arg: Arg): FileNodePayload | undefined {
   if (!arg) return undefined;
   if (isFileNodePayload(arg)) return arg;
   if ('kind' in arg && arg.kind === 'tree' && arg.node.kind === 'file') {
-    return { entry: arg.node.entry, parent: arg.parent };
+    return { entry: arg.node.entry, parent: arg.parent, group: arg.group };
   }
   return undefined;
 }
 
 function isFileNodePayload(arg: object): arg is FileNodePayload {
-  return 'entry' in arg && 'parent' in arg;
+  return 'entry' in arg && 'parent' in arg && 'group' in arg;
 }
 
 async function chooseComparison(deps: CommandDeps): Promise<void> {
@@ -89,7 +89,7 @@ async function clearComparison(deps: CommandDeps): Promise<void> {
 }
 
 async function openDiff(arg: FileNodePayload, deps: CommandDeps): Promise<void> {
-  const { entry, parent } = arg;
+  const { entry, parent, group } = arg;
   const repo = findRepo(deps.api, parent.repoRoot);
   if (!repo) return;
 
@@ -97,18 +97,43 @@ async function openDiff(arg: FileNodePayload, deps: CommandDeps): Promise<void> 
   const originalUri = entry.change.originalUri ?? entry.change.uri;
   const status = entry.change.status;
 
-  // For added files the path doesn't exist at `ref`; for deleted files it
-  // doesn't exist in the working tree. In either case, point one side at our
-  // empty-content provider so the diff editor renders a clean "all added" /
-  // "all removed" view rather than failing.
-  const leftUri = isAddition(status)
-    ? emptyUri(entry.relPath, `not in ${parent.label}`)
-    : toGitUri(originalUri, parent.ref);
-  const rightUri = isDeletion(status)
-    ? emptyUri(entry.relPath, 'deleted')
-    : workingUri;
+  if (group === 'changed') {
+    // For added files the path doesn't exist at `ref`; for deleted files it
+    // doesn't exist in the working tree. In either case, point one side at our
+    // empty-content provider so the diff editor renders a clean "all added" /
+    // "all removed" view rather than failing.
+    const leftUri = isAddition(status)
+      ? emptyUri(entry.relPath, `not in ${parent.label}`)
+      : toGitUri(originalUri, parent.ref);
+    const rightUri = isDeletion(status) ? emptyUri(entry.relPath, 'deleted') : workingUri;
 
-  const title = buildDiffTitle(entry, parent);
+    const title = buildDiffTitle(entry, parent, group);
+    await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title, {
+      preview: true,
+      preserveFocus: false,
+    });
+    return;
+  }
+
+  // For behind/ahead, diff the merge-base against either the compared ref
+  // (behind) or HEAD (ahead) — that's the slice of history unique to that side.
+  const mergeBase = await repo.getMergeBase('HEAD', parent.ref);
+  if (!mergeBase) {
+    vscode.window.showInformationMessage(
+      `Git Compare: no common ancestor with ${parent.label}.`,
+    );
+    return;
+  }
+  const rightRef = group === 'behind' ? parent.ref : 'HEAD';
+  const rightLabel = group === 'behind' ? parent.label : 'HEAD';
+  const leftUri = isAddition(status)
+    ? emptyUri(entry.relPath, 'not in common ancestor')
+    : toGitUri(originalUri, mergeBase);
+  const rightUri = isDeletion(status)
+    ? emptyUri(entry.relPath, `not in ${rightLabel}`)
+    : toGitUri(workingUri, rightRef);
+
+  const title = buildDiffTitle(entry, parent, group);
   await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title, {
     preview: true,
     preserveFocus: false,
@@ -116,16 +141,35 @@ async function openDiff(arg: FileNodePayload, deps: CommandDeps): Promise<void> 
 }
 
 async function openAtRevision(arg: FileNodePayload, deps: CommandDeps): Promise<void> {
-  const { entry, parent } = arg;
+  const { entry, parent, group } = arg;
   const status = entry.change.status;
-  if (isAddition(status)) {
+
+  // For "ahead" the right-hand revision is HEAD; otherwise it's the compared
+  // ref. The user wants to see the file at whichever side of the comparison
+  // contains it.
+  const targetRef = group === 'ahead' ? 'HEAD' : parent.ref;
+  const targetLabel = group === 'ahead' ? 'HEAD' : parent.label;
+
+  // For "changed" the left side is the compared ref, so additions in the
+  // working tree won't exist there. For behind/ahead, the right side is the
+  // tip — deletions are the ones that won't exist at the tip.
+  const missingAtTarget =
+    group === 'changed' ? isAddition(status) : isDeletion(status);
+  if (missingAtTarget) {
     vscode.window.showInformationMessage(
-      `Git Compare: ${entry.relPath} does not exist at ${parent.label}.`,
+      `Git Compare: ${entry.relPath} does not exist at ${targetLabel}.`,
     );
     return;
   }
-  const sourceUri = entry.change.originalUri ?? entry.change.uri;
-  const sourceRel = entry.originalRelPath ?? entry.relPath;
+  // For "changed" the target is the *left* (older) side of the diff, so a
+  // rename means the file lives at its original path. For behind/ahead the
+  // target is the right (newer) side, where the renamed file is at its
+  // current path.
+  const useOriginal = group === 'changed';
+  const sourceUri = useOriginal
+    ? (entry.change.originalUri ?? entry.change.uri)
+    : entry.change.uri;
+  const sourceRel = useOriginal ? (entry.originalRelPath ?? entry.relPath) : entry.relPath;
 
   // Defensive: if the path really isn't reachable at the ref (e.g. a stale
   // status from a concurrent edit), fall back to a friendly message rather
@@ -133,10 +177,10 @@ async function openAtRevision(arg: FileNodePayload, deps: CommandDeps): Promise<
   const repo = findRepo(deps.api, parent.repoRoot);
   if (repo) {
     try {
-      await repo.show(parent.ref, sourceUri.fsPath);
+      await repo.show(targetRef, sourceUri.fsPath);
     } catch {
       vscode.window.showInformationMessage(
-        `Git Compare: ${entry.relPath} could not be read at ${parent.label}.`,
+        `Git Compare: ${entry.relPath} could not be read at ${targetLabel}.`,
       );
       return;
     }
@@ -155,10 +199,10 @@ async function openAtRevision(arg: FileNodePayload, deps: CommandDeps): Promise<
   // the tab title (vscode.open sometimes rewrites the label).
   const uri = buildRefUri({
     repoRoot: parent.repoRoot,
-    ref: parent.ref,
+    ref: targetRef,
     filePath: sourceUri.fsPath,
     relPath: sourceRel,
-    label: parent.label,
+    label: targetLabel,
   });
   const doc = await vscode.workspace.openTextDocument(uri);
   if (languageId && languageId !== doc.languageId) {
@@ -208,12 +252,20 @@ function findRepo(api: GitAPI, repoRoot: string): Repository | undefined {
   return api.repositories.find((r) => r.rootUri.fsPath === repoRoot);
 }
 
-function buildDiffTitle(entry: FileEntry, parent: ComparisonSelection): string {
+function buildDiffTitle(
+  entry: FileEntry,
+  parent: ComparisonSelection,
+  group: import('./treeProvider').GroupKind,
+): string {
   const name = baseName(entry.relPath);
-  if (entry.originalRelPath) {
-    return `${baseName(entry.originalRelPath)} (${parent.label}) ↔ ${name}`;
+  if (group === 'changed') {
+    if (entry.originalRelPath) {
+      return `${baseName(entry.originalRelPath)} (${parent.label}) ↔ ${name}`;
+    }
+    return `${name} (${parent.label}) ↔ ${name}`;
   }
-  return `${name} (${parent.label}) ↔ ${name}`;
+  const rightLabel = group === 'behind' ? parent.label : 'HEAD';
+  return `${name} (merge-base) ↔ ${name} (${rightLabel})`;
 }
 
 function baseName(relPath: string): string {
