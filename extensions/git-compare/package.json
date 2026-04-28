@@ -2,7 +2,7 @@
   "name": "wx-vsce-git-compare",
   "displayName": "Git Compare",
   "description": "Compare the working copy with any branch, tag, or commit. Per-file diff tree in the Source Control sidebar — no stacked-changes editor.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "publisher": "weixu",
   "engines": {

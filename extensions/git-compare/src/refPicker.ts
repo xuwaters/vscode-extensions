@@ -28,30 +28,41 @@ export async function pickRef(repo: Repository): Promise<RefPickResult | undefin
   qp.matchOnDescription = true;
   qp.matchOnDetail = true;
   qp.busy = true;
-  qp.items = [
-    {
-      label: '$(edit) Enter commit-ish…',
-      description: 'Branch, tag, or commit SHA',
-      enterCommitish: true,
-    },
-  ];
+  let items: RefQuickPickItem[] = [makeEnterItem(qp.value)];
+  qp.items = items;
+
+  const refreshEnterItem = (): void => {
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].enterCommitish) {
+        items[i] = makeEnterItem(qp.value);
+        qp.items = items;
+        return;
+      }
+    }
+  };
 
   const result = new Promise<RefPickResult | undefined>((resolve) => {
     let resolved = false;
-    qp.onDidAccept(() => {
-      const picked = qp.activeItems[0];
-      if (!picked) return;
+    const finish = (value: RefPickResult | undefined): void => {
       resolved = true;
       qp.hide();
-      if (picked.enterCommitish) {
-        void promptCommitish().then(resolve);
+      resolve(value);
+    };
+    qp.onDidChangeValue(() => refreshEnterItem());
+    qp.onDidAccept(() => {
+      const picked = qp.activeItems[0];
+      const typed = qp.value.trim();
+      if (picked?.enterCommitish) {
+        if (typed) finish({ ref: typed, label: typed });
+        else void promptCommitish().then(finish);
         return;
       }
-      if (picked.ref) {
-        resolve({ ref: picked.ref, label: stripIcon(picked.label) });
+      if (picked?.ref) {
+        finish({ ref: picked.ref, label: stripIcon(picked.label) });
         return;
       }
-      resolve(undefined);
+      // No item highlighted but user typed something — treat as commit-ish.
+      if (typed) finish({ ref: typed, label: typed });
     });
     qp.onDidHide(() => {
       if (!resolved) resolve(undefined);
@@ -63,8 +74,9 @@ export async function pickRef(repo: Repository): Promise<RefPickResult | undefin
 
   try {
     const refs = await collectRefs(repo);
-    qp.items = buildItems(refs, headName);
-    qp.placeholder = 'Select a branch, tag, or commit to compare against';
+    items = buildItems(refs, headName, qp.value);
+    qp.items = items;
+    qp.placeholder = 'Select a branch, tag, or commit — or type a SHA / branch name';
   } catch (err) {
     qp.placeholder = `Failed to list refs: ${(err as Error).message}`;
   } finally {
@@ -72,6 +84,24 @@ export async function pickRef(repo: Repository): Promise<RefPickResult | undefin
   }
 
   return result;
+}
+
+function makeEnterItem(typed: string): RefQuickPickItem {
+  const v = typed.trim();
+  if (v) {
+    return {
+      label: `$(arrow-right) Use "${v}"`,
+      description: 'Compare against this branch, tag, or commit SHA',
+      enterCommitish: true,
+      alwaysShow: true,
+    };
+  }
+  return {
+    label: '$(edit) Enter commit-ish…',
+    description: 'Type a branch, tag, or commit SHA',
+    enterCommitish: true,
+    alwaysShow: true,
+  };
 }
 
 async function collectRefs(repo: Repository): Promise<Ref[]> {
@@ -116,7 +146,11 @@ function refKey(r: Ref): string | undefined {
   return `${r.type}:${r.name}`;
 }
 
-function buildItems(refs: readonly Ref[], headName: string | undefined): RefQuickPickItem[] {
+function buildItems(
+  refs: readonly Ref[],
+  headName: string | undefined,
+  typed: string,
+): RefQuickPickItem[] {
   const buckets: { label: string; items: RefQuickPickItem[] }[] = [];
 
   const upstreamItems: RefQuickPickItem[] = [];
@@ -169,11 +203,7 @@ function buildItems(refs: readonly Ref[], headName: string | undefined): RefQuic
     items.push(...bucket.items);
   }
   items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
-  items.push({
-    label: '$(edit) Enter commit-ish…',
-    description: 'Branch, tag, or commit SHA',
-    enterCommitish: true,
-  });
+  items.push(makeEnterItem(typed));
   return items;
 }
 
