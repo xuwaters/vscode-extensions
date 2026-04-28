@@ -31,9 +31,6 @@ export function registerCommands(
     vscode.commands.registerCommand('gitCompare.openFile', (arg) =>
       withPayload(arg, (p) => openFile(p)),
     ),
-    vscode.commands.registerCommand('gitCompare.openOnRemote', (arg) =>
-      withPayload(arg, (p) => openOnRemote(p)),
-    ),
   );
 }
 
@@ -235,17 +232,6 @@ async function openFile(arg: FileNodePayload): Promise<void> {
   // `vscode.open` opens any file URI as a normal text editor — same behavior
   // as clicking the file in the Explorer.
   await vscode.commands.executeCommand('vscode.open', uri, { preview: false });
-}
-
-async function openOnRemote(arg: FileNodePayload): Promise<void> {
-  const uri = arg.entry.change.uri;
-  try {
-    await vscode.commands.executeCommand('git.openFileOnRemote', uri);
-  } catch (err) {
-    vscode.window.showErrorMessage(
-      `Git Compare: could not open on remote — ${(err as Error).message}`,
-    );
-  }
 }
 
 function findRepo(api: GitAPI, repoRoot: string): Repository | undefined {
