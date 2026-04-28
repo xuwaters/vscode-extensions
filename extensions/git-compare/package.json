@@ -1,0 +1,179 @@
+{
+  "name": "wx-vsce-git-compare",
+  "displayName": "Git Compare",
+  "description": "Compare the working copy with any branch, tag, or commit. Per-file diff tree in the Source Control sidebar — no stacked-changes editor.",
+  "version": "0.2.2",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "activationEvents": [
+    "onView:gitCompare.view"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "views": {
+      "scm": [
+        {
+          "id": "gitCompare.view",
+          "name": "Compare With",
+          "icon": "$(git-compare)",
+          "contextualTitle": "Git Compare"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "gitCompare.view",
+        "contents": "No Git repository was found in this workspace.\n[Refresh](command:gitCompare.refresh)",
+        "when": "!gitCompare.hasRepo"
+      }
+    ],
+    "commands": [
+      {
+        "command": "gitCompare.choose",
+        "title": "Compare With…",
+        "category": "Git Compare",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "gitCompare.refresh",
+        "title": "Refresh",
+        "category": "Git Compare",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gitCompare.clear",
+        "title": "Clear Comparison",
+        "category": "Git Compare",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "gitCompare.openDiff",
+        "title": "Open Diff",
+        "category": "Git Compare",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "gitCompare.openAtRevision",
+        "title": "Open File at Revision",
+        "category": "Git Compare",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "gitCompare.openFile",
+        "title": "Open File",
+        "category": "Git Compare",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "gitCompare.openOnRemote",
+        "title": "Open File on Remote",
+        "category": "Git Compare",
+        "icon": "$(globe)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "gitCompare.openDiff",
+          "when": "false"
+        },
+        {
+          "command": "gitCompare.openAtRevision",
+          "when": "false"
+        },
+        {
+          "command": "gitCompare.openFile",
+          "when": "false"
+        },
+        {
+          "command": "gitCompare.openOnRemote",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gitCompare.choose",
+          "when": "view == gitCompare.view",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitCompare.refresh",
+          "when": "view == gitCompare.view",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gitCompare.clear",
+          "when": "view == gitCompare.view && gitCompare.hasComparison",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "gitCompare.choose",
+          "when": "view == gitCompare.view && viewItem == gitCompare.root",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitCompare.clear",
+          "when": "view == gitCompare.view && viewItem == gitCompare.root",
+          "group": "inline@2"
+        },
+        {
+          "command": "gitCompare.openAtRevision",
+          "when": "view == gitCompare.view && viewItem == gitCompare.file",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitCompare.openFile",
+          "when": "view == gitCompare.view && viewItem == gitCompare.file",
+          "group": "inline@2"
+        },
+        {
+          "command": "gitCompare.openOnRemote",
+          "when": "view == gitCompare.view && viewItem == gitCompare.file",
+          "group": "inline@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Git Compare",
+      "properties": {
+        "gitCompare.compactFolders": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collapse single-child folders in the changed-file tree, like the Explorer's compactFolders setting."
+        },
+        "gitCompare.refreshOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refresh the changed-file list when the user saves a document. Disable for very large repositories."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build"
+  }
+}
