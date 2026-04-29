@@ -167,9 +167,9 @@ crates/cli-completions/                       # MIT
 │   ├── lib.rs                                # public API surface
 │   ├── format.rs                             # blob format constants, version, magic
 │   ├── reader.rs                             # zero-copy decode of a blob
+│   ├── writer.rs                             # Builder — encodes a blob from directives
 │   ├── matcher.rs                            # prefix matching over the entry list
-│   ├── types.rs                              # CompletionEntry, MatchKind, EntryFlags, …
-│   └── installer.rs                          # register a blob (data crate calls this)
+│   └── types.rs                              # CompletionEntry, MatchKind, EntryFlags, …
 └── tests/
     ├── reader_tests.rs                       # decode synthetic blobs
     └── matcher_tests.rs                      # prefix / subcommand-path matching
@@ -715,7 +715,7 @@ truncated, the items are sorted sensibly, `Tab` accepts.
 | Phase | Deliverable | Done when |
 |-------|-------------|-----------|
 | 0 | This RFC merged | Accepted (2026-04-29); license path = two-crate split (§11.1) |
-| 1 | `cli-completions` skeleton | Crate compiles, empty database, public API stable, all tests in §12.1 wired |
+| 1 | `cli-completions` skeleton | **Done 2026-04-29.** Crate compiles, empty database, public API stable, 26 tests passing. Encoder lives in `writer.rs` (instead of `installer.rs`) so the format owner ships both directions of the codec. |
 | 2 | Fish snapshot vendored | `data/fish-snapshot/` populated; `cargo xtask sync-fish` works; LICENSE bundled |
 | 3 | Build pipeline | `cargo build` produces `completions.bin`; build-determinism CI check green |
 | 4 | Runtime decoder + query | `query(["curl"], "--an")` returns `--anyauth` end-to-end; criterion bench in place |
