@@ -1,0 +1,15 @@
+[package]
+name = "cli-completions"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Static command-line completions database — runtime decoder and packed blob format"
+license = "MIT"
+
+[lib]
+
+[dependencies]
+# none — std-only
+
+[dev-dependencies]
+insta = "1"
+pretty_assertions = "1"
