@@ -1,0 +1,19 @@
+[package]
+name = "cli-completions-data-fish"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Static command-line completions database — fish-shell snapshot"
+license = "GPL-2.0-or-later"
+build = "build.rs"
+
+[lib]
+
+[dependencies]
+cli-completions = { path = "../cli-completions" }
+
+[build-dependencies]
+cli-completions = { path = "../cli-completions" }
+
+[dev-dependencies]
+insta = "1"
+pretty_assertions = "1"

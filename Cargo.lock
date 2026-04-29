@@ -98,6 +98,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-completions-data-fish"
+version = "0.1.0"
+dependencies = [
+ "cli-completions",
+ "insta",
+ "pretty_assertions",
+]
+
+[[package]]
 name = "codespan-reporting"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
