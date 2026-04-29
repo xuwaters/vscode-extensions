@@ -289,3 +289,73 @@ fn truncated_blob_after_header_rejected() {
     let err = CompletionsDb::from_bytes(truncated).unwrap_err();
     matches!(err, FormatError::OutOfBounds { .. });
 }
+
+#[test]
+fn query_arg_values_returns_filtered_static_values() {
+    let mut b = Builder::new();
+    b.add(DirectiveInput {
+        command: "tar",
+        short: None,
+        long: Some("format"),
+        description: Some("set the archive format"),
+        flags: EntryFlags::default(),
+        subcommand_path: &[],
+        arg_values: &["gnu", "pax", "ustar", "oldgnu", "posix"],
+    });
+    let blob = b.build();
+    let db = CompletionsDb::from_bytes(&blob).unwrap();
+
+    let all = db.query_arg_values(&["tar"], "--format", "");
+    let labels: Vec<_> = all.iter().map(|m| m.label.as_ref()).collect();
+    assert_eq!(labels, vec!["gnu", "oldgnu", "pax", "posix", "ustar"]);
+    assert!(all.iter().all(|m| m.kind == MatchKind::ArgValue));
+
+    let filtered = db.query_arg_values(&["tar"], "--format", "p");
+    let labels: Vec<_> = filtered.iter().map(|m| m.label.as_ref()).collect();
+    assert_eq!(labels, vec!["pax", "posix"]);
+
+    // Unknown option returns empty.
+    let none = db.query_arg_values(&["tar"], "--bogus", "");
+    assert!(none.is_empty());
+}
+
+#[test]
+fn query_arg_values_respects_subcommand_path() {
+    // Two commands with the same long flag at different depths; each has
+    // its own arg_values list. The query at a specific subcommand path
+    // should return only that subset.
+    let mut b = Builder::new();
+    b.add(DirectiveInput {
+        command: "git",
+        short: None,
+        long: Some("output"),
+        description: None,
+        flags: EntryFlags::default(),
+        subcommand_path: &[],
+        arg_values: &["json", "yaml"],
+    });
+    b.add(DirectiveInput {
+        command: "git",
+        short: None,
+        long: Some("output"),
+        description: None,
+        flags: EntryFlags::default(),
+        subcommand_path: &["log"],
+        arg_values: &["short", "full"],
+    });
+    let blob = b.build();
+    let db = CompletionsDb::from_bytes(&blob).unwrap();
+
+    // At top-level, only the [] entry's values apply.
+    let top = db.query_arg_values(&["git"], "--output", "");
+    let mut labels: Vec<_> = top.iter().map(|m| m.label.as_ref()).collect();
+    labels.sort();
+    assert_eq!(labels, vec!["json", "yaml"]);
+
+    // Inside `git log`, both entries apply (the `[]` entry is a prefix
+    // of `["log"]` so it still matches).
+    let log = db.query_arg_values(&["git", "log"], "--output", "");
+    let mut labels: Vec<_> = log.iter().map(|m| m.label.as_ref()).collect();
+    labels.sort();
+    assert_eq!(labels, vec!["full", "json", "short", "yaml"]);
+}

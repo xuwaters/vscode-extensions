@@ -100,11 +100,28 @@ pub fn completions(
     }
 
     let path_refs: Vec<&str> = path.iter().map(String::as_str).collect();
+
+    // `--name=val` shape: the active token contains an `=`. Switch to
+    // arg-value completion against the named option.
+    if let Some((option_label, value_prefix)) = split_option_value(&active) {
+        return db
+            .query_arg_values(&path_refs, option_label, value_prefix)
+            .into_iter()
+            .take(MAX_RESULTS)
+            .map(|m| CompletionItem {
+                label: m.label.clone().into_owned(),
+                detail: m.description.map(trim_description),
+                kind: m.kind.into(),
+                insert_text: m.label.into_owned(),
+            })
+            .collect();
+    }
+
     db.query(&path_refs, &active)
         .take(MAX_RESULTS)
         .map(|m| CompletionItem {
             label: m.label.clone().into_owned(),
-            detail: m.description.map(str::to_owned),
+            detail: m.description.map(trim_description),
             kind: m.kind.into(),
             insert_text: m.label.into_owned(),
         })
@@ -387,6 +404,50 @@ fn is_plain_subcommand(s: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
 }
 
+/// Detect the `--name=value-prefix` shape of an active token.
+///
+/// Returns `(option_label, value_prefix)` if the token starts with a
+/// dash and contains an `=`; otherwise `None`. Both pieces are slices
+/// of the input.
+fn split_option_value(active: &str) -> Option<(&str, &str)> {
+    if !active.starts_with('-') {
+        return None;
+    }
+    let (head, tail) = active.split_once('=')?;
+    Some((head, tail))
+}
+
+/// Cap a description for editor display: keep the first sentence (cut
+/// at `". "`) and trim to a hard limit. Fish descriptions are usually
+/// already terse, but a few are verbose enough to overflow the
+/// CompletionItem detail line in VSCode.
+const DESCRIPTION_HARD_LIMIT: usize = 120;
+
+fn trim_description(raw: &str) -> String {
+    let raw = raw.trim();
+    let first_sentence = match raw.find(". ") {
+        Some(i) => &raw[..i + 1],
+        None => raw,
+    };
+    if first_sentence.len() <= DESCRIPTION_HARD_LIMIT {
+        return first_sentence.to_owned();
+    }
+    // Try to break on the last word boundary inside the limit.
+    let cut = first_sentence
+        .char_indices()
+        .take_while(|(i, _)| *i <= DESCRIPTION_HARD_LIMIT)
+        .last()
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let cut = first_sentence[..cut]
+        .rfind(' ')
+        .map(|i| i)
+        .unwrap_or(cut);
+    let mut out = first_sentence[..cut].trim_end().to_owned();
+    out.push('…');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,6 +489,27 @@ mod tests {
             flags: EntryFlags::default(),
             subcommand_path: &["remote"],
             arg_values: &[],
+        });
+        // git: `remote` and `rebase` subcommand markers (entries under
+        // those subcommands) so subcommand-name completion has data.
+        b.add(DirectiveInput {
+            command: "git",
+            short: None,
+            long: Some("interactive"),
+            description: None,
+            flags: EntryFlags::default(),
+            subcommand_path: &["rebase"],
+            arg_values: &[],
+        });
+        // tar: --format with static enum values.
+        b.add(DirectiveInput {
+            command: "tar",
+            short: None,
+            long: Some("format"),
+            description: Some("set the archive format"),
+            flags: EntryFlags::from_bits(EntryFlags::REQUIRES_ARG | EntryFlags::NO_FILES),
+            subcommand_path: &[],
+            arg_values: &["gnu", "pax", "ustar", "oldgnu", "posix"],
         });
         b.build()
     }
@@ -525,6 +607,55 @@ mod tests {
     fn shell_tokeniser_quotes() {
         let toks = shell_tokenise("curl 'a b' --x");
         assert_eq!(toks, vec!["curl".to_owned(), "a b".to_owned(), "--x".to_owned()]);
+    }
+
+    #[test]
+    fn subcommand_name_completion() {
+        // `git re|` should surface subcommand names `rebase` and `remote`.
+        let src = "build:\n\tgit re\n";
+        let labels = complete_at(src, 1, 6);
+        assert!(labels.contains(&"rebase".to_owned()));
+        assert!(labels.contains(&"remote".to_owned()));
+    }
+
+    #[test]
+    fn arg_value_completion_via_equals() {
+        // `tar --format=g|` should complete `gnu`.
+        let src = "build:\n\ttar --format=g\n";
+        // line 1: "\ttar --format=g" — 15 chars; cursor at end (col=15).
+        let labels = complete_at(src, 1, 15);
+        assert_eq!(labels, vec!["gnu".to_owned()]);
+    }
+
+    #[test]
+    fn arg_value_completion_empty_value_returns_all() {
+        let src = "build:\n\ttar --format=\n";
+        // line 1: "\ttar --format=" — 14 chars; cursor at end (col=14).
+        let labels = complete_at(src, 1, 14);
+        assert_eq!(labels, vec!["gnu", "oldgnu", "pax", "posix", "ustar"]);
+    }
+
+    #[test]
+    fn split_option_value_helpers() {
+        assert_eq!(split_option_value("--format="), Some(("--format", "")));
+        assert_eq!(split_option_value("--format=g"), Some(("--format", "g")));
+        assert_eq!(split_option_value("-O=2"), Some(("-O", "2")));
+        assert_eq!(split_option_value("--ver"), None);
+        assert_eq!(split_option_value("plain=foo"), None);
+    }
+
+    #[test]
+    fn description_trim_keeps_first_sentence() {
+        let s = trim_description("Be loud. Lots of detail follows here.");
+        assert_eq!(s, "Be loud.");
+    }
+
+    #[test]
+    fn description_trim_caps_long_text() {
+        let raw = "a ".repeat(80);
+        let s = trim_description(&raw);
+        assert!(s.ends_with('…'));
+        assert!(s.chars().count() < raw.chars().count());
     }
 
     #[test]

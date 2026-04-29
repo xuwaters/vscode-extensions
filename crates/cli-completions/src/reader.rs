@@ -21,12 +21,10 @@ pub struct CompletionsDb<'data> {
     entries_off: usize,
     entries_count: usize,
     path_idx_off: usize,
-    // Held for bounds-checking and future arg-value iteration (RFC §13 phase 6).
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Bounds-tracked for header validation only.
     path_idx_count: usize,
-    #[allow(dead_code)]
     args_idx_off: usize,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Bounds-tracked for header validation only.
     args_idx_count: usize,
     pool_a_off: usize,
     pool_a_len: usize,
@@ -120,6 +118,11 @@ impl<'data> CompletionsDb<'data> {
     /// `path[0]` is the top-level command; the remainder is the
     /// subcommand chain the cursor is in.
     ///
+    /// The iterator's mode is selected by `prefix`:
+    /// - leading `-` → option matches (long / short flags).
+    /// - non-empty, non-`-` → subcommand-name matches.
+    /// - empty → subcommand matches first, then option matches.
+    ///
     /// Returns an empty iterator if `path` is empty, the command is
     /// unknown, or no entry passes both the path and prefix filters.
     pub fn query<'a>(&'a self, path: &'a [&'a str], prefix: &'a str) -> CompletionIter<'a, 'data> {
@@ -131,13 +134,145 @@ impl<'data> CompletionsDb<'data> {
             Some(c) => (c.entries_idx, c.entries_count),
             None => (0, 0),
         };
+        let query_subpath: &'a [&'a str] = if path.is_empty() { &[] } else { &path[1..] };
+
+        let do_options = prefix.starts_with('-') || prefix.is_empty();
+        let do_subcommands = !prefix.starts_with('-');
+
+        let queued = if do_subcommands {
+            self.collect_subcommands(entries_idx, entries_count, query_subpath, prefix)
+        } else {
+            Vec::new()
+        };
+
         CompletionIter {
             db: self,
-            next_entry: entries_idx,
+            queued,
+            queued_index: 0,
+            next_entry: if do_options { entries_idx } else { entries_idx + entries_count },
             end_entry: entries_idx + entries_count,
-            query_subpath: if path.is_empty() { &[] } else { &path[1..] },
+            query_subpath,
             prefix,
         }
+    }
+
+    /// Iterate over `arg_values` registered for `option_label` under
+    /// `path`. `option_label` is the user-visible flag form (e.g.
+    /// `"--format"` or `"-f"`); `value_prefix` is whatever the user has
+    /// typed after the `=` sign so far.
+    ///
+    /// Use this to surface enum-style values: `tar --format=g` →
+    /// `gnu`, `--gnu`-derivatives, etc.
+    pub fn query_arg_values<'a>(
+        &'a self,
+        path: &'a [&'a str],
+        option_label: &str,
+        value_prefix: &str,
+    ) -> Vec<CompletionMatch<'data>> {
+        let Some(cmd_idx) = path.first().and_then(|c| self.find_command(c)) else {
+            return Vec::new();
+        };
+        let cmd = self.read_command(cmd_idx);
+        let query_subpath: &[&str] = if path.is_empty() { &[] } else { &path[1..] };
+
+        let mut out: Vec<CompletionMatch<'data>> = Vec::new();
+        let mut seen: Vec<u32> = Vec::new();
+
+        for i in 0..cmd.entries_count {
+            let entry = self.read_entry(cmd.entries_idx + i);
+            if !self.read_path(&entry).applies_to(query_subpath) {
+                continue;
+            }
+            if !self.entry_label_matches(&entry, option_label) {
+                continue;
+            }
+            if entry.args_count == 0 {
+                continue;
+            }
+            for j in 0..entry.args_count {
+                let off = self.read_args_idx_slot(entry.args_idx + j);
+                if seen.contains(&off) {
+                    continue;
+                }
+                let label = self.read_pool_b(off);
+                if !crate::matcher::matches_prefix(label, value_prefix) {
+                    continue;
+                }
+                seen.push(off);
+                out.push(CompletionMatch {
+                    kind: MatchKind::ArgValue,
+                    label: Cow::Borrowed(label),
+                    description: None,
+                    flags: EntryFlags::from_bits(entry.flags),
+                });
+            }
+        }
+        out.sort_by(|a, b| a.label.cmp(&b.label));
+        out
+    }
+
+    fn entry_label_matches(&self, entry: &EntryRec, option_label: &str) -> bool {
+        if let Some(rest) = option_label.strip_prefix("--") {
+            if entry.long_off != 0 {
+                let long = self.read_pool_b(entry.long_off);
+                return long.strip_prefix("--").map_or(long == rest, |s| s == rest);
+            }
+            return false;
+        }
+        if let Some(rest) = option_label.strip_prefix('-') {
+            if rest.len() == 1 && entry.short != 0 {
+                return entry.short == rest.as_bytes()[0];
+            }
+        }
+        false
+    }
+
+    fn collect_subcommands(
+        &self,
+        entries_idx: u32,
+        entries_count: u32,
+        query_subpath: &[&str],
+        prefix: &str,
+    ) -> Vec<CompletionMatch<'data>> {
+        let mut out: Vec<CompletionMatch<'data>> = Vec::new();
+        let mut seen: Vec<u32> = Vec::new();
+
+        for i in 0..entries_count {
+            let entry = self.read_entry(entries_idx + i);
+            let entry_path_len = entry.path_len as usize;
+            if entry_path_len <= query_subpath.len() {
+                continue;
+            }
+            // Verify the entry's path prefix matches `query_subpath`.
+            let mut ok = true;
+            for j in 0..query_subpath.len() {
+                let off = self.read_path_idx_slot(entry.path_idx + j as u32);
+                if self.read_pool_b(off) != query_subpath[j] {
+                    ok = false;
+                    break;
+                }
+            }
+            if !ok {
+                continue;
+            }
+            let cand_off = self.read_path_idx_slot(entry.path_idx + query_subpath.len() as u32);
+            if seen.contains(&cand_off) {
+                continue;
+            }
+            let label = self.read_pool_b(cand_off);
+            if !crate::matcher::matches_prefix(label, prefix) {
+                continue;
+            }
+            seen.push(cand_off);
+            out.push(CompletionMatch {
+                kind: MatchKind::Subcommand,
+                label: Cow::Borrowed(label),
+                description: None,
+                flags: EntryFlags::default(),
+            });
+        }
+        out.sort_by(|a, b| a.label.cmp(&b.label));
+        out
     }
 
     // -- internals -----------------------------------------------------
@@ -216,6 +351,11 @@ impl<'data> CompletionsDb<'data> {
         let off = self.path_idx_off + (slot as usize) * 4;
         read_u32(self.blob, off)
     }
+
+    fn read_args_idx_slot(&self, slot: u32) -> u32 {
+        let off = self.args_idx_off + (slot as usize) * 4;
+        read_u32(self.blob, off)
+    }
 }
 
 #[derive(Debug)]
@@ -233,9 +373,7 @@ struct EntryRec {
     path_idx: u32,
     long_off: u32,
     desc_off: u32,
-    #[allow(dead_code)]
     args_idx: u32,
-    #[allow(dead_code)]
     args_count: u32,
 }
 
@@ -278,8 +416,16 @@ impl<'a, 'data> SubcommandPath<'a, 'data> {
 }
 
 /// Iterator over `query` matches.
+///
+/// Drains a small queue of pre-collected subcommand matches first
+/// (deduplicated and prefix-filtered at construction time), then walks
+/// entries lazily for option matches. Construction-time work is
+/// `O(N_entries)` only when the prefix admits subcommands; the option
+/// walk remains `O(N_entries)` lazily across calls.
 pub struct CompletionIter<'a, 'data> {
     db: &'a CompletionsDb<'data>,
+    queued: Vec<CompletionMatch<'data>>,
+    queued_index: usize,
     next_entry: u32,
     end_entry: u32,
     query_subpath: &'a [&'a str],
@@ -290,6 +436,14 @@ impl<'a, 'data: 'a> Iterator for CompletionIter<'a, 'data> {
     type Item = CompletionMatch<'data>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Drain queued subcommand matches first (constructed at query()
+        // time and pre-sorted alphabetically).
+        if self.queued_index < self.queued.len() {
+            let i = self.queued_index;
+            self.queued_index += 1;
+            return Some(self.queued[i].clone());
+        }
+
         while self.next_entry < self.end_entry {
             let entry = self.db.read_entry(self.next_entry);
             self.next_entry += 1;
@@ -303,28 +457,16 @@ impl<'a, 'data: 'a> Iterator for CompletionIter<'a, 'data> {
                 continue;
             }
 
-            // Phase 1 only emits long/short option matches. Subcommand
-            // and arg-value matches are RFC §13 phase 6 polish.
-            let prefix_starts_dash = self.prefix.starts_with('-') || self.prefix.is_empty();
-            if !prefix_starts_dash {
-                continue;
-            }
-
             let description = if entry.desc_off == 0 {
                 None
             } else {
                 Some(self.db.read_pool_c(entry.desc_off))
             };
 
-            // Try long first, then short. We yield the first one that
-            // matches the prefix; the second match (if any) is queued
-            // by re-reading the same entry on the next iteration.
-            //
-            // For phase 1 simplicity we always yield only one match per
-            // call, walking past the entry once both labels are tried.
-            // In practice an entry rarely has both forms matching the
-            // same prefix (e.g. prefix "--" excludes shorts entirely),
-            // so the simple one-shot model is fine.
+            // Try long first, then short. We emit the first label that
+            // matches the prefix; in practice an entry rarely has both
+            // forms matching the same prefix (e.g. prefix "--" excludes
+            // shorts entirely), so the simple one-shot model is fine.
             if entry.long_off != 0 {
                 let label = self.db.read_pool_b(entry.long_off);
                 if matches_prefix(label, self.prefix) {
