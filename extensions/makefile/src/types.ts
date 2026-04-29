@@ -30,6 +30,15 @@ export interface AnalyzerFoldingRange {
   kind: string;
 }
 
+export type AnalyzerCompletionKind = 'Long' | 'Short' | 'ArgValue' | 'Subcommand';
+
+export interface AnalyzerCompletionItem {
+  label: string;
+  detail: string | null;
+  kind: AnalyzerCompletionKind;
+  insert_text: string;
+}
+
 export interface WasmAnalyzerCtor {
   new (): WasmAnalyzer;
 }
@@ -40,6 +49,7 @@ export interface WasmAnalyzer {
   diagnostics(uri: string): string;
   document_symbols(uri: string): string;
   folding_ranges(uri: string): string;
+  complete(uri: string, line: number, col: number): string;
 }
 
 export interface WasmModule {

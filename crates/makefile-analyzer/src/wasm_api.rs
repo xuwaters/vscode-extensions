@@ -2,9 +2,10 @@
 //! so the TypeScript host can treat the module as "JSON in, JSON out".
 
 use crate::diagnostics::{MakeDiagnostic, Severity};
-use crate::features::{document_symbols, folding};
+use crate::features::{completion, document_symbols, folding};
 use crate::spans::{LineCol, SpanTable};
 use crate::vfs::{FileUri, Workspace};
+use cli_completions_data_fish as fish_completions;
 use serde::Serialize;
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
@@ -87,6 +88,17 @@ impl Analyzer {
             .into_iter()
             .map(|s| to_lsp_symbol(s, &pf.source, &pf.spans))
             .collect();
+        serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn complete(&self, uri: &str, line: u32, col: u32) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else {
+            return "[]".into();
+        };
+        let db = fish_completions::embedded();
+        let items = completion::completions(pf, LineCol { line, col }, db);
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
     }
 

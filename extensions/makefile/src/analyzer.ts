@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import type {
+  AnalyzerCompletionItem,
   AnalyzerDiagnostic,
   AnalyzerDocumentSymbol,
   AnalyzerFoldingRange,
@@ -72,6 +73,15 @@ export class AnalyzerBridge {
     if (!this.analyzer) return [];
     try {
       return JSON.parse(this.analyzer.folding_ranges(uri)) as AnalyzerFoldingRange[];
+    } catch {
+      return [];
+    }
+  }
+
+  complete(uri: string, line: number, col: number): AnalyzerCompletionItem[] {
+    if (!this.analyzer) return [];
+    try {
+      return JSON.parse(this.analyzer.complete(uri, line, col)) as AnalyzerCompletionItem[];
     } catch {
       return [];
     }

@@ -13,6 +13,8 @@ wasm-bindgen = "0.2"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 console_error_panic_hook = "0.1"
+cli-completions = { path = "../cli-completions" }
+cli-completions-data-fish = { path = "../cli-completions-data-fish" }
 
 [dev-dependencies]
 insta = "1"

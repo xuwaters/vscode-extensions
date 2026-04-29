@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { AnalyzerBridge } from './analyzer';
 import { refreshDiagnostics } from './diagnostics';
+import { MakefileCompletionProvider } from './providers/completion';
 import { MakefileDocumentSymbolProvider } from './providers/documentSymbol';
 import { MakefileFoldingRangeProvider } from './providers/foldingRange';
 
@@ -20,6 +21,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.languages.registerFoldingRangeProvider(
       MAKEFILE_SELECTOR,
       new MakefileFoldingRangeProvider(bridge),
+    ),
+    vscode.languages.registerCompletionItemProvider(
+      MAKEFILE_SELECTOR,
+      new MakefileCompletionProvider(bridge),
+      '-',
+      ' ',
     ),
   );
 
