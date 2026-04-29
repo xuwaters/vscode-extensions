@@ -113,6 +113,55 @@ impl<'data> CompletionsDb<'data> {
         self.find_command(command).is_some()
     }
 
+    /// Snapshot the entire database into owned vectors of borrowed views,
+    /// for inspection / debugging / dumping. Walks every command and
+    /// every entry, allocating `O(commands + entries + paths + args)`.
+    /// All strings still borrow from the underlying blob.
+    ///
+    /// For query-time work prefer [`Self::query`] / [`Self::query_arg_values`].
+    pub fn dump_all(&self) -> Vec<DumpCommand<'data>> {
+        let mut out = Vec::with_capacity(self.cmds_count);
+        for i in 0..self.cmds_count {
+            let cmd = self.read_command(i);
+            let name = self.read_str(self.pool_a_off, self.pool_a_len, cmd.name_off);
+            let mut entries = Vec::with_capacity(cmd.entries_count as usize);
+            for j in 0..cmd.entries_count {
+                let e = self.read_entry(cmd.entries_idx + j);
+                let short = if e.short == 0 { None } else { Some(e.short as char) };
+                let long = if e.long_off == 0 {
+                    None
+                } else {
+                    Some(self.read_pool_b(e.long_off))
+                };
+                let description = if e.desc_off == 0 {
+                    None
+                } else {
+                    Some(self.read_pool_c(e.desc_off))
+                };
+                let mut subcommand_path = Vec::with_capacity(e.path_len as usize);
+                for k in 0..e.path_len as u32 {
+                    let off = self.read_path_idx_slot(e.path_idx + k);
+                    subcommand_path.push(self.read_pool_b(off));
+                }
+                let mut arg_values = Vec::with_capacity(e.args_count as usize);
+                for k in 0..e.args_count {
+                    let off = self.read_args_idx_slot(e.args_idx + k);
+                    arg_values.push(self.read_pool_b(off));
+                }
+                entries.push(DumpEntry {
+                    short,
+                    long,
+                    description,
+                    flags: EntryFlags::from_bits(e.flags),
+                    subcommand_path,
+                    arg_values,
+                });
+            }
+            out.push(DumpCommand { name, entries });
+        }
+        out
+    }
+
     /// Iterate over completion matches for `path` and `prefix`.
     ///
     /// `path[0]` is the top-level command; the remainder is the
@@ -356,6 +405,33 @@ impl<'data> CompletionsDb<'data> {
         let off = self.args_idx_off + (slot as usize) * 4;
         read_u32(self.blob, off)
     }
+}
+
+/// Snapshot of one command's full set of entries, returned by
+/// [`CompletionsDb::dump_all`]. All strings borrow from the blob.
+#[derive(Debug, Clone)]
+pub struct DumpCommand<'a> {
+    /// Command name (e.g. `"curl"`).
+    pub name: &'a str,
+    /// Every entry registered against this command, in storage order.
+    pub entries: Vec<DumpEntry<'a>>,
+}
+
+/// Snapshot of a single entry, returned as part of [`DumpCommand`].
+#[derive(Debug, Clone)]
+pub struct DumpEntry<'a> {
+    /// Short option byte (e.g. `Some('v')` for `-v`), if any.
+    pub short: Option<char>,
+    /// Long option label including dashes (e.g. `"--verbose"`), if any.
+    pub long: Option<&'a str>,
+    /// Description string from the source completion file, if any.
+    pub description: Option<&'a str>,
+    /// Bit-flags for this entry.
+    pub flags: EntryFlags,
+    /// Subcommand path the entry applies under (empty for top-level).
+    pub subcommand_path: Vec<&'a str>,
+    /// Static argument values associated with this option.
+    pub arg_values: Vec<&'a str>,
 }
 
 #[derive(Debug)]

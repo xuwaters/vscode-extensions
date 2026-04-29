@@ -41,6 +41,6 @@ pub mod types;
 pub mod writer;
 
 pub use format::{MAGIC, VERSION};
-pub use reader::{CompletionIter, CompletionsDb};
+pub use reader::{CompletionIter, CompletionsDb, DumpCommand, DumpEntry};
 pub use types::{CompletionMatch, EntryFlags, FormatError, MatchKind};
 pub use writer::{Builder, DirectiveInput};
