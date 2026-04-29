@@ -41,6 +41,12 @@ pub struct CompletionItem {
     /// distinct so future versions can append `=` for `REQUIRES_ARG`
     /// flags or trailing space for subcommands.
     pub insert_text: String,
+    /// Number of UTF-16 code units immediately before the cursor that
+    /// the editor should replace when accepting this item. VSCode's
+    /// default word-pattern range excludes leading dashes, so without
+    /// this hint accepting `--head` after typing `--hea` would replace
+    /// only `hea` and produce `----head`.
+    pub replace_length: u32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -104,6 +110,7 @@ pub fn completions(
     // `--name=val` shape: the active token contains an `=`. Switch to
     // arg-value completion against the named option.
     if let Some((option_label, value_prefix)) = split_option_value(&active) {
+        let replace_length = utf16_len(value_prefix);
         return db
             .query_arg_values(&path_refs, option_label, value_prefix)
             .into_iter()
@@ -113,10 +120,12 @@ pub fn completions(
                 detail: m.description.map(trim_description),
                 kind: m.kind.into(),
                 insert_text: m.label.into_owned(),
+                replace_length,
             })
             .collect();
     }
 
+    let replace_length = utf16_len(&active);
     db.query(&path_refs, &active)
         .take(MAX_RESULTS)
         .map(|m| CompletionItem {
@@ -124,8 +133,13 @@ pub fn completions(
             detail: m.description.map(trim_description),
             kind: m.kind.into(),
             insert_text: m.label.into_owned(),
+            replace_length,
         })
         .collect()
+}
+
+fn utf16_len(s: &str) -> u32 {
+    s.encode_utf16().count() as u32
 }
 
 /// Walk the AST and return a recipe-line whose source span contains
@@ -519,13 +533,17 @@ mod tests {
     }
 
     fn complete_at(src: &str, line: u32, col: u32) -> Vec<String> {
+        complete_items(src, line, col)
+            .into_iter()
+            .map(|i| i.label)
+            .collect()
+    }
+
+    fn complete_items(src: &str, line: u32, col: u32) -> Vec<CompletionItem> {
         let blob = fixture_db();
         let db = CompletionsDb::from_bytes(&blob).unwrap();
         let parsed = parse_fixture(src);
         completions(&parsed, LineCol { line, col }, &db)
-            .into_iter()
-            .map(|i| i.label)
-            .collect()
     }
 
     #[test]
@@ -633,6 +651,39 @@ mod tests {
         // line 1: "\ttar --format=" — 14 chars; cursor at end (col=14).
         let labels = complete_at(src, 1, 14);
         assert_eq!(labels, vec!["gnu", "oldgnu", "pax", "posix", "ustar"]);
+    }
+
+    #[test]
+    fn replace_length_covers_typed_long_option_prefix() {
+        // Regression: `curl --any<TAB>` used to expand to `----anyauth`
+        // because VSCode's default replacement range excludes the
+        // leading dashes — it would replace only the word `any`, leaving
+        // the original `--` in place. The analyzer must report a
+        // replace_length covering the whole `--any` so the editor
+        // overwrites it.
+        let src = "build:\n\tcurl --any\n";
+        // "\tcurl --any" — cursor at end (col=11).
+        let items = complete_items(src, 1, 11);
+        let anyauth = items.iter().find(|i| i.label == "--anyauth");
+        assert!(anyauth.is_some(), "expected --anyauth in completions");
+        // `--any` is 5 UTF-16 code units long.
+        assert_eq!(anyauth.unwrap().replace_length, 5);
+        // And the empty-prefix case still reports zero so freshly typed
+        // tokens aren't accidentally chewed into.
+        let empty = complete_items("build:\n\tcurl \n", 1, 6);
+        assert!(!empty.is_empty());
+        assert!(empty.iter().all(|i| i.replace_length == 0));
+    }
+
+    #[test]
+    fn replace_length_for_arg_value_skips_option_label() {
+        // `tar --format=g|`: replace_length should cover only the value
+        // prefix `g` (1), not the whole `--format=g` token, since we're
+        // replacing the value with `gnu` — not rewriting the option.
+        let src = "build:\n\ttar --format=g\n";
+        let items = complete_items(src, 1, 15);
+        assert!(!items.is_empty());
+        assert!(items.iter().all(|i| i.replace_length == 1));
     }
 
     #[test]

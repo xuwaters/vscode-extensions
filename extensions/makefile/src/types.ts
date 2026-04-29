@@ -37,6 +37,7 @@ export interface AnalyzerCompletionItem {
   detail: string | null;
   kind: AnalyzerCompletionKind;
   insert_text: string;
+  replace_length: number;
 }
 
 export interface WasmAnalyzerCtor {

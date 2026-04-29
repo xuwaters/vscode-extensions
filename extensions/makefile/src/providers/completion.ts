@@ -19,16 +19,25 @@ export class MakefileCompletionProvider implements vscode.CompletionItemProvider
     const uri = document.uri.toString();
     this.bridge.updateFile(uri, document.getText());
     const items = this.bridge.complete(uri, position.line, position.character);
-    return items.map(toVsCodeItem);
+    return items.map((item) => toVsCodeItem(item, position));
   }
 }
 
-function toVsCodeItem(item: AnalyzerCompletionItem): vscode.CompletionItem {
+function toVsCodeItem(
+  item: AnalyzerCompletionItem,
+  position: vscode.Position,
+): vscode.CompletionItem {
   const kind = KIND_MAP[item.kind] ?? vscode.CompletionItemKind.Text;
   const ci = new vscode.CompletionItem(item.label, kind);
   if (item.detail) {
     ci.detail = item.detail;
   }
   ci.insertText = item.insert_text;
+  // Pin the replacement range to what the analyzer reports. VSCode's
+  // default word range excludes leading dashes, so without this an
+  // option like `--head` accepted on top of a typed `--hea` would
+  // replace only `hea` and produce `----head`.
+  const start = position.translate(0, -item.replace_length);
+  ci.range = new vscode.Range(start, position);
   return ci;
 }
