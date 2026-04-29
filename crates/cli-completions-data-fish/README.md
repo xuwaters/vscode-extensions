@@ -30,5 +30,13 @@ SHA-256 of the generated blob. The sync workflow lives outside this crate
 ## License
 
 GPL-2.0-or-later — fish-shell is GPL-2-or-later, and the redistributed
-.fish files inherit those terms. See `LICENSE` for the full text and
-RFC 005 §11 for the design rationale behind the two-crate split.
+.fish files inherit those terms.
+
+- `LICENSE` — full text of the GNU General Public License, version 2
+  (the SPDX-canonical `GPL-2.0-only` text; the "or-later" form simply
+  means downstream users may upgrade to a later GPL version).
+- `LICENSE-fish` — fish-shell's own COPYING notice, retained for
+  attribution.
+
+See RFC 005 §11 for the design rationale behind the two-crate split
+that keeps the runtime crate (`cli-completions`) MIT-licensed.
