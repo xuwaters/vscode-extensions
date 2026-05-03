@@ -48,6 +48,10 @@ temp
 # sqlx — keep \`.sqlx/\` committed per RFC 0012 (offline query data)
 # but ignore the tmp cache directory
 .sqlx-cache
+*.db
+
+# Python
+__pycache__
 `;
 
 const NODE = `# Dependencies
