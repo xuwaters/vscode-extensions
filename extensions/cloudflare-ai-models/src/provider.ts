@@ -12,13 +12,14 @@ import { isSSEDone, parseSSE } from './sse.js';
 import { estimateMessageTokens, estimateTokens } from './tokens.js';
 import { resolveChatCompletionsUrl } from './url.js';
 
-export const VENDOR = 'wx-openai-compat';
+export const VENDOR = 'wx-cloudflare-ai';
 
-interface OAIModelInfo extends vscode.LanguageModelChatInformation {
+interface CloudflareModelInfo extends vscode.LanguageModelChatInformation {
   readonly _config: ModelConfig;
+  readonly isUserSelectable?: boolean;
 }
 
-export class OAICompatChatProvider implements vscode.LanguageModelChatProvider<OAIModelInfo> {
+export class CloudflareAIChatProvider implements vscode.LanguageModelChatProvider<CloudflareModelInfo> {
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
 
@@ -31,12 +32,12 @@ export class OAICompatChatProvider implements vscode.LanguageModelChatProvider<O
   async provideLanguageModelChatInformation(
     options: vscode.PrepareLanguageModelChatModelOptions,
     _token: vscode.CancellationToken,
-  ): Promise<OAIModelInfo[]> {
+  ): Promise<CloudflareModelInfo[]> {
     const cfg = readConfig();
     if (!cfg.url) {
       if (!options.silent) {
         void vscode.window.showWarningMessage(
-          'OpenAI Compatible: set wxOpenAICompat.url and wxOpenAICompat.models in settings, or run "Add Cloudflare Workers AI Preset".',
+          'Cloudflare AI: set wxCloudflareAi.url and wxCloudflareAi.models in settings, or run "Add Cloudflare AI Gateway Preset".',
         );
       }
       return [];
@@ -44,7 +45,7 @@ export class OAICompatChatProvider implements vscode.LanguageModelChatProvider<O
     if (cfg.models.length === 0) {
       if (!options.silent) {
         void vscode.window.showWarningMessage(
-          'OpenAI Compatible: configure at least one entry in wxOpenAICompat.models.',
+          'Cloudflare AI: configure at least one entry in wxCloudflareAi.models.',
         );
       }
       return [];
@@ -53,7 +54,7 @@ export class OAICompatChatProvider implements vscode.LanguageModelChatProvider<O
   }
 
   async provideLanguageModelChatResponse(
-    model: OAIModelInfo,
+    model: CloudflareModelInfo,
     messages: readonly vscode.LanguageModelChatRequestMessage[],
     options: vscode.ProvideLanguageModelChatResponseOptions,
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
@@ -63,13 +64,13 @@ export class OAICompatChatProvider implements vscode.LanguageModelChatProvider<O
     const apiKey = await getApiKey(this.secrets);
     if (!apiKey) {
       throw new Error(
-        'OpenAI Compatible: API key not set. Run the "OpenAI Compatible: Set API Key" command.',
+        'Cloudflare AI: API key not set. Run the "Cloudflare AI: Set API Key" command.',
       );
     }
 
     const baseUrl = effectiveModelUrl(model._config, cfg.url);
     if (!baseUrl) {
-      throw new Error('OpenAI Compatible: no URL configured for this model.');
+      throw new Error('Cloudflare AI: no URL configured for this model.');
     }
     const endpoint = resolveChatCompletionsUrl(baseUrl);
     const headers: Record<string, string> = {
@@ -100,7 +101,7 @@ export class OAICompatChatProvider implements vscode.LanguageModelChatProvider<O
       const text = await safeReadText(res);
       cancelSub.dispose();
       throw new Error(
-        `OpenAI Compatible: ${res.status} ${res.statusText} from ${endpoint}${text ? ` — ${truncate(text, 500)}` : ''}`,
+        `Cloudflare AI: ${res.status} ${res.statusText} from ${endpoint}${text ? ` — ${truncate(text, 500)}` : ''}`,
       );
     }
 
@@ -134,7 +135,7 @@ export class OAICompatChatProvider implements vscode.LanguageModelChatProvider<O
   }
 
   async provideTokenCount(
-    _model: OAIModelInfo,
+    _model: CloudflareModelInfo,
     text: string | vscode.LanguageModelChatRequestMessage,
     _token: vscode.CancellationToken,
   ): Promise<number> {
@@ -158,7 +159,7 @@ interface ChatCompletionStreamChunk {
   }>;
 }
 
-function toModelInfo(m: ModelConfig): OAIModelInfo {
+function toModelInfo(m: ModelConfig): CloudflareModelInfo {
   return {
     id: m.id,
     name: m.name ?? m.id,
@@ -170,6 +171,10 @@ function toModelInfo(m: ModelConfig): OAIModelInfo {
       imageInput: m.vision === true,
       toolCalling: m.toolCalling === true,
     },
+    // Show the model in the Copilot Chat model picker by default. Field is on
+    // the proposed `chatProvider` API but VS Code reads it off the returned
+    // object regardless, so it works on stable too.
+    isUserSelectable: true,
     _config: m,
   };
 }
@@ -200,11 +205,11 @@ function rewrapError(err: unknown, endpoint: string): Error {
     return new vscode.CancellationError();
   }
   const msg = err instanceof Error ? err.message : String(err);
-  return new Error(`OpenAI Compatible: request to ${endpoint} failed — ${msg}`);
+  return new Error(`Cloudflare AI: request to ${endpoint} failed — ${msg}`);
 }
 
 function cryptoRandomId(): string {
   return `call_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export type { OAIModelInfo, ProviderConfig };
+export type { CloudflareModelInfo, ProviderConfig };

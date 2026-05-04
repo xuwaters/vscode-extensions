@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 
 export { effectiveModelUrl, mergeHeaders } from './headers.js';
 
-export const CONFIG_SECTION = 'wxOpenAICompat';
-export const SECRET_API_KEY = 'wxOpenAICompat.apiKey';
+export const CONFIG_SECTION = 'wxCloudflareAi';
+export const SECRET_API_KEY = 'wxCloudflareAi.apiKey';
 
 export interface ModelConfig {
   id: string;

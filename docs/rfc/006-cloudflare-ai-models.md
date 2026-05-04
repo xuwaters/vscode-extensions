@@ -1,8 +1,8 @@
-# RFC 006: `openai-compat-models` — User-Configured OpenAI-Compatible Model Provider
+# RFC 006: `cloudflare-ai-models` — User-Configured OpenAI-Compatible Model Provider
 
 **Status**: Draft
 **Date**: 2026-05-03
-**Extension name**: `wx-vsce-openai-compat-models`
+**Extension name**: `wx-vsce-cloudflare-ai-models`
 **Primary motivating endpoint**: Cloudflare Workers AI Gateway (OpenAI-compatible)
 **Primary motivating model**: `@cf/moonshotai/kimi-k2.6`
 
@@ -129,7 +129,7 @@ This RFC proposes shipping that extension.
 ### 3.1 Anatomy
 
 ```
-extensions/openai-compat-models/
+extensions/cloudflare-ai-models/
   package.json              # name, contributes.languageModelChatProviders
   src/
     extension.ts            # activate(): register provider
@@ -379,7 +379,7 @@ package, not as `/tmp` scratch scripts.
 ## 8. Resolved Decisions
 
 1. **Single extension with presets.** Ship one
-   `wx-vsce-openai-compat-models`, not per-gateway extensions. Presets
+   `wx-vsce-cloudflare-ai-models`, not per-gateway extensions. Presets
    handle gateway-specific ergonomics; users get one install point and
    one settings block.
 2. **Curated model list, free-form fallback.** The Cloudflare preset

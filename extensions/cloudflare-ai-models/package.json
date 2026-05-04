@@ -1,8 +1,8 @@
 {
-  "name": "wx-vsce-openai-compat-models",
-  "displayName": "OpenAI Compatible (Custom)",
-  "description": "Register user-configured OpenAI-compatible chat models (Cloudflare Workers AI, vLLM, LiteLLM, Together, Groq, etc.) as language models that any LM-aware extension can call.",
-  "version": "0.2.0",
+  "name": "wx-vsce-cloudflare-ai-models",
+  "displayName": "Cloudflare AI Models",
+  "description": "Register Cloudflare Workers AI / AI Gateway models (Kimi K2.6, Qwen3, etc.) as language models that any LM-aware extension — including GitHub Copilot Chat — can call. Built on the OpenAI-compatible REST shape, so self-hosted vLLM/LiteLLM/Together/Groq endpoints also work.",
+  "version": "0.3.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -18,50 +18,50 @@
   "contributes": {
     "languageModelChatProviders": [
       {
-        "vendor": "wx-openai-compat",
-        "displayName": "OpenAI Compatible (Custom)"
+        "vendor": "wx-cloudflare-ai",
+        "displayName": "Cloudflare AI"
       }
     ],
     "commands": [
       {
-        "command": "wx-openai-compat.addCloudflarePreset",
-        "title": "Add Cloudflare Workers AI Preset",
-        "category": "OpenAI Compatible"
+        "command": "wx-cloudflare-ai.addCloudflarePreset",
+        "title": "Add Cloudflare AI Gateway Preset",
+        "category": "Cloudflare AI"
       },
       {
-        "command": "wx-openai-compat.setApiKey",
+        "command": "wx-cloudflare-ai.setApiKey",
         "title": "Set API Key",
-        "category": "OpenAI Compatible"
+        "category": "Cloudflare AI"
       },
       {
-        "command": "wx-openai-compat.clearApiKey",
+        "command": "wx-cloudflare-ai.clearApiKey",
         "title": "Clear API Key",
-        "category": "OpenAI Compatible"
+        "category": "Cloudflare AI"
       },
       {
-        "command": "wx-openai-compat.refreshModels",
+        "command": "wx-cloudflare-ai.refreshModels",
         "title": "Refresh Models",
-        "category": "OpenAI Compatible"
+        "category": "Cloudflare AI"
       }
     ],
     "configuration": {
-      "title": "OpenAI Compatible (Custom)",
+      "title": "Cloudflare AI Models",
       "properties": {
-        "wxOpenAICompat.url": {
+        "wxCloudflareAi.url": {
           "type": "string",
           "default": "",
-          "markdownDescription": "OpenAI-compatible base URL.\n\n- For Cloudflare Workers AI: `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`\n- For self-hosted vLLM/LiteLLM: `https://your-host/v1`\n\nIf the URL ends in `/v\\d+` (e.g. `/v1`, `/v2`), `/chat/completions` is appended. If the URL already contains `/chat/completions` or `/responses`, it is used as-is."
+          "markdownDescription": "Cloudflare AI Gateway endpoint URL.\n\n- AI Gateway (recommended): `https://gateway.ai.cloudflare.com/v1/<ACCOUNT_ID>/<GATEWAY_ID>/compat`\n- Workers AI direct: `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`\n- Self-hosted vLLM/LiteLLM: `https://your-host/v1`\n\nIf the URL ends in `/v\\d+` (e.g. `/v1`, `/v2`), `/chat/completions` is appended. If the URL already contains `/chat/completions` or `/responses`, it is used as-is."
         },
-        "wxOpenAICompat.requestHeaders": {
+        "wxCloudflareAi.requestHeaders": {
           "type": "object",
           "default": {},
           "additionalProperties": { "type": "string" },
           "markdownDescription": "Additional HTTP headers to include with every request. Per-model `requestHeaders` override these. `Authorization` and `Content-Type` are always managed by the extension and cannot be overridden."
         },
-        "wxOpenAICompat.models": {
+        "wxCloudflareAi.models": {
           "type": "array",
           "default": [],
-          "markdownDescription": "List of models served by the configured endpoint. The API key is stored in VS Code's SecretStorage — set it with the `OpenAI Compatible: Set API Key` command.",
+          "markdownDescription": "List of models served by the configured endpoint. The API key is stored in VS Code's SecretStorage — set it with the `Cloudflare AI: Set API Key` command.",
           "items": {
             "type": "object",
             "required": ["id"],
@@ -101,7 +101,7 @@
               "requestHeaders": {
                 "type": "object",
                 "additionalProperties": { "type": "string" },
-                "description": "Per-model HTTP headers, merged on top of wxOpenAICompat.requestHeaders."
+                "description": "Per-model HTTP headers, merged on top of wxCloudflareAi.requestHeaders."
               }
             }
           }

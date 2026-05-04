@@ -75,7 +75,7 @@ export async function runCloudflarePreset(secrets: vscode.SecretStorage): Promis
   await setApiKey(secrets, apiToken.trim());
 
   void vscode.window.showInformationMessage(
-    `OpenAI Compatible: Cloudflare preset configured (${picked.length} model${picked.length === 1 ? '' : 's'}).`,
+    `Cloudflare AI: preset configured (${picked.length} model${picked.length === 1 ? '' : 's'}).`,
   );
 }
 

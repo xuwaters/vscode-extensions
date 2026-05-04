@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import { CONFIG_SECTION, clearApiKey, setApiKey } from './config.js';
 import { runCloudflarePreset } from './presets.js';
-import { OAICompatChatProvider, VENDOR } from './provider.js';
+import { CloudflareAIChatProvider, VENDOR } from './provider.js';
 
 export function activate(context: vscode.ExtensionContext): void {
-  const provider = new OAICompatChatProvider(context.secrets);
+  const provider = new CloudflareAIChatProvider(context.secrets);
   context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider(VENDOR, provider));
 
   context.subscriptions.push(
@@ -16,19 +16,19 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('wx-openai-compat.addCloudflarePreset', async () => {
+    vscode.commands.registerCommand('wx-cloudflare-ai.addCloudflarePreset', async () => {
       try {
         await runCloudflarePreset(context.secrets);
         provider.fireChange();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        void vscode.window.showErrorMessage(`OpenAI Compatible: preset failed — ${msg}`);
+        void vscode.window.showErrorMessage(`Cloudflare AI: preset failed — ${msg}`);
       }
     }),
 
-    vscode.commands.registerCommand('wx-openai-compat.setApiKey', async () => {
+    vscode.commands.registerCommand('wx-cloudflare-ai.setApiKey', async () => {
       const value = await vscode.window.showInputBox({
-        title: 'OpenAI Compatible — API Key',
+        title: 'Cloudflare AI — API Key',
         prompt: 'API key sent as Bearer token. Stored in VS Code SecretStorage.',
         password: true,
         ignoreFocusOut: true,
@@ -37,16 +37,16 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!value) return;
       await setApiKey(context.secrets, value.trim());
       provider.fireChange();
-      void vscode.window.showInformationMessage('OpenAI Compatible: API key saved.');
+      void vscode.window.showInformationMessage('Cloudflare AI: API key saved.');
     }),
 
-    vscode.commands.registerCommand('wx-openai-compat.clearApiKey', async () => {
+    vscode.commands.registerCommand('wx-cloudflare-ai.clearApiKey', async () => {
       await clearApiKey(context.secrets);
       provider.fireChange();
-      void vscode.window.showInformationMessage('OpenAI Compatible: API key cleared.');
+      void vscode.window.showInformationMessage('Cloudflare AI: API key cleared.');
     }),
 
-    vscode.commands.registerCommand('wx-openai-compat.refreshModels', () => {
+    vscode.commands.registerCommand('wx-cloudflare-ai.refreshModels', () => {
       provider.fireChange();
     }),
   );
