@@ -2,7 +2,7 @@
   "name": "wx-vsce-openai-compat-models",
   "displayName": "OpenAI Compatible (Custom)",
   "description": "Register user-configured OpenAI-compatible chat models (Cloudflare Workers AI, vLLM, LiteLLM, Together, Groq, etc.) as language models that any LM-aware extension can call.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "publisher": "weixu",
   "engines": {

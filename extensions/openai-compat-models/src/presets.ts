@@ -15,7 +15,7 @@ interface CuratedModel {
 
 const CURATED: CuratedModel[] = [
   {
-    id: '@cf/moonshotai/kimi-k2.6',
+    id: 'workers-ai/@cf/moonshotai/kimi-k2.6',
     name: 'Kimi K2.6 (Cloudflare)',
     family: 'kimi-k2',
     maxInputTokens: 262_144,
@@ -24,7 +24,7 @@ const CURATED: CuratedModel[] = [
     vision: false,
   },
   {
-    id: '@cf/qwen/qwen3-30b-a3b-fp8',
+    id: 'workers-ai/@cf/qwen/qwen3-30b-a3b-fp8',
     name: 'Qwen3 30B (Cloudflare)',
     family: 'qwen3',
     maxInputTokens: 32_768,
