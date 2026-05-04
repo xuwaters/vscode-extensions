@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { CONFIG_SECTION, setApiKey, type ModelConfig } from './config.js';
 
-const CLOUDFLARE_URL_TEMPLATE = 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1';
+const CLOUDFLARE_URL_PLACEHOLDER =
+  'https://gateway.ai.cloudflare.com/v1/<ACCOUNT_ID>/<GATEWAY_ID>/compat';
 
 interface CuratedModel {
   id: string;
@@ -42,13 +43,14 @@ const FREEFORM_DEFAULTS = {
 };
 
 export async function runCloudflarePreset(secrets: vscode.SecretStorage): Promise<void> {
-  const accountId = await vscode.window.showInputBox({
-    title: 'Cloudflare Account ID',
-    prompt: 'The 32-character ID from your Cloudflare dashboard URL.',
+  const gatewayUrl = await vscode.window.showInputBox({
+    title: 'Cloudflare AI Gateway Endpoint URL',
+    prompt: `e.g. ${CLOUDFLARE_URL_PLACEHOLDER}`,
+    placeHolder: CLOUDFLARE_URL_PLACEHOLDER,
     ignoreFocusOut: true,
-    validateInput: v => (v.trim() ? undefined : 'Account ID is required'),
+    validateInput: validateGatewayUrl,
   });
-  if (!accountId) return;
+  if (!gatewayUrl) return;
 
   const apiToken = await vscode.window.showInputBox({
     title: 'Cloudflare API Token',
@@ -62,7 +64,7 @@ export async function runCloudflarePreset(secrets: vscode.SecretStorage): Promis
   const picked = await pickModels();
   if (!picked || picked.length === 0) return;
 
-  const baseUrl = CLOUDFLARE_URL_TEMPLATE.replace('{ACCOUNT_ID}', accountId.trim());
+  const baseUrl = gatewayUrl.trim().replace(/\/+$/, '');
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
 
   const existing = (cfg.get<unknown[]>('models') ?? []) as ModelConfig[];
@@ -75,6 +77,21 @@ export async function runCloudflarePreset(secrets: vscode.SecretStorage): Promis
   void vscode.window.showInformationMessage(
     `OpenAI Compatible: Cloudflare preset configured (${picked.length} model${picked.length === 1 ? '' : 's'}).`,
   );
+}
+
+function validateGatewayUrl(value: string): string | undefined {
+  const v = value.trim();
+  if (!v) return 'Gateway URL is required';
+  let parsed: URL;
+  try {
+    parsed = new URL(v);
+  } catch {
+    return 'Enter a valid URL (https://…)';
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return 'URL must start with http(s)://';
+  }
+  return undefined;
 }
 
 async function pickModels(): Promise<ModelConfig[] | undefined> {
