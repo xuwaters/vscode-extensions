@@ -121,10 +121,11 @@ async function pickModels(): Promise<ModelConfig[] | undefined> {
         ignoreFocusOut: true,
         validateInput: v => (v.trim() ? undefined : 'Model id is required'),
       });
-      if (id?.trim()) {
+      const normalized = id ? normalizeModelId(id) : '';
+      if (normalized) {
         out.push({
-          id: id.trim(),
-          name: id.trim(),
+          id: normalized,
+          name: normalized,
           ...FREEFORM_DEFAULTS,
         });
       }
@@ -133,9 +134,20 @@ async function pickModels(): Promise<ModelConfig[] | undefined> {
   return out;
 }
 
+function normalizeModelId(id: string): string {
+  const trimmed = id.trim();
+  if (trimmed.startsWith('workers-ai/')) {
+    return trimmed;
+  }
+  if (trimmed.startsWith('@cf/')) {
+    return `workers-ai/${trimmed}`;
+  }
+  return trimmed;
+}
+
 function curatedToConfig(m: CuratedModel): ModelConfig {
   return {
-    id: m.id,
+    id: normalizeModelId(m.id),
     name: m.name,
     family: m.family,
     maxInputTokens: m.maxInputTokens,
