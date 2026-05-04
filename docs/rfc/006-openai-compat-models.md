@@ -376,17 +376,31 @@ Per repo convention
 all verification code lives as in-tree tests in the extension
 package, not as `/tmp` scratch scripts.
 
-## 8. Open Decisions
+## 8. Resolved Decisions
 
-1. Do we ship a single `wx-vsce-openai-compat-models` extension, or
-   split per-gateway (one for Cloudflare, one for generic)? **Lean:
-   single extension with presets — fewer install points, presets
-   handle the per-gateway ergonomics.**
-2. Should the Cloudflare preset offer a curated model list
-   (`@cf/meta/llama-3.3-70b-instruct`, `@cf/qwen/...`, the Moonshot
-   line) or stay strictly user-driven? **Lean: curated suggestions
-   in the Quick Pick, free-form fallback at the bottom — same
-   pattern as the git-compare ref picker.**
-3. Where do we draw the line on tool-calling fidelity for v0.2 —
-   parallel tool calls? JSON mode? Strict structured outputs? **Defer
-   until Phase 2; pick by what Copilot agent mode actually requests.**
+1. **Single extension with presets.** Ship one
+   `wx-vsce-openai-compat-models`, not per-gateway extensions. Presets
+   handle gateway-specific ergonomics; users get one install point and
+   one settings block.
+2. **Curated model list, free-form fallback.** The Cloudflare preset
+   Quick Pick shows a curated list (the Moonshot line including
+   `@cf/moonshotai/kimi-k2.6`, `@cf/meta/llama-3.3-70b-instruct`,
+   `@cf/qwen/...`, etc.) **plus** a "Custom model ID…" entry at the
+   bottom that lets the user type any model name. Users can also add
+   models post-hoc by editing the `models[]` array in settings or
+   re-running the preset command. Curated entries carry sensible
+   defaults for `maxInputTokens`, `maxOutputTokens`, `toolCalling`,
+   and `vision`; free-form entries fall back to conservative defaults
+   (128k in / 8k out, no tools, no vision) which the user can
+   override in settings.
+3. **Tool-calling fidelity for v0.2.** Start with the OpenAI
+   Chat Completions `tools` schema (single-call-at-a-time, function
+   shape) since that's what Cloudflare's gateway documents and what
+   Kimi K2.6 actually supports. **Add parallel `tool_calls` array
+   handling in v0.2** — it's a small delta on top of the streaming
+   delta merger and Copilot's agent mode is increasingly likely to
+   emit parallel tool plans. **Defer** strict JSON mode / structured
+   outputs to v0.3 or until a concrete Copilot feature requests
+   them; they're easy to bolt on once the body builder exists, and
+   adding them speculatively risks shape drift across gateways that
+   implement them inconsistently.
