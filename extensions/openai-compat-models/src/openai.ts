@@ -19,7 +19,7 @@ export function buildRequestBody(
 ): ChatCompletionRequest {
   const body: ChatCompletionRequest = {
     model: modelId,
-    messages: messages.map(m => convertMessage(m)),
+    messages: messages.flatMap(m => convertMessage(m)),
     stream: true,
   };
 
@@ -43,7 +43,7 @@ export function buildRequestBody(
   return body;
 }
 
-function convertMessage(msg: vscode.LanguageModelChatRequestMessage): ChatCompletionMessage {
+function convertMessage(msg: vscode.LanguageModelChatRequestMessage): ChatCompletionMessage[] {
   const role = msg.role === vscode.LanguageModelChatMessageRole.Assistant ? 'assistant' : 'user';
 
   const textPieces: string[] = [];
@@ -71,21 +71,26 @@ function convertMessage(msg: vscode.LanguageModelChatRequestMessage): ChatComple
     }
   }
 
-  if (toolResults.length > 0 && role === 'user') {
-    const first = toolResults[0]!;
-    return {
-      role: 'tool',
-      tool_call_id: first.callId,
-      content: first.text,
-    };
+  const out: ChatCompletionMessage[] = [];
+
+  for (const tr of toolResults) {
+    out.push({ role: 'tool', tool_call_id: tr.callId, content: tr.text });
   }
 
-  const result: ChatCompletionMessage = { role };
-  if (textPieces.length > 0) result.content = textPieces.join('');
-  if (toolCalls.length > 0) result.tool_calls = toolCalls;
-  if (msg.name) result.name = msg.name;
-  if (result.content === undefined && !result.tool_calls) result.content = '';
-  return result;
+  const text = textPieces.join('');
+  const hasText = text.length > 0;
+  const hasToolCalls = toolCalls.length > 0;
+
+  if (hasText || hasToolCalls || out.length === 0) {
+    const result: ChatCompletionMessage = { role };
+    if (hasText) result.content = text;
+    if (hasToolCalls) result.tool_calls = toolCalls;
+    if (msg.name) result.name = msg.name;
+    if (result.content === undefined && !result.tool_calls) result.content = '';
+    out.push(result);
+  }
+
+  return out;
 }
 
 function stringifyToolResult(parts: ReadonlyArray<unknown>): string {
