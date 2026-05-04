@@ -1,0 +1,130 @@
+{
+  "name": "wx-vsce-openai-compat-models",
+  "displayName": "OpenAI Compatible (Custom)",
+  "description": "Register user-configured OpenAI-compatible chat models (Cloudflare Workers AI, vLLM, LiteLLM, Together, Groq, etc.) as language models that any LM-aware extension can call.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "wx-openai-compat",
+        "displayName": "OpenAI Compatible (Custom)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "wx-openai-compat.addCloudflarePreset",
+        "title": "Add Cloudflare Workers AI Preset",
+        "category": "OpenAI Compatible"
+      },
+      {
+        "command": "wx-openai-compat.setApiKey",
+        "title": "Set API Key",
+        "category": "OpenAI Compatible"
+      },
+      {
+        "command": "wx-openai-compat.clearApiKey",
+        "title": "Clear API Key",
+        "category": "OpenAI Compatible"
+      },
+      {
+        "command": "wx-openai-compat.refreshModels",
+        "title": "Refresh Models",
+        "category": "OpenAI Compatible"
+      }
+    ],
+    "configuration": {
+      "title": "OpenAI Compatible (Custom)",
+      "properties": {
+        "wxOpenAICompat.url": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "OpenAI-compatible base URL.\n\n- For Cloudflare Workers AI: `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`\n- For self-hosted vLLM/LiteLLM: `https://your-host/v1`\n\nIf the URL ends in `/v\\d+` (e.g. `/v1`, `/v2`), `/chat/completions` is appended. If the URL already contains `/chat/completions` or `/responses`, it is used as-is."
+        },
+        "wxOpenAICompat.requestHeaders": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string" },
+          "markdownDescription": "Additional HTTP headers to include with every request. Per-model `requestHeaders` override these. `Authorization` and `Content-Type` are always managed by the extension and cannot be overridden."
+        },
+        "wxOpenAICompat.models": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "List of models served by the configured endpoint. The API key is stored in VS Code's SecretStorage — set it with the `OpenAI Compatible: Set API Key` command.",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Model identifier sent in the request body, e.g. \"@cf/moonshotai/kimi-k2.6\"."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name shown in the model picker. Defaults to id."
+              },
+              "family": {
+                "type": "string",
+                "description": "Opaque family identifier (e.g. \"kimi-k2\")."
+              },
+              "url": {
+                "type": "string",
+                "description": "Per-model base URL override. If unset, the top-level url is used."
+              },
+              "maxInputTokens": {
+                "type": "number",
+                "default": 128000
+              },
+              "maxOutputTokens": {
+                "type": "number",
+                "default": 8192
+              },
+              "toolCalling": {
+                "type": "boolean",
+                "default": false
+              },
+              "vision": {
+                "type": "boolean",
+                "default": false
+              },
+              "requestHeaders": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Per-model HTTP headers, merged on top of wxOpenAICompat.requestHeaders."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}
