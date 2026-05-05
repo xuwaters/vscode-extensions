@@ -94,6 +94,19 @@ async function openDiff(arg: FileNodePayload, deps: CommandDeps): Promise<void> 
   const originalUri = entry.change.originalUri ?? entry.change.uri;
   const status = entry.change.status;
 
+  // Additions have no "before" side, so a diff editor would only show one
+  // pane of content against an empty placeholder. Open the file directly:
+  // for `changed`, the working-tree file; for behind/ahead, the file at the
+  // revision where it was introduced.
+  if (isAddition(status)) {
+    if (group === 'changed') {
+      await openFile(arg);
+    } else {
+      await openAtRevision(arg, deps);
+    }
+    return;
+  }
+
   if (group === 'changed') {
     // For added files the path doesn't exist at `ref`; for deleted files it
     // doesn't exist in the working tree. In either case, point one side at our
