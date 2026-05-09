@@ -45,6 +45,13 @@
         "path": "./syntaxes/makefile.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "[makefile]": {
+        "editor.insertSpaces": false,
+        "editor.detectIndentation": false,
+        "editor.useTabStops": true
+      }
+    },
     "configuration": {
       "title": "Makefile",
       "properties": {
