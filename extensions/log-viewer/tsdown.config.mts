@@ -1,12 +1,25 @@
 import { defineConfig } from 'tsdown';
 
-export default defineConfig({
-  entry: ['src/extension.ts'],
-  format: 'cjs',
-  outExtensions: () => ({ js: '.js' }),
-  platform: 'node',
-  outDir: 'dist',
-  sourcemap: true,
-  clean: true,
-  deps: { neverBundle: ['vscode'] },
-});
+export default defineConfig([
+  // Extension host bundle.
+  {
+    entry: ['src/extension.ts'],
+    format: 'cjs',
+    outExtensions: () => ({ js: '.js' }),
+    platform: 'node',
+    outDir: 'dist',
+    sourcemap: true,
+    clean: true,
+    deps: { neverBundle: ['vscode'] },
+  },
+  // Webview bundle.
+  {
+    entry: { webview: 'webview/index.ts' },
+    format: 'esm',
+    outExtensions: () => ({ js: '.js' }),
+    platform: 'browser',
+    outDir: 'dist',
+    sourcemap: true,
+    deps: { alwaysBundle: [/.*/] },
+  },
+]);

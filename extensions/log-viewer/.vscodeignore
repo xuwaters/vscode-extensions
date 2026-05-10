@@ -1,4 +1,5 @@
 src/
+webview/
 tsconfig.json
 tsconfig.tsbuildinfo
 tsdown.config.mts
@@ -6,3 +7,4 @@ tsdown.config.mts
 .gitignore
 **/*.js.map
 **/*.ts.map
+wasm/.gitignore

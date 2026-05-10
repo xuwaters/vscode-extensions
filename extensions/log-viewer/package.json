@@ -2,7 +2,7 @@
   "name": "wx-vsce-log-viewer",
   "displayName": "Log Viewer",
   "description": "Pretty viewer for .log files with ANSI escape sequence rendering",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -26,7 +26,7 @@
             "filenamePattern": "*.log.*"
           }
         ],
-        "priority": "option"
+        "priority": "default"
       }
     ],
     "commands": [
@@ -49,6 +49,57 @@
         "command": "logViewer.toggleWrap",
         "title": "Toggle Word Wrap",
         "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.focusSearch",
+        "title": "Focus Search Box",
+        "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.toggleFilterMode",
+        "title": "Toggle Filter Mode (Highlight / Only Matching)",
+        "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.fontSizeIncrease",
+        "title": "Increase Font Size",
+        "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.fontSizeDecrease",
+        "title": "Decrease Font Size",
+        "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.fontSizeReset",
+        "title": "Reset Font Size",
+        "category": "Log Viewer"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "logViewer.focusSearch",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeCustomEditorId == 'logViewer.editor'"
+      },
+      {
+        "command": "logViewer.fontSizeIncrease",
+        "key": "ctrl+=",
+        "mac": "cmd+=",
+        "when": "activeCustomEditorId == 'logViewer.editor'"
+      },
+      {
+        "command": "logViewer.fontSizeDecrease",
+        "key": "ctrl+-",
+        "mac": "cmd+-",
+        "when": "activeCustomEditorId == 'logViewer.editor'"
+      },
+      {
+        "command": "logViewer.fontSizeReset",
+        "key": "ctrl+0",
+        "mac": "cmd+0",
+        "when": "activeCustomEditorId == 'logViewer.editor'"
       }
     ],
     "menus": {
@@ -77,17 +128,79 @@
           "type": "number",
           "default": 8388608,
           "description": "Maximum log file size to render (default 8 MB). Larger files fall back to raw text."
+        },
+        "logViewer.fontSize": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 48,
+          "description": "Font size in px for the log viewer. 0 means use the editor's default font size."
+        },
+        "logViewer.filterMode": {
+          "type": "string",
+          "default": "highlight",
+          "enum": [
+            "highlight",
+            "only-matching"
+          ],
+          "enumDescriptions": [
+            "Show all lines; matched lines are highlighted with their filter color",
+            "Show only lines that match at least one enabled filter (or the search text)"
+          ],
+          "description": "How filter rules and the search box affect which lines are shown."
+        },
+        "logViewer.filters": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Named filter rules. Each rule highlights lines matching its pattern with the given color, and can be toggled on/off from the toolbar. Example:\n\n```json\n[\n  { \"name\": \"Error\", \"pattern\": \"ERROR|FATAL\", \"regex\": true, \"color\": \"#5a1f1f\" },\n  { \"name\": \"Warn\", \"pattern\": \"WARN\", \"color\": \"#5a4a1f\" }\n]\n```",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "pattern"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Display name shown on the toolbar chip."
+              },
+              "pattern": {
+                "type": "string",
+                "description": "Substring or regular expression to match against each line."
+              },
+              "regex": {
+                "type": "boolean",
+                "default": false,
+                "description": "Treat 'pattern' as a JavaScript regular expression."
+              },
+              "caseSensitive": {
+                "type": "boolean",
+                "default": false,
+                "description": "Match the pattern case-sensitively."
+              },
+              "color": {
+                "type": "string",
+                "description": "CSS color used as the line background highlight (e.g. '#5a1f1f' or 'rgba(255,0,0,0.15)')."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether this rule is enabled by default. Can be toggled at runtime from the toolbar."
+              }
+            }
+          }
         }
       }
     }
   },
   "scripts": {
+    "build:wasm": "cd ../../crates/log-parser && wasm-pack build --target nodejs --out-dir ../../extensions/log-viewer/wasm --out-name log_parser",
     "build": "tsdown",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",
     "watch": "tsdown --watch",
-    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
-    "vscode:prepublish": "tsdown --minify",
+    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "pnpm run build:wasm && tsdown --minify",
     "test": "vitest run",
     "test:watch": "vitest"
   },
