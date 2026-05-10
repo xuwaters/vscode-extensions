@@ -1,0 +1,1 @@
+- don't forget to copy .vscodeignore when creating a new vscode extension project
