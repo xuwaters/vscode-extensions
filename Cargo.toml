@@ -5,6 +5,10 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 
+[workspace.lints.clippy]
+collapsible_if = "allow"
+collapsible_match = "allow"
+
 [profile.release]
 opt-level = "s"
 lto = true

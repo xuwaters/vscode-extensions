@@ -5,6 +5,9 @@ edition = { workspace = true }
 description = "Cap'n Proto language analyzer — parser, diagnostics — compilable to WASM for VSCode"
 license = "MIT"
 
+[lints]
+workspace = true
+
 [lib]
 crate-type = [ "cdylib", "rlib" ]
 
