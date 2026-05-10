@@ -19,6 +19,14 @@ export interface FilterRule {
   enabled?: boolean;
 }
 
+export interface FilterSet {
+  name: string;
+  description?: string;
+  /** Default-enabled state, may be overridden at runtime per editor session. */
+  enabled?: boolean;
+  filters: FilterRule[];
+}
+
 export type FilterMode = 'highlight' | 'only-matching';
 
 export interface ViewState {
@@ -37,6 +45,9 @@ export interface InitMessage {
   /** length === lines.text.length; value = ruleIndex+1 (1-based) or 0 for no match. */
   filterMatches: number[];
   rules: FilterRule[];
+  sets: FilterSet[];
+  activeSetNames: string[];
+  palette: string[];
   state: ViewState;
   truncated: boolean;
   totalBytes: number;
@@ -47,9 +58,18 @@ export interface UpdateMessage {
   lines?: ParsedLines;
   filterMatches?: number[];
   rules?: FilterRule[];
+  sets?: FilterSet[];
+  activeSetNames?: string[];
+  palette?: string[];
   state?: ViewState;
   truncated?: boolean;
   totalBytes?: number;
+}
+
+export interface FilterConfigSavedMessage {
+  type: 'filterConfigSaveResult';
+  ok: boolean;
+  error?: string;
 }
 
 export interface FocusSearchMessage {
@@ -67,12 +87,18 @@ export interface FontSizeCommandMessage {
   delta: number | 'reset';
 }
 
+export interface OpenFilterEditorMessage {
+  type: 'openFilterEditor';
+}
+
 export type HostToWebview =
   | InitMessage
   | UpdateMessage
   | FocusSearchMessage
   | CommandToggleMessage
-  | FontSizeCommandMessage;
+  | FontSizeCommandMessage
+  | OpenFilterEditorMessage
+  | FilterConfigSavedMessage;
 
 // ===== webview → host =====
 
@@ -92,6 +118,17 @@ export interface SetFilterEnabledMessage {
   enabled: boolean;
 }
 
+export interface SetActiveSetsMessage {
+  type: 'setActiveSets';
+  names: string[];
+}
+
+export interface SaveFilterConfigMessage {
+  type: 'saveFilterConfig';
+  sets: FilterSet[];
+  palette: string[];
+}
+
 export interface OpenInTextMessage {
   type: 'openInText';
 }
@@ -100,6 +137,8 @@ export type WebviewToHost =
   | ReadyMessage
   | SetStateMessage
   | SetFilterEnabledMessage
+  | SetActiveSetsMessage
+  | SaveFilterConfigMessage
   | OpenInTextMessage;
 
 // ===== WASM module shape (mirrors wasm/log_parser.d.ts) =====

@@ -79,6 +79,17 @@ export function activate(context: vscode.ExtensionContext): void {
       provider.sendToActive({ type: 'fontSizeCommand', delta: 'reset' });
     }),
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('logViewer.editFilterSets', () => {
+      if (!provider.sendToActive({ type: 'openFilterEditor' })) {
+        void vscode.commands.executeCommand(
+          'workbench.action.openSettings',
+          'logViewer.filterSets',
+        );
+      }
+    }),
+  );
 }
 
 export function deactivate(): void {}

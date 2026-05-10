@@ -2,7 +2,7 @@
   "name": "wx-vsce-log-viewer",
   "displayName": "Log Viewer",
   "description": "Pretty viewer for .log files with ANSI escape sequence rendering",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -73,6 +73,11 @@
       {
         "command": "logViewer.fontSizeReset",
         "title": "Reset Font Size",
+        "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.editFilterSets",
+        "title": "Edit Filter Sets",
         "category": "Log Viewer"
       }
     ],
@@ -152,7 +157,7 @@
         "logViewer.filters": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Named filter rules. Each rule highlights lines matching its pattern with the given color, and can be toggled on/off from the toolbar. Example:\n\n```json\n[\n  { \"name\": \"Error\", \"pattern\": \"ERROR|FATAL\", \"regex\": true, \"color\": \"#5a1f1f\" },\n  { \"name\": \"Warn\", \"pattern\": \"WARN\", \"color\": \"#5a4a1f\" }\n]\n```",
+          "markdownDescription": "**Legacy** flat filter list. Prefer `logViewer.filterSets` instead. When `filterSets` is empty, these rules appear as a synthetic \"Default\" set. Example:\n\n```json\n[\n  { \"name\": \"Error\", \"pattern\": \"ERROR|FATAL\", \"regex\": true, \"color\": \"#5a1f1f\" },\n  { \"name\": \"Warn\", \"pattern\": \"WARN\", \"color\": \"#5a4a1f\" }\n]\n```",
           "items": {
             "type": "object",
             "required": [
@@ -188,6 +193,74 @@
                 "description": "Whether this rule is enabled by default. Can be toggled at runtime from the toolbar."
               }
             }
+          }
+        },
+        "logViewer.filterSets": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Named groups of filter rules. Toggle entire sets on/off from the toolbar to switch between analysis scenarios (e.g. \"Login\", \"Audio\"). Edit interactively via the *Edit Filter Sets* command or the toolbar button.\n\n```json\n[\n  {\n    \"name\": \"Login\",\n    \"enabled\": true,\n    \"filters\": [\n      { \"name\": \"Auth Error\", \"pattern\": \"auth.*fail\", \"regex\": true, \"color\": \"#5a1f1f\" }\n    ]\n  }\n]\n```",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "filters"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Unique display name for the set."
+              },
+              "description": {
+                "type": "string",
+                "description": "Optional notes about when to use this set."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether this set is active by default. Can be toggled at runtime from the toolbar."
+              },
+              "filters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "pattern"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "regex": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "caseSensitive": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "color": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "logViewer.colorPalette": {
+          "type": "array",
+          "default": [],
+          "description": "Custom CSS colors appended to the built-in palette in the filter editor. Colors added via the editor's color picker are stored here.",
+          "items": {
+            "type": "string"
           }
         }
       }

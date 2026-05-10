@@ -1,0 +1,26 @@
+<div class="toolbar">
+  <button id="btn-ansi" type="button" title="Render ANSI escape sequences as colors">ANSI</button>
+  <button id="btn-wrap" type="button" title="Wrap long lines">Wrap</button>
+  <button id="btn-mode" type="button" title="Toggle filter mode">Highlight</button>
+  <input id="search" type="search" placeholder="Search…" />
+  <button id="btn-regex" type="button" title=".* — treat search as regex">.*</button>
+  <button id="btn-case" type="button" title="Aa — case sensitive search">Aa</button>
+  <span id="search-info"></span>
+  <span class="dropdown">
+    <button id="btn-sets" type="button" title="Choose which filter sets are active">Sets ▾</button>
+    <div id="sets-menu" class="dropdown-menu" hidden></div>
+  </span>
+  <span id="chips"></span>
+  <button id="btn-font-down" type="button" title="Decrease font size">A−</button>
+  <button id="btn-font-up" type="button" title="Increase font size">A+</button>
+  <button id="btn-font-reset" type="button" title="Reset font size">A0</button>
+  <button id="btn-text" type="button" title="Open in default text editor">Text Editor</button>
+  <span class="info" id="info"></span>
+</div>
+<div class="banner" id="banner" hidden></div>
+<div id="scroller">
+  <div id="spacer">
+    <div id="viewport"></div>
+  </div>
+</div>
+<div id="filter-editor" class="modal-overlay" hidden></div>

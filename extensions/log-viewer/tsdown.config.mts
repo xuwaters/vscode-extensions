@@ -1,6 +1,31 @@
-import { defineConfig } from 'tsdown';
+import * as fs from 'fs';
+import * as path from 'path';
+import { defineConfig, type UserConfig } from 'tsdown';
 
-export default defineConfig([
+/**
+ * Loads .html and .css files referenced via relative imports as default-export
+ * strings. Lets the webview bundle inline its own HTML body and CSS without
+ * loading separate files at runtime — and without giving up real editor
+ * support (each asset stays on disk as its own file).
+ */
+const rawAssetsPlugin = {
+  name: 'raw-assets',
+  async resolveId(source: string, importer: string | undefined) {
+    if (!importer) return null;
+    if (!/\.(html|css)$/.test(source)) return null;
+    if (!source.startsWith('./') && !source.startsWith('../')) return null;
+    const resolved = path.resolve(path.dirname(importer), source);
+    return resolved + '?raw-asset';
+  },
+  load(id: string) {
+    if (!id.endsWith('?raw-asset')) return null;
+    const realPath = id.slice(0, -'?raw-asset'.length);
+    const src = fs.readFileSync(realPath, 'utf8');
+    return `export default ${JSON.stringify(src)};`;
+  },
+};
+
+const config: UserConfig = [
   // Extension host bundle.
   {
     entry: ['src/extension.ts'],
@@ -12,7 +37,7 @@ export default defineConfig([
     clean: true,
     deps: { neverBundle: ['vscode'] },
   },
-  // Webview bundle.
+  // Webview bundle: pulls in styles.css and body.html as inline strings.
   {
     entry: { webview: 'webview/index.ts' },
     format: 'esm',
@@ -21,5 +46,8 @@ export default defineConfig([
     outDir: 'dist',
     sourcemap: true,
     deps: { alwaysBundle: [/.*/] },
+    plugins: [rawAssetsPlugin],
   },
-]);
+];
+
+export default defineConfig(config);

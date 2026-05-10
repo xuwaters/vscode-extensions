@@ -1,5 +1,8 @@
+import bodyHtml from './body.html';
+import styles from './styles.css';
 import type {
   FilterRule,
+  FilterSet,
   HostToWebview,
   ParsedLines,
   ViewState,
@@ -11,6 +14,14 @@ declare const acquireVsCodeApi: () => {
   setState(state: unknown): void;
   getState(): unknown;
 };
+
+// Inject styles and body. Using a constructable stylesheet avoids tripping
+// the webview's CSP `style-src` (no inline <style> element). The host's HTML
+// shell is intentionally minimal — see editorProvider.getHtmlForWebview.
+const sheet = new CSSStyleSheet();
+sheet.replaceSync(styles);
+document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+document.body.insertAdjacentHTML('afterbegin', bodyHtml);
 
 const vscode = acquireVsCodeApi();
 
@@ -27,6 +38,9 @@ const info = byId<HTMLSpanElement>('info');
 const searchInput = byId<HTMLInputElement>('search');
 const searchInfo = byId<HTMLSpanElement>('search-info');
 const chipsContainer = byId<HTMLSpanElement>('chips');
+const btnSets = byId<HTMLButtonElement>('btn-sets');
+const setsMenu = byId<HTMLDivElement>('sets-menu');
+const filterEditor = byId<HTMLDivElement>('filter-editor');
 const btnAnsi = byId<HTMLButtonElement>('btn-ansi');
 const btnWrap = byId<HTMLButtonElement>('btn-wrap');
 const btnMode = byId<HTMLButtonElement>('btn-mode');
@@ -47,6 +61,9 @@ function byId<T extends HTMLElement>(id: string): T {
 let lines: ParsedLines = { html: [], text: [] };
 let filterMatches: number[] = [];
 let rules: FilterRule[] = [];
+let sets: FilterSet[] = [];
+let activeSetNames: Set<string> = new Set();
+let palette: string[] = [];
 let view: ViewState = {
   renderAnsi: true,
   wordWrap: false,
@@ -412,10 +429,14 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
       lines = msg.lines;
       filterMatches = msg.filterMatches;
       rules = msg.rules;
+      sets = msg.sets;
+      activeSetNames = new Set(msg.activeSetNames);
+      palette = msg.palette;
       view = msg.state;
       truncated = msg.truncated;
       totalBytes = msg.totalBytes;
       renderChips();
+      renderSetsMenu();
       applyAll();
       break;
     case 'update':
@@ -425,10 +446,25 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
         rules = msg.rules;
         renderChips();
       }
+      if (msg.sets) {
+        sets = msg.sets;
+        renderSetsMenu();
+      }
+      if (msg.activeSetNames) {
+        activeSetNames = new Set(msg.activeSetNames);
+        renderSetsMenu();
+      }
+      if (msg.palette) palette = msg.palette;
       if (msg.state) view = msg.state;
       if (msg.truncated !== undefined) truncated = msg.truncated;
       if (msg.totalBytes !== undefined) totalBytes = msg.totalBytes;
       partialUpdate({ remeasure: !!msg.lines, preserveScroll: !msg.lines });
+      break;
+    case 'openFilterEditor':
+      openFilterEditor();
+      break;
+    case 'filterConfigSaveResult':
+      handleSaveResult(msg.ok, msg.error);
       break;
     case 'focusSearch':
       searchInput.focus();
@@ -531,6 +567,530 @@ function bumpFont(delta: number): void {
 function setFont(size: number): void {
   vscode.postMessage({ type: 'setState', state: { fontSize: size } });
 }
+
+// === Set picker dropdown ===
+
+function renderSetsMenu(): void {
+  setsMenu.replaceChildren();
+  if (sets.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'dropdown-item';
+    empty.style.opacity = '0.7';
+    empty.textContent = 'No filter sets configured';
+    setsMenu.appendChild(empty);
+  } else {
+    sets.forEach((s) => {
+      const row = document.createElement('label');
+      row.className = 'dropdown-item';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = activeSetNames.has(s.name);
+      cb.addEventListener('change', () => {
+        if (cb.checked) activeSetNames.add(s.name);
+        else activeSetNames.delete(s.name);
+        vscode.postMessage({
+          type: 'setActiveSets',
+          names: Array.from(activeSetNames),
+        });
+      });
+      const label = document.createElement('span');
+      label.textContent = s.name;
+      label.style.flex = '1 1 auto';
+      row.appendChild(cb);
+      row.appendChild(label);
+      const count = document.createElement('span');
+      count.style.opacity = '0.6';
+      count.textContent = `${s.filters.length}`;
+      row.appendChild(count);
+      setsMenu.appendChild(row);
+    });
+  }
+  const sep = document.createElement('div');
+  sep.className = 'dropdown-sep';
+  setsMenu.appendChild(sep);
+  const edit = document.createElement('div');
+  edit.className = 'dropdown-item action';
+  edit.textContent = 'Edit filter sets…';
+  edit.addEventListener('click', () => {
+    closeSetsMenu();
+    openFilterEditor();
+  });
+  setsMenu.appendChild(edit);
+  btnSets.classList.toggle('active', activeSetNames.size > 0);
+}
+
+function toggleSetsMenu(): void {
+  if (setsMenu.hidden) {
+    setsMenu.hidden = false;
+    setTimeout(() => document.addEventListener('mousedown', onDocMouseDown), 0);
+  } else {
+    closeSetsMenu();
+  }
+}
+
+function closeSetsMenu(): void {
+  setsMenu.hidden = true;
+  document.removeEventListener('mousedown', onDocMouseDown);
+}
+
+function onDocMouseDown(e: MouseEvent): void {
+  const target = e.target as Node;
+  if (setsMenu.contains(target) || btnSets.contains(target)) return;
+  closeSetsMenu();
+}
+
+btnSets.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleSetsMenu();
+});
+
+// === Filter editor modal ===
+
+const DEFAULT_NEW_COLOR = '#5a1f1f';
+
+interface EditorState {
+  sets: FilterSet[];
+  palette: string[];
+  selectedSet: number;
+  openColorRule: { setIdx: number; ruleIdx: number } | null;
+  saving: boolean;
+  error: string | null;
+}
+
+let editorState: EditorState | null = null;
+
+function cloneSets(s: FilterSet[]): FilterSet[] {
+  return s.map((set) => ({
+    name: set.name,
+    description: set.description,
+    enabled: set.enabled,
+    filters: set.filters.map((r) => ({ ...r })),
+  }));
+}
+
+function openFilterEditor(): void {
+  editorState = {
+    sets: cloneSets(sets),
+    palette: palette.slice(),
+    selectedSet: sets.length > 0 ? 0 : -1,
+    openColorRule: null,
+    saving: false,
+    error: null,
+  };
+  filterEditor.hidden = false;
+  renderEditor();
+}
+
+function closeFilterEditor(): void {
+  filterEditor.hidden = true;
+  filterEditor.replaceChildren();
+  editorState = null;
+}
+
+function renderEditor(): void {
+  if (!editorState) return;
+  const st = editorState;
+  filterEditor.replaceChildren();
+
+  const modal = el('div', 'modal');
+
+  const header = el('div', 'modal-header');
+  const h = document.createElement('h2');
+  h.textContent = 'Filter Sets';
+  header.appendChild(h);
+  const closeBtn = el('button', 'icon-btn');
+  closeBtn.textContent = '✕';
+  closeBtn.title = 'Close';
+  closeBtn.addEventListener('click', closeFilterEditor);
+  header.appendChild(closeBtn);
+  modal.appendChild(header);
+
+  const body = el('div', 'modal-body');
+  const sidebar = el('div', 'modal-sidebar');
+  st.sets.forEach((s, i) => {
+    const item = el('div', 'set-item' + (i === st.selectedSet ? ' selected' : ''));
+    const nm = el('span', 'set-name');
+    nm.textContent = s.name || '(unnamed)';
+    item.appendChild(nm);
+    const rm = el('button', 'icon-btn');
+    rm.textContent = '🗑';
+    rm.title = 'Delete set';
+    rm.addEventListener('click', (e) => {
+      e.stopPropagation();
+      st.sets.splice(i, 1);
+      if (st.selectedSet >= st.sets.length) st.selectedSet = st.sets.length - 1;
+      renderEditor();
+    });
+    item.appendChild(rm);
+    item.addEventListener('click', () => {
+      st.selectedSet = i;
+      st.openColorRule = null;
+      renderEditor();
+    });
+    sidebar.appendChild(item);
+  });
+  const addSet = el('div', 'set-item');
+  addSet.style.color = 'var(--vscode-textLink-foreground)';
+  addSet.textContent = '+ New set';
+  addSet.addEventListener('click', () => {
+    st.sets.push({
+      name: `Set ${st.sets.length + 1}`,
+      enabled: true,
+      filters: [],
+    });
+    st.selectedSet = st.sets.length - 1;
+    renderEditor();
+  });
+  sidebar.appendChild(addSet);
+  body.appendChild(sidebar);
+
+  const main = el('div', 'modal-main');
+  const current = st.sets[st.selectedSet];
+  if (!current) {
+    const empty = el('div');
+    empty.style.opacity = '0.6';
+    empty.textContent = 'Select or create a filter set to edit its rules.';
+    main.appendChild(empty);
+  } else {
+    main.appendChild(renderSetMeta(current));
+    main.appendChild(renderRulesTable(current));
+  }
+  body.appendChild(main);
+  modal.appendChild(body);
+
+  const footer = el('div', 'modal-footer');
+  if (st.error) {
+    const err = el('span', 'save-error');
+    err.textContent = st.error;
+    footer.appendChild(err);
+  }
+  const cancel = el('button');
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', closeFilterEditor);
+  footer.appendChild(cancel);
+  const save = el<HTMLButtonElement>('button', 'primary');
+  save.textContent = st.saving ? 'Saving…' : 'Save';
+  save.disabled = st.saving;
+  save.addEventListener('click', saveEditor);
+  footer.appendChild(save);
+  modal.appendChild(footer);
+
+  filterEditor.appendChild(modal);
+}
+
+function renderSetMeta(set: FilterSet): HTMLElement {
+  const wrap = el('div', 'set-meta');
+  const nameField = field('Name');
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.value = set.name;
+  nameInput.addEventListener('input', () => {
+    set.name = nameInput.value;
+    // Update sidebar label without full re-render.
+    const item = filterEditor.querySelector(
+      `.set-item.selected .set-name`,
+    ) as HTMLElement | null;
+    if (item) item.textContent = nameInput.value || '(unnamed)';
+  });
+  nameField.appendChild(nameInput);
+  wrap.appendChild(nameField);
+
+  const descField = field('Description');
+  const descInput = document.createElement('input');
+  descInput.type = 'text';
+  descInput.value = set.description ?? '';
+  descInput.placeholder = 'When to use this set…';
+  descInput.addEventListener('input', () => {
+    set.description = descInput.value || undefined;
+  });
+  descField.appendChild(descInput);
+  wrap.appendChild(descField);
+
+  const enField = field('Enabled by default');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = set.enabled !== false;
+  cb.addEventListener('change', () => {
+    set.enabled = cb.checked;
+  });
+  enField.appendChild(cb);
+  wrap.appendChild(enField);
+
+  return wrap;
+}
+
+function renderRulesTable(set: FilterSet): HTMLElement {
+  const wrap = el('div');
+  const title = el('div');
+  title.style.marginTop = '4px';
+  title.style.fontWeight = '600';
+  title.textContent = 'Rules';
+  wrap.appendChild(title);
+
+  const table = el('div', 'rules-table');
+  for (const h of ['Name', 'Pattern', 'Regex', 'Case', 'Color', '']) {
+    const c = el('div', 'head');
+    c.textContent = h;
+    table.appendChild(c);
+  }
+  set.filters.forEach((rule, i) => {
+    appendRuleRow(table, set, rule, i);
+  });
+  wrap.appendChild(table);
+
+  const add = el('button');
+  add.textContent = '+ Add rule';
+  add.style.marginTop = '6px';
+  add.addEventListener('click', () => {
+    set.filters.push({
+      name: 'New rule',
+      pattern: '',
+      regex: false,
+      caseSensitive: false,
+      color: pickInitialColor(),
+      enabled: true,
+    });
+    renderEditor();
+  });
+  wrap.appendChild(add);
+  return wrap;
+}
+
+function appendRuleRow(
+  table: HTMLElement,
+  set: FilterSet,
+  rule: FilterRule,
+  ruleIdx: number,
+): void {
+  const name = document.createElement('input');
+  name.type = 'text';
+  name.value = rule.name;
+  name.addEventListener('input', () => {
+    rule.name = name.value;
+  });
+  table.appendChild(name);
+
+  const pat = document.createElement('input');
+  pat.type = 'text';
+  pat.value = rule.pattern;
+  pat.placeholder = 'substring or regex';
+  pat.addEventListener('input', () => {
+    rule.pattern = pat.value;
+  });
+  table.appendChild(pat);
+
+  const rx = document.createElement('input');
+  rx.type = 'checkbox';
+  rx.checked = !!rule.regex;
+  rx.title = 'Regex';
+  rx.addEventListener('change', () => {
+    rule.regex = rx.checked;
+  });
+  const rxWrap = el('div');
+  rxWrap.style.textAlign = 'center';
+  rxWrap.appendChild(rx);
+  table.appendChild(rxWrap);
+
+  const cs = document.createElement('input');
+  cs.type = 'checkbox';
+  cs.checked = !!rule.caseSensitive;
+  cs.title = 'Case-sensitive';
+  cs.addEventListener('change', () => {
+    rule.caseSensitive = cs.checked;
+  });
+  const csWrap = el('div');
+  csWrap.style.textAlign = 'center';
+  csWrap.appendChild(cs);
+  table.appendChild(csWrap);
+
+  const colorCell = el('div', 'color-cell');
+  const sw = el('span', 'swatch');
+  sw.style.background = rule.color ?? 'transparent';
+  colorCell.appendChild(sw);
+  const colorLabel = el('span');
+  colorLabel.textContent = rule.color ?? 'pick…';
+  colorLabel.style.fontFamily = 'var(--vscode-editor-font-family, monospace)';
+  colorLabel.style.fontSize = '11px';
+  colorCell.appendChild(colorLabel);
+  colorCell.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const st = editorState;
+    if (!st) return;
+    const setIdx = st.selectedSet;
+    const open = st.openColorRule;
+    if (open && open.setIdx === setIdx && open.ruleIdx === ruleIdx) {
+      st.openColorRule = null;
+      renderEditor();
+    } else {
+      st.openColorRule = { setIdx, ruleIdx };
+      renderEditor();
+    }
+  });
+  if (
+    editorState?.openColorRule &&
+    editorState.openColorRule.setIdx === editorState.selectedSet &&
+    editorState.openColorRule.ruleIdx === ruleIdx
+  ) {
+    colorCell.appendChild(renderColorPopover(rule));
+  }
+  table.appendChild(colorCell);
+
+  const del = el('button', 'icon-btn');
+  del.textContent = '✕';
+  del.title = 'Delete rule';
+  del.addEventListener('click', () => {
+    set.filters.splice(ruleIdx, 1);
+    if (editorState?.openColorRule?.ruleIdx === ruleIdx) {
+      editorState.openColorRule = null;
+    }
+    renderEditor();
+  });
+  table.appendChild(del);
+}
+
+function renderColorPopover(rule: FilterRule): HTMLElement {
+  const pop = el('div', 'color-popover');
+  pop.addEventListener('click', (e) => e.stopPropagation());
+  const st = editorState!;
+  st.palette.forEach((c) => {
+    const cell = el('div', 'pal' + (eqColor(c, rule.color) ? ' selected' : ''));
+    cell.style.background = c;
+    cell.title = c;
+    cell.addEventListener('click', () => {
+      rule.color = c;
+      st.openColorRule = null;
+      renderEditor();
+    });
+    pop.appendChild(cell);
+  });
+
+  const add = el('div', 'add-color');
+  const colorInput = document.createElement('input');
+  colorInput.type = 'color';
+  colorInput.value = sanitizeHex(rule.color) ?? DEFAULT_NEW_COLOR;
+  const hexInput = document.createElement('input');
+  hexInput.type = 'text';
+  hexInput.placeholder = '#rrggbb / rgba(...)';
+  hexInput.value = rule.color ?? '';
+  colorInput.addEventListener('input', () => {
+    hexInput.value = colorInput.value;
+  });
+  const addBtn = el('button');
+  addBtn.textContent = 'Add';
+  addBtn.title = 'Add to palette and apply';
+  addBtn.addEventListener('click', () => {
+    const c = hexInput.value.trim() || colorInput.value;
+    if (!c) return;
+    if (!st.palette.some((p) => eqColor(p, c))) st.palette.push(c);
+    rule.color = c;
+    st.openColorRule = null;
+    renderEditor();
+  });
+  add.appendChild(colorInput);
+  add.appendChild(hexInput);
+  add.appendChild(addBtn);
+  pop.appendChild(add);
+  return pop;
+}
+
+function eqColor(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function sanitizeHex(c: string | undefined): string | null {
+  if (!c) return null;
+  const m = c.trim().match(/^#([0-9a-fA-F]{6})$/);
+  return m ? `#${m[1]}` : null;
+}
+
+function pickInitialColor(): string {
+  const used = new Set(
+    editorState?.sets.flatMap((s) => s.filters.map((r) => r.color ?? '')) ?? [],
+  );
+  const pool = editorState?.palette ?? [];
+  for (const c of pool) if (!used.has(c)) return c;
+  return pool[0] ?? DEFAULT_NEW_COLOR;
+}
+
+function saveEditor(): void {
+  if (!editorState) return;
+  editorState.error = null;
+  editorState.saving = true;
+  renderEditor();
+  // Trim empty names; validate regexes.
+  const cleaned: FilterSet[] = editorState.sets
+    .map((s) => ({
+      name: (s.name ?? '').trim() || 'Unnamed',
+      description: s.description,
+      enabled: s.enabled !== false,
+      filters: s.filters
+        .filter((r) => (r.name ?? '').trim() && (r.pattern ?? '').length > 0)
+        .map((r) => ({
+          name: r.name.trim(),
+          pattern: r.pattern,
+          regex: !!r.regex,
+          caseSensitive: !!r.caseSensitive,
+          color: r.color,
+          enabled: r.enabled !== false,
+        })),
+    }));
+  for (const s of cleaned) {
+    for (const r of s.filters) {
+      if (r.regex) {
+        try {
+          new RegExp(r.pattern);
+        } catch (e) {
+          editorState.error = `Invalid regex in "${s.name} / ${r.name}": ${(e as Error).message}`;
+          editorState.saving = false;
+          renderEditor();
+          return;
+        }
+      }
+    }
+  }
+  vscode.postMessage({
+    type: 'saveFilterConfig',
+    sets: cleaned,
+    palette: editorState.palette,
+  });
+}
+
+function handleSaveResult(ok: boolean, error: string | undefined): void {
+  if (!editorState) return;
+  editorState.saving = false;
+  if (ok) {
+    closeFilterEditor();
+  } else {
+    editorState.error = error ?? 'Failed to save.';
+    renderEditor();
+  }
+}
+
+function el<T extends HTMLElement = HTMLDivElement>(
+  tag = 'div',
+  className?: string,
+): T {
+  const e = document.createElement(tag) as unknown as T;
+  if (className) e.className = className;
+  return e;
+}
+
+function field(label: string): HTMLElement {
+  const f = el('div', 'field');
+  const l = el('label');
+  l.textContent = label;
+  f.appendChild(l);
+  return f;
+}
+
+// Allow Escape to close the editor modal.
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && editorState) {
+    closeFilterEditor();
+    e.stopPropagation();
+  }
+});
 
 // === Boot ===
 vscode.postMessage({ type: 'ready' });
