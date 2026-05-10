@@ -130,7 +130,10 @@ impl Workspace {
     /// 1. Each include path prefix appended to the import path.
     /// 2. The importer's directory followed by the import path (relative
     ///    imports starting with `./` or `../`).
-    /// 3. Any loaded file whose URI ends with the import path.
+    /// 3. Among all loaded files whose URI ends with the import path, the
+    ///    one closest to the importer by shared directory prefix. Ties are
+    ///    broken in favour of the shallower (shorter) URI, so a vendored
+    ///    copy buried under `temp/…` loses to a sibling at the same level.
     pub fn resolve_import_path(&self, importer: &FileUri, path: &str) -> Option<FileUri> {
         for inc in &self.include_paths {
             let probe = FileUri(format!(
@@ -148,12 +151,21 @@ impl Workspace {
             }
         }
         let suffix = if path.starts_with('/') { path.to_string() } else { format!("/{}", path) };
+        let mut best: Option<(&FileUri, usize, usize)> = None;
         for uri in self.files.keys() {
-            if uri != importer && (uri.0.ends_with(&suffix) || uri.0.ends_with(path)) {
-                return Some(uri.clone());
+            if uri == importer { continue; }
+            if !(uri.0.ends_with(&suffix) || uri.0.ends_with(path)) { continue; }
+            let shared = shared_dir_segments(&importer.0, &uri.0);
+            let len = uri.0.len();
+            let better = match best {
+                None => true,
+                Some((_, s, l)) => shared > s || (shared == s && len < l),
+            };
+            if better {
+                best = Some((uri, shared, len));
             }
         }
-        None
+        best.map(|(u, _, _)| u.clone())
     }
 
     /// Preload a file without overwriting an existing open-buffer copy.
@@ -286,6 +298,14 @@ fn collect_type_ref_imports(t: &crate::ast::TypeRef, out: &mut Vec<String>) {
     }
 }
 
+/// Number of path segments (split on `/`) that match between two URIs,
+/// counted from the start. Both URIs are expected to share the same scheme
+/// prefix (e.g. `file:///`), which contributes a constant offset to the
+/// score that's harmless for ranking purposes.
+fn shared_dir_segments(a: &str, b: &str) -> usize {
+    a.split('/').zip(b.split('/')).take_while(|(x, y)| x == y).count()
+}
+
 fn join_path(dir: &str, rel: &str) -> String {
     // Normalise `./` and walk `../` segments against the directory.
     let mut parts: Vec<&str> = dir.trim_end_matches('/').split('/').collect();
@@ -297,4 +317,65 @@ fn join_path(dir: &str, rel: &str) -> String {
         }
     }
     parts.join("/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suffix_match_prefers_sibling_over_vendored_copy() {
+        let mut ws = Workspace::new();
+        ws.update("file:///work/myproj/main.capnp", String::new());
+        ws.update("file:///work/myproj/rpc.capnp", String::new());
+        ws.update(
+            "file:///work/temp/capnproto-rust/some/path/rpc.capnp",
+            String::new(),
+        );
+        let importer = FileUri("file:///work/myproj/main.capnp".into());
+        let resolved = ws.resolve_import_path(&importer, "rpc.capnp");
+        assert_eq!(
+            resolved.as_ref().map(|u| u.0.as_str()),
+            Some("file:///work/myproj/rpc.capnp"),
+        );
+    }
+
+    #[test]
+    fn suffix_match_breaks_ties_by_shorter_path() {
+        let mut ws = Workspace::new();
+        ws.update("file:///work/main.capnp", String::new());
+        ws.update("file:///work/rpc.capnp", String::new());
+        ws.update(
+            "file:///work/temp/capnproto-rust/some/path/rpc.capnp",
+            String::new(),
+        );
+        let importer = FileUri("file:///work/main.capnp".into());
+        let resolved = ws.resolve_import_path(&importer, "rpc.capnp");
+        assert_eq!(
+            resolved.as_ref().map(|u| u.0.as_str()),
+            Some("file:///work/rpc.capnp"),
+        );
+    }
+
+    #[test]
+    fn suffix_match_picks_vendored_copy_when_importer_lives_there() {
+        let mut ws = Workspace::new();
+        ws.update("file:///work/myproj/rpc.capnp", String::new());
+        ws.update(
+            "file:///work/temp/capnproto-rust/some/path/rpc.capnp",
+            String::new(),
+        );
+        ws.update(
+            "file:///work/temp/capnproto-rust/some/path/main.capnp",
+            String::new(),
+        );
+        let importer = FileUri(
+            "file:///work/temp/capnproto-rust/some/path/main.capnp".into(),
+        );
+        let resolved = ws.resolve_import_path(&importer, "rpc.capnp");
+        assert_eq!(
+            resolved.as_ref().map(|u| u.0.as_str()),
+            Some("file:///work/temp/capnproto-rust/some/path/rpc.capnp"),
+        );
+    }
 }
