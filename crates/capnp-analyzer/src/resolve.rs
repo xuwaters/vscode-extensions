@@ -986,6 +986,46 @@ mod tests {
     }
 
     #[test]
+    fn resolves_interface_via_file_alias() {
+        use crate::vfs::Workspace;
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///rpc.capnp",
+            "@0x1; interface UpdateSink { deliver @0 (x :UInt32) -> stream; end @1 (); }\n\
+             interface Subscription { cancel @0 () -> (); }\n".into(),
+        );
+        ws.update(
+            "file:///workspace.capnp",
+            "@0x2; using Rpc = import \"rpc.capnp\";\n\
+             interface Cap { subscribe @0 (sink :Rpc.UpdateSink) -> (sub :Rpc.Subscription); }\n"
+                .into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let w_uri = FileUri("file:///workspace.capnp".into());
+        let path = vec![
+            Ident { text: "Rpc".into(), span: ByteSpan::EMPTY },
+            Ident { text: "UpdateSink".into(), span: ByteSpan::EMPTY },
+        ];
+        match idx.resolve_type(&w_uri, "Cap", &path) {
+            Resolution::Found { symbol, visibility_ok: true } => {
+                assert_eq!(symbol.fqn.as_str(), "UpdateSink");
+                assert_eq!(symbol.kind, SymbolKind::Interface);
+            }
+            other => panic!("expected Found UpdateSink, got {:?}", other),
+        }
+        let path = vec![
+            Ident { text: "Rpc".into(), span: ByteSpan::EMPTY },
+            Ident { text: "Subscription".into(), span: ByteSpan::EMPTY },
+        ];
+        match idx.resolve_type(&w_uri, "Cap", &path) {
+            Resolution::Found { symbol, visibility_ok: true } => {
+                assert_eq!(symbol.fqn.as_str(), "Subscription");
+            }
+            other => panic!("expected Found Subscription, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn resolves_using_named_import_type_alias() {
         use crate::vfs::Workspace;
         let mut ws = Workspace::new();

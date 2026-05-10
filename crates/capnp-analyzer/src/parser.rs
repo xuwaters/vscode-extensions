@@ -166,7 +166,7 @@ impl Parser {
         }
 
         let mut name = None;
-        if let TokenKind::Ident(_) = self.peek().kind {
+        if matches!(self.peek().kind, TokenKind::Ident(_) | TokenKind::KwStream) {
             name = Some(self.parse_ident());
             // Optional `= ...`
             if matches!(self.peek().kind, TokenKind::Eq) {
@@ -295,7 +295,7 @@ impl Parser {
             match self.peek().kind {
                 TokenKind::RParen => { self.bump(); break; }
                 TokenKind::Eof => break,
-                TokenKind::Ident(_) => {
+                TokenKind::Ident(_) | TokenKind::KwStream => {
                     out.push(self.parse_ident());
                     if matches!(self.peek().kind, TokenKind::Comma) { self.bump(); }
                 }
@@ -348,7 +348,9 @@ impl Parser {
                 let ub = self.parse_anon_union();
                 Some(StructMember::AnonUnion(ub))
             }
-            TokenKind::Ident(_) => Some(StructMember::Field(self.parse_field())),
+            TokenKind::Ident(_) | TokenKind::KwStream => {
+                Some(StructMember::Field(self.parse_field()))
+            }
             _ => {
                 let span = self.peek().span;
                 self.error(span, "expected struct member");
@@ -363,7 +365,7 @@ impl Parser {
         let mut members = Vec::new();
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
             let before = self.pos;
-            if let TokenKind::Ident(_) = self.peek().kind {
+            if matches!(self.peek().kind, TokenKind::Ident(_) | TokenKind::KwStream) {
                 members.push(self.parse_field());
             } else {
                 let span = self.peek().span;
@@ -535,7 +537,7 @@ impl Parser {
         let mut enumerants = Vec::new();
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
             let before = self.pos;
-            if let TokenKind::Ident(_) = self.peek().kind {
+            if matches!(self.peek().kind, TokenKind::Ident(_) | TokenKind::KwStream) {
                 enumerants.push(self.parse_enumerant());
             } else {
                 let span = self.peek().span;
@@ -603,7 +605,9 @@ impl Parser {
                 TokenKind::KwConst => nested.push(StructMember::Const(self.parse_const())),
                 TokenKind::KwAnnotation => nested.push(StructMember::Annotation(self.parse_annotation_decl())),
                 TokenKind::KwUsing => nested.push(StructMember::Using(self.parse_using())),
-                TokenKind::Ident(_) => methods.push(self.parse_method()),
+                TokenKind::Ident(_) | TokenKind::KwStream => {
+                    methods.push(self.parse_method())
+                }
                 _ => {
                     let span = self.peek().span;
                     self.error(span, "expected method or nested declaration");
@@ -639,7 +643,7 @@ impl Parser {
             if matches!(self.peek().kind, TokenKind::LParen) {
                 let (list, span) = self.parse_method_param_list();
                 (Some(list), Some(span))
-            } else if is_stream_ident(&self.peek().kind) {
+            } else if matches!(self.peek().kind, TokenKind::KwStream) {
                 self.bump();
                 streaming = true;
                 (None, None)
@@ -722,7 +726,7 @@ impl Parser {
 
     fn parse_method_param(&mut self) -> Option<MethodParam> {
         let start = self.peek().span;
-        if !matches!(self.peek().kind, TokenKind::Ident(_)) {
+        if !matches!(self.peek().kind, TokenKind::Ident(_) | TokenKind::KwStream) {
             let span = self.peek().span;
             self.error(span, "expected parameter name");
             return None;
@@ -804,12 +808,12 @@ fn describe(k: &TokenKind) -> &'static str {
     }
 }
 
-fn is_stream_ident(k: &TokenKind) -> bool {
-    matches!(k, TokenKind::Ident(s) if s.as_str() == "stream")
-}
-
 fn type_keyword_text(k: &TokenKind) -> Option<&'static str> {
     Some(match k {
+        // `stream` is a contextual keyword: it only acts as a keyword in
+        // `-> stream;` position. Anywhere else (field/method/param names)
+        // it must be usable as a plain identifier.
+        TokenKind::KwStream => "stream",
         TokenKind::TyVoid => "Void",
         TokenKind::TyBool => "Bool",
         TokenKind::TyInt8 => "Int8",
@@ -987,6 +991,15 @@ interface Admin {
         for s in snippets {
             let _ = parse(s);
         }
+    }
+
+    #[test]
+    fn stream_usable_as_field_name() {
+        // `stream` is a contextual keyword: it should still parse cleanly as
+        // an ordinary identifier when it shows up as a field/param name.
+        let src = "@0x1; struct S { stream @0 :Text; }";
+        let r = parse(src);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
     }
 
     #[test]

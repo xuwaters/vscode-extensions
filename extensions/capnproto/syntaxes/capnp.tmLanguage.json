@@ -74,6 +74,10 @@
           "name": "constant.language.capnp"
         },
         {
+          "match": "\\bstream\\b",
+          "name": "keyword.control.capnp"
+        },
+        {
           "match": "->",
           "name": "keyword.operator.arrow.capnp"
         }

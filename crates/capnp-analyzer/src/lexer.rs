@@ -52,6 +52,7 @@ pub enum TokenKind {
     KwUsing,
     KwImport,
     KwExtends,
+    KwStream,
 
     // Value keywords
     KwTrue,
@@ -397,6 +398,7 @@ fn keyword_or_ident(text: &str) -> TokenKind {
         "using" => TokenKind::KwUsing,
         "import" => TokenKind::KwImport,
         "extends" => TokenKind::KwExtends,
+        "stream" => TokenKind::KwStream,
         // Value keywords
         "true" => TokenKind::KwTrue,
         "false" => TokenKind::KwFalse,
@@ -456,6 +458,15 @@ mod tests {
     fn lex_arrow() {
         let k = kinds("a -> b");
         assert!(matches!(k[1], TokenKind::Arrow));
+    }
+
+    #[test]
+    fn lex_stream_keyword() {
+        // `stream` is a contextual keyword used after `->`; the lexer always
+        // emits KwStream — the parser is responsible for treating it as an
+        // identifier when it appears in non-stream-position contexts.
+        let k = kinds("stream");
+        assert!(matches!(k[0], TokenKind::KwStream));
     }
 
     #[test]
