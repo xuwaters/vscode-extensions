@@ -1,0 +1,102 @@
+{
+  "name": "wx-vsce-log-viewer",
+  "displayName": "Log Viewer",
+  "description": "Pretty viewer for .log files with ANSI escape sequence rendering",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "logViewer.editor",
+        "displayName": "Log Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.log"
+          },
+          {
+            "filenamePattern": "*.log.*"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "logViewer.openInLogViewer",
+        "title": "Open in Log Viewer",
+        "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.openInTextEditor",
+        "title": "Open in Text Editor",
+        "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.toggleAnsi",
+        "title": "Toggle ANSI Color Rendering",
+        "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.toggleWrap",
+        "title": "Toggle Word Wrap",
+        "category": "Log Viewer"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "logViewer.openInTextEditor",
+          "when": "activeCustomEditorId == 'logViewer.editor'",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Log Viewer",
+      "properties": {
+        "logViewer.renderAnsi": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render ANSI terminal escape sequences as colored text. When disabled, raw escape sequences are shown."
+        },
+        "logViewer.wordWrap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Wrap long lines in the log viewer."
+        },
+        "logViewer.maxFileSizeBytes": {
+          "type": "number",
+          "default": 8388608,
+          "description": "Maximum log file size to render (default 8 MB). Larger files fall back to raw text."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}
