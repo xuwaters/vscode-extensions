@@ -177,6 +177,9 @@ pub struct Method {
     /// Parsed result list, if the method has a `-> (…)` results form.
     pub results: Option<Vec<MethodParam>>,
     pub results_span: Option<ByteSpan>,
+    /// `true` when the method was declared with `-> stream;` (Cap'n Proto 0.8
+    /// flow-control hint). Streaming methods have no explicit results form.
+    pub streaming: bool,
     pub annotations: Vec<AnnotationApp>,
     pub span: ByteSpan,
 }

@@ -633,11 +633,16 @@ impl Parser {
         } else {
             (None, None)
         };
+        let mut streaming = false;
         let (results, results_span) = if matches!(self.peek().kind, TokenKind::Arrow) {
             self.bump();
             if matches!(self.peek().kind, TokenKind::LParen) {
                 let (list, span) = self.parse_method_param_list();
                 (Some(list), Some(span))
+            } else if is_stream_ident(&self.peek().kind) {
+                self.bump();
+                streaming = true;
+                (None, None)
             } else {
                 (None, None)
             }
@@ -654,6 +659,7 @@ impl Parser {
             params_span,
             results,
             results_span,
+            streaming,
             annotations,
             span: start.join(end),
         }
@@ -796,6 +802,10 @@ fn describe(k: &TokenKind) -> &'static str {
         TokenKind::At => "'@'",
         _ => "token",
     }
+}
+
+fn is_stream_ident(k: &TokenKind) -> bool {
+    matches!(k, TokenKind::Ident(s) if s.as_str() == "stream")
 }
 
 fn type_keyword_text(k: &TokenKind) -> Option<&'static str> {
@@ -977,6 +987,49 @@ interface Admin {
         for s in snippets {
             let _ = parse(s);
         }
+    }
+
+    #[test]
+    fn parses_streaming_method() {
+        let src = r#"@0x1;
+interface Sink {
+    write @0 (chunk :Data) -> stream;
+    other @1 () -> (n :UInt32);
+}
+"#;
+        let r = parse(src);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+        let iface = match &r.file.decls[0] {
+            Decl::Interface(i) => i,
+            _ => panic!("expected interface"),
+        };
+        assert_eq!(iface.methods.len(), 2);
+        let write = &iface.methods[0];
+        assert_eq!(write.name.text.as_str(), "write");
+        assert!(write.streaming, "write should be streaming");
+        assert!(write.results.is_none());
+        assert!(write.results_span.is_none());
+        let other = &iface.methods[1];
+        assert!(!other.streaming);
+        assert!(other.results.is_some());
+    }
+
+    #[test]
+    fn parses_streaming_method_with_annotation() {
+        let src = r#"@0x1;
+interface Sink {
+    write @0 (chunk :Data) -> stream $foo;
+}
+"#;
+        let r = parse(src);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+        let iface = match &r.file.decls[0] {
+            Decl::Interface(i) => i,
+            _ => panic!("expected interface"),
+        };
+        let m = &iface.methods[0];
+        assert!(m.streaming);
+        assert_eq!(m.annotations.len(), 1);
     }
 
     #[test]
