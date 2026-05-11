@@ -79,7 +79,7 @@ export function resolveCachePath(
     case 'adjacent': {
       const dir = path.dirname(logPath);
       const base = path.basename(logPath);
-      return path.join(dir, `.${base}.idx`);
+      return path.join(dir, `${base}.bin`);
     }
     case 'directory': {
       const customDir = paths.customDir;
