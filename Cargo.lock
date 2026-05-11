@@ -452,12 +452,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
-name = "log-parser"
+name = "log-engine"
 version = "0.1.0"
 dependencies = [
- "console_error_panic_hook",
+ "memchr",
  "pretty_assertions",
  "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "log-parser"
+version = "0.2.0"
+dependencies = [
+ "console_error_panic_hook",
+ "log-engine",
+ "pretty_assertions",
  "serde",
  "serde_json",
  "wasm-bindgen",

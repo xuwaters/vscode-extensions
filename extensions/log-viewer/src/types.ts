@@ -91,6 +91,80 @@ export interface OpenFilterEditorMessage {
   type: 'openFilterEditor';
 }
 
+// ===== Streaming protocol =====
+
+export interface LineRecord {
+  html: string;
+  text: string;
+}
+
+export interface IndexProgressFrame {
+  scannedLines: number;
+  scannedBytes: number;
+  fileSize: number;
+  complete: boolean;
+  /** Set once indexing completes. */
+  totalLines?: number;
+}
+
+export interface StreamInitMessage {
+  type: 'streamInit';
+  totalLines: number;
+  /** Total bytes (from stat). */
+  fileSize: number;
+  /** Stride used by the index. */
+  stride: number;
+  indexProgress: IndexProgressFrame;
+  rules: FilterRule[];
+  sets: FilterSet[];
+  activeSetNames: string[];
+  palette: string[];
+  state: ViewState;
+}
+
+export interface IndexProgressMessage {
+  type: 'indexProgress';
+  progress: IndexProgressFrame;
+}
+
+export interface WindowMessage {
+  type: 'window';
+  /** Webview request id this window answers (for stale-response dedup). */
+  requestId?: number;
+  start: number;
+  /** Number of trailing lines that were unavailable due to incomplete index. */
+  partialCount?: number;
+  lines: LineRecord[];
+}
+
+export interface FilterProgressMessage {
+  type: 'filterProgress';
+  scannedBytes: number;
+  scannedLines: number;
+  /** Sparse hits since the last progress event. Each entry is `[line, rule]`. */
+  hits: Array<[number, number]>;
+}
+
+export interface FilterDoneMessage {
+  type: 'filterDone';
+  totalHits: number;
+  truncated: boolean;
+}
+
+export interface SearchProgressMessage {
+  type: 'searchProgress';
+  scannedBytes: number;
+  scannedLines: number;
+  /** Sparse line numbers added since the last progress event. */
+  hits: number[];
+}
+
+export interface SearchDoneMessage {
+  type: 'searchDone';
+  totalHits: number;
+  truncated: boolean;
+}
+
 export type HostToWebview =
   | InitMessage
   | UpdateMessage
@@ -98,7 +172,14 @@ export type HostToWebview =
   | CommandToggleMessage
   | FontSizeCommandMessage
   | OpenFilterEditorMessage
-  | FilterConfigSavedMessage;
+  | FilterConfigSavedMessage
+  | StreamInitMessage
+  | IndexProgressMessage
+  | WindowMessage
+  | FilterProgressMessage
+  | FilterDoneMessage
+  | SearchProgressMessage
+  | SearchDoneMessage;
 
 // ===== webview → host =====
 
@@ -133,13 +214,40 @@ export interface OpenInTextMessage {
   type: 'openInText';
 }
 
+export interface RequestWindowMessage {
+  type: 'requestWindow';
+  /** Webview-assigned id echoed back on the response. */
+  requestId: number;
+  start: number;
+  end: number;
+}
+
+export interface SetSearchMessage {
+  type: 'setSearch';
+  query: string;
+  regex: boolean;
+  caseSensitive: boolean;
+}
+
+export interface CancelSearchMessage {
+  type: 'cancelSearch';
+}
+
+export interface ReloadMessage {
+  type: 'reload';
+}
+
 export type WebviewToHost =
   | ReadyMessage
   | SetStateMessage
   | SetFilterEnabledMessage
   | SetActiveSetsMessage
   | SaveFilterConfigMessage
-  | OpenInTextMessage;
+  | OpenInTextMessage
+  | RequestWindowMessage
+  | SetSearchMessage
+  | CancelSearchMessage
+  | ReloadMessage;
 
 // ===== WASM module shape (mirrors wasm/log_parser.d.ts) =====
 
@@ -156,4 +264,17 @@ export interface WasmModule {
   init(): void;
   stripAnsi(input: string): string;
   LogIndex: new (text: string) => WasmLogIndex;
+  /** Render a byte slab to `{ html, text }` JSON. */
+  renderLines(bytes: Uint8Array): string;
+  /** Per-line tags: 0 = no match, else 1-based rule index. */
+  matchLines(bytes: Uint8Array, rulesJson: string): Uint8Array;
+  /** Local line indices that match the query. */
+  searchLines(
+    bytes: Uint8Array,
+    query: string,
+    regex: boolean,
+    caseSensitive: boolean,
+  ): Uint32Array;
+  /** Byte offsets of every `\n` in the slab. */
+  findNewlines(bytes: Uint8Array): Uint32Array;
 }

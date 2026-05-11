@@ -37,6 +37,17 @@ const config: UserConfig = [
     clean: true,
     deps: { neverBundle: ['vscode'] },
   },
+  // Indexer worker bundle (Node worker_threads). Bundled separately so the
+  // extension host can spawn it with `new Worker(<bundle>)`.
+  {
+    entry: { indexerWorker: 'src/indexer/worker.ts' },
+    format: 'cjs',
+    outExtensions: () => ({ js: '.js' }),
+    platform: 'node',
+    outDir: 'dist',
+    sourcemap: true,
+    deps: { neverBundle: ['vscode'] },
+  },
   // Webview bundle: pulls in styles.css and body.html as inline strings.
   {
     entry: { webview: 'webview/index.ts' },

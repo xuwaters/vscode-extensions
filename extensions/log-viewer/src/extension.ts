@@ -1,5 +1,8 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { LogEditorProvider } from './editorProvider.js';
+import { globalIndexDir } from './indexer/cache.js';
 import { loadWasm } from './wasm.js';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -88,6 +91,37 @@ export function activate(context: vscode.ExtensionContext): void {
           'logViewer.filterSets',
         );
       }
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('logViewer.clearIndexCache', async () => {
+      // RFC §5.4.4: clear the directories we own, not adjacent files we
+      // didn't write this session.
+      const cfg = vscode.workspace.getConfiguration('logViewer');
+      const dirs: string[] = [globalIndexDir(context.globalStorageUri.fsPath)];
+      const customDir = cfg.get<string>('indexDirectory', '');
+      if (customDir) dirs.push(customDir);
+      let removed = 0;
+      for (const dir of dirs) {
+        try {
+          for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (ent.isFile() && ent.name.endsWith('.idx')) {
+              try {
+                fs.unlinkSync(path.join(dir, ent.name));
+                removed += 1;
+              } catch {
+                // ignore
+              }
+            }
+          }
+        } catch {
+          // directory doesn't exist yet — fine.
+        }
+      }
+      void vscode.window.showInformationMessage(
+        `Log Viewer: cleared ${removed} index file${removed === 1 ? '' : 's'}.`,
+      );
     }),
   );
 }

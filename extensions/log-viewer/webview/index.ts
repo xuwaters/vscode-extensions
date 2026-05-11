@@ -4,6 +4,7 @@ import type {
   FilterRule,
   FilterSet,
   HostToWebview,
+  LineRecord,
   ParsedLines,
   ViewState,
   WebviewToHost,
@@ -82,14 +83,53 @@ let visibleIndices: number[] = [];
 let lineHeight = 18;
 let scrollScheduled = false;
 
+// === Streaming mode state ===
+//
+// In streaming mode the webview no longer owns the entire file; lines are
+// fetched on-demand from the host as a window scrolls into view, and
+// filter/search results stream in incrementally. `streamMode` is the
+// switch the data accessors below check.
+let streamMode = false;
+let streamTotalLines = 0;
+let streamFileSize = 0;
+let indexProgressInfo = { scannedLines: 0, scannedBytes: 0, complete: false };
+const streamLineCache = new Map<number, LineRecord>();
+const streamFilterTags = new Map<number, number>(); // line → 1-based rule index
+const streamSearchHits = new Set<number>();
+let streamSearchTotal = 0;
+let streamFilterTruncated = false;
+let streamSearchTruncated = false;
+let pendingWindowRanges = new Set<string>();
+let streamWindowReqSeq = 0;
+const STREAM_WINDOW_SIZE = 200;
+
 // === Rendering ===
 
 function htmlEscape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function lineTagOf(idx: number): number {
+  if (streamMode) return streamFilterTags.get(idx) ?? 0;
+  return filterMatches[idx] ?? 0;
+}
+
+function lineTextOf(idx: number): string {
+  if (streamMode) return streamLineCache.get(idx)?.text ?? '';
+  return lines.text[idx] ?? '';
+}
+
+function lineHtmlOf(idx: number): string {
+  if (streamMode) return streamLineCache.get(idx)?.html ?? '';
+  return lines.html[idx] ?? '';
+}
+
+function totalLineCount(): number {
+  return streamMode ? streamTotalLines : lines.text.length;
+}
+
 function lineBackground(idx: number): string | null {
-  const m = filterMatches[idx];
+  const m = lineTagOf(idx);
   if (!m) return null;
   const rule = rules[m - 1];
   if (!rule || rule.enabled === false) return null;
@@ -97,7 +137,7 @@ function lineBackground(idx: number): string | null {
 }
 
 function lineMatchesAnyEnabledFilter(idx: number): boolean {
-  const m = filterMatches[idx];
+  const m = lineTagOf(idx);
   if (!m) return false;
   const rule = rules[m - 1];
   return !!rule && rule.enabled !== false;
@@ -117,6 +157,10 @@ function buildSearchMatcher(): RegExp | null {
 }
 
 function lineMatchesSearch(idx: number): boolean {
+  if (streamMode) {
+    if (!searchQuery) return true;
+    return streamSearchHits.has(idx);
+  }
   if (!searchMatcher) return true;
   const text = lines.text[idx] ?? '';
   searchMatcher.lastIndex = 0;
@@ -124,10 +168,40 @@ function lineMatchesSearch(idx: number): boolean {
 }
 
 function recomputeVisibleIndices(): void {
-  const total = lines.text.length;
-  const out: number[] = [];
+  const total = totalLineCount();
   const onlyMatching = view.filterMode === 'only-matching';
   const anyEnabledRule = rules.some((r) => r.enabled !== false);
+
+  if (streamMode) {
+    if (!onlyMatching && !searchQuery) {
+      // Highlight mode + no search: all lines are visible. Skip allocating a
+      // 10M-element array — represent the range implicitly via length only.
+      visibleIndices = makeRangeArray(total);
+      return;
+    }
+    // Build the visible set from sparse host-supplied hits.
+    const set = new Set<number>();
+    if (onlyMatching && anyEnabledRule) {
+      streamFilterTags.forEach((tag, line) => {
+        const rule = rules[tag - 1];
+        if (rule && rule.enabled !== false) set.add(line);
+      });
+    } else if (!onlyMatching) {
+      for (let i = 0; i < total; i++) set.add(i);
+    }
+    if (searchQuery) {
+      const intersect = new Set<number>();
+      streamSearchHits.forEach((line) => {
+        if (set.has(line) || (!onlyMatching && !anyEnabledRule)) intersect.add(line);
+      });
+      visibleIndices = Array.from(intersect).sort((a, b) => a - b);
+    } else {
+      visibleIndices = Array.from(set).sort((a, b) => a - b);
+    }
+    return;
+  }
+
+  const out: number[] = [];
   for (let i = 0; i < total; i++) {
     if (!lineMatchesSearch(i)) continue;
     if (onlyMatching && anyEnabledRule && !lineMatchesAnyEnabledFilter(i)) {
@@ -138,12 +212,72 @@ function recomputeVisibleIndices(): void {
   visibleIndices = out;
 }
 
+/** Cheap "range" array used by streaming highlight mode. */
+function makeRangeArray(n: number): number[] {
+  // For huge totals we can't allocate a dense array; instead use a Proxy-like
+  // wrapper that virtualises index lookups. Plain JS arrays are fine up to a
+  // few million entries; past that, fall back to a virtual array.
+  if (n < 5_000_000) {
+    const out = new Array<number>(n);
+    for (let i = 0; i < n; i++) out[i] = i;
+    return out;
+  }
+  // Virtual array: only `.length` and indexed reads are supported; that's
+  // what the rest of the code uses for visibleIndices.
+  const handler: ProxyHandler<number[]> = {
+    get(target, prop) {
+      if (prop === 'length') return n;
+      if (typeof prop === 'string' && /^\d+$/.test(prop)) {
+        const i = Number(prop);
+        return i < n ? i : undefined;
+      }
+      return Reflect.get(target, prop);
+    },
+  };
+  return new Proxy([] as number[], handler);
+}
+
+function requestWindowForLine(lineIdx: number): void {
+  if (!streamMode) return;
+  // Round to STREAM_WINDOW_SIZE; coalesce nearby requests.
+  const start = Math.max(0, Math.floor(lineIdx / STREAM_WINDOW_SIZE) * STREAM_WINDOW_SIZE);
+  const end = Math.min(streamTotalLines, start + STREAM_WINDOW_SIZE);
+  const key = `${start}:${end}`;
+  if (pendingWindowRanges.has(key)) return;
+  // Skip if we already have the entire window cached.
+  let allCached = true;
+  for (let i = start; i < end; i++) {
+    if (!streamLineCache.has(i)) {
+      allCached = false;
+      break;
+    }
+  }
+  if (allCached) return;
+  pendingWindowRanges.add(key);
+  vscode.postMessage({
+    type: 'requestWindow',
+    requestId: ++streamWindowReqSeq,
+    start,
+    end,
+  });
+}
+
 function applyLineContent(div: HTMLDivElement, idx: number): void {
-  const html = view.renderAnsi
-    ? lines.html[idx] ?? ''
-    : htmlEscape(lines.text[idx] ?? '');
-  if (searchMatcher && (lines.text[idx] ?? '').length > 0) {
-    div.innerHTML = highlightSearchInHtml(html, lines.text[idx] ?? '');
+  // In stream mode the line may not have been fetched yet; show a placeholder
+  // and trigger a window request. The host will respond and we re-render.
+  if (streamMode && !streamLineCache.has(idx)) {
+    div.innerHTML = '​';
+    div.style.backgroundColor = '';
+    div.style.borderLeftColor = 'transparent';
+    div.dataset['i'] = String(idx);
+    requestWindowForLine(idx);
+    return;
+  }
+  const lineText = lineTextOf(idx);
+  const lineHtml = lineHtmlOf(idx);
+  const html = view.renderAnsi ? lineHtml : htmlEscape(lineText);
+  if (searchMatcher && lineText.length > 0) {
+    div.innerHTML = highlightSearchInHtml(html, lineText);
   } else {
     div.innerHTML = html.length === 0 ? '​' : html;
   }
@@ -409,23 +543,47 @@ function fmtBytes(n: number): string {
 }
 
 function updateInfo(): void {
-  const total = lines.text.length;
+  const total = totalLineCount();
   const visible = visibleIndices.length;
-  info.textContent = `${visible.toLocaleString()} / ${total.toLocaleString()} lines · ${fmtBytes(totalBytes)}`;
-  banner.hidden = !truncated;
-  if (truncated) {
-    banner.textContent =
-      'File exceeds logViewer.maxFileSizeBytes; only the head is shown. Open in Text Editor to see the full file.';
+  const bytes = streamMode ? streamFileSize : totalBytes;
+  info.textContent = `${visible.toLocaleString()} / ${total.toLocaleString()} lines · ${fmtBytes(bytes)}`;
+  if (streamMode) {
+    if (!indexProgressInfo.complete) {
+      banner.hidden = false;
+      const pct = streamFileSize > 0
+        ? Math.floor((indexProgressInfo.scannedBytes / streamFileSize) * 100)
+        : 0;
+      banner.textContent = `Indexing… ${pct}% (${indexProgressInfo.scannedLines.toLocaleString()} lines)`;
+    } else if (streamFilterTruncated || streamSearchTruncated) {
+      banner.hidden = false;
+      banner.textContent = `Result limit reached; showing first results only.`;
+    } else {
+      banner.hidden = true;
+    }
+  } else {
+    banner.hidden = !truncated;
+    if (truncated) {
+      banner.textContent =
+        'File exceeds logViewer.maxFileSizeBytes; only the head is shown. Open in Text Editor to see the full file.';
+    }
   }
   if (searchQuery) {
-    let hits = 0;
-    if (searchMatcher) {
+    let hits: number;
+    if (streamMode) {
+      hits = streamSearchHits.size;
+    } else if (searchMatcher) {
+      hits = 0;
       for (let i = 0; i < lines.text.length; i++) {
         searchMatcher.lastIndex = 0;
         if (searchMatcher.test(lines.text[i] ?? '')) hits++;
       }
+    } else {
+      hits = 0;
     }
-    searchInfo.textContent = `${hits} match${hits === 1 ? '' : 'es'}`;
+    const suffix = streamMode && streamSearchTotal && streamSearchTotal !== hits
+      ? ` (of ${streamSearchTotal.toLocaleString()})`
+      : '';
+    searchInfo.textContent = `${hits.toLocaleString()} match${hits === 1 ? '' : 'es'}${suffix}`;
   } else {
     searchInfo.textContent = '';
   }
@@ -460,6 +618,7 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
   const msg = e.data;
   switch (msg.type) {
     case 'init':
+      streamMode = false;
       lines = msg.lines;
       filterMatches = msg.filterMatches;
       rules = msg.rules;
@@ -472,6 +631,86 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
       renderChips();
       renderSetsMenu();
       applyAll();
+      break;
+    case 'streamInit':
+      streamMode = true;
+      streamTotalLines = msg.totalLines;
+      streamFileSize = msg.fileSize;
+      indexProgressInfo = {
+        scannedLines: msg.indexProgress.scannedLines,
+        scannedBytes: msg.indexProgress.scannedBytes,
+        complete: msg.indexProgress.complete,
+      };
+      rules = msg.rules;
+      sets = msg.sets;
+      activeSetNames = new Set(msg.activeSetNames);
+      palette = msg.palette;
+      view = msg.state;
+      // Stream mode disables wrap (RFC §9.1 case A for v1).
+      view.wordWrap = false;
+      truncated = false;
+      streamLineCache.clear();
+      streamFilterTags.clear();
+      streamSearchHits.clear();
+      streamSearchTotal = 0;
+      streamFilterTruncated = false;
+      streamSearchTruncated = false;
+      pendingWindowRanges = new Set();
+      renderChips();
+      renderSetsMenu();
+      applyAll();
+      break;
+    case 'indexProgress':
+      indexProgressInfo = {
+        scannedLines: msg.progress.scannedLines,
+        scannedBytes: msg.progress.scannedBytes,
+        complete: msg.progress.complete,
+      };
+      if (msg.progress.totalLines !== undefined) {
+        streamTotalLines = msg.progress.totalLines;
+      }
+      // Once index reaches further than what we've visualised, refresh.
+      partialUpdate({ remeasure: false, preserveScroll: true });
+      break;
+    case 'window': {
+      pendingWindowRanges.delete(`${msg.start}:${msg.start + msg.lines.length + (msg.partialCount ?? 0)}`);
+      for (let i = 0; i < msg.lines.length; i++) {
+        streamLineCache.set(msg.start + i, msg.lines[i]);
+      }
+      // Re-render in place; the spacer height doesn't change.
+      renderDirty = true;
+      if (view.wordWrap) renderWrap();
+      else renderVirtualized();
+      break;
+    }
+    case 'filterProgress':
+      for (const [line, rule] of msg.hits) {
+        streamFilterTags.set(line, rule + 1);
+      }
+      // Lightly re-render: tags affect background colour for already-visible
+      // lines, and (in only-matching mode) affect visibility.
+      if (view.filterMode === 'only-matching') {
+        partialUpdate({ remeasure: false, preserveScroll: true });
+      } else {
+        renderDirty = true;
+        if (view.wordWrap) renderWrap();
+        else renderVirtualized();
+        updateInfo();
+      }
+      break;
+    case 'filterDone':
+      streamFilterTruncated = msg.truncated;
+      void msg.totalHits;
+      partialUpdate({ remeasure: false, preserveScroll: true });
+      break;
+    case 'searchProgress':
+      for (const line of msg.hits) streamSearchHits.add(line);
+      partialUpdate({ remeasure: false, preserveScroll: true });
+      break;
+    case 'searchDone':
+      streamSearchTotal = msg.totalHits;
+      streamSearchTruncated = msg.truncated;
+      partialUpdate({ remeasure: false, preserveScroll: true });
       break;
     case 'update':
       if (msg.lines) lines = msg.lines;
@@ -567,24 +806,54 @@ btnFontReset.addEventListener('click', () => setFont(0));
 btnRegex.addEventListener('click', () => {
   searchRegex = !searchRegex;
   applyToolbarState();
+  scheduleStreamSearch();
   partialUpdate({ remeasure: false });
 });
 btnCase.addEventListener('click', () => {
   searchCase = !searchCase;
   applyToolbarState();
+  scheduleStreamSearch();
   partialUpdate({ remeasure: false });
 });
 searchInput.addEventListener('input', () => {
   searchQuery = searchInput.value;
+  scheduleStreamSearch();
   partialUpdate({ remeasure: false });
 });
 searchInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     searchInput.value = '';
     searchQuery = '';
+    if (streamMode) {
+      streamSearchHits.clear();
+      streamSearchTotal = 0;
+      vscode.postMessage({ type: 'cancelSearch' });
+    }
     partialUpdate({ remeasure: false });
   }
 });
+
+let streamSearchTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleStreamSearch(): void {
+  if (!streamMode) return;
+  if (streamSearchTimer !== null) clearTimeout(streamSearchTimer);
+  streamSearchTimer = setTimeout(() => {
+    streamSearchTimer = null;
+    streamSearchHits.clear();
+    streamSearchTotal = 0;
+    streamSearchTruncated = false;
+    if (searchQuery) {
+      vscode.postMessage({
+        type: 'setSearch',
+        query: searchQuery,
+        regex: searchRegex,
+        caseSensitive: searchCase,
+      });
+    } else {
+      vscode.postMessage({ type: 'cancelSearch' });
+    }
+  }, 200);
+}
 scroller.addEventListener('scroll', scheduleScrollRender);
 window.addEventListener('resize', () => {
   if (!view.wordWrap) scheduleScrollRender();

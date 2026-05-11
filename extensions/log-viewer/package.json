@@ -79,6 +79,11 @@
         "command": "logViewer.editFilterSets",
         "title": "Edit Filter Sets",
         "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.clearIndexCache",
+        "title": "Clear Index Cache",
+        "category": "Log Viewer"
       }
     ],
     "keybindings": [
@@ -254,6 +259,38 @@
               }
             }
           }
+        },
+        "logViewer.streamingThresholdBytes": {
+          "type": "number",
+          "default": 4194304,
+          "description": "Files larger than this size (in bytes, default 4 MB) use the streaming pipeline: a background indexer builds a sparse line index, and the viewer renders only the visible window. Smaller files keep the original whole-document path."
+        },
+        "logViewer.indexLocation": {
+          "type": "string",
+          "enum": [
+            "globalStorage",
+            "adjacent",
+            "directory"
+          ],
+          "default": "globalStorage",
+          "markdownDescription": "Where to persist the line index for large logs.\n- `globalStorage` (default): under the extension's global storage — safe, hidden, never fails on read-only paths.\n- `adjacent`: writes `.<name>.idx` next to the log itself. Falls back to globalStorage if the directory isn't writable.\n- `directory`: a user-configured path; see `logViewer.indexDirectory`."
+        },
+        "logViewer.indexDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Custom directory for index files. Used only when logViewer.indexLocation = 'directory'. Supports a leading '~/' to reference the home directory."
+        },
+        "logViewer.indexAnchorStride": {
+          "type": "number",
+          "default": 1024,
+          "minimum": 1,
+          "description": "Anchor every Nth line in the line index. Larger values shrink the in-memory index (~1 KB per 100 MB of log at stride 1024) at the cost of slightly slower goto-line. Power-user setting; the default is appropriate for most workloads."
+        },
+        "logViewer.indexCacheBudgetMB": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "description": "Maximum total size (MB) of the persistent index cache. Oldest-`atime` files are evicted past the budget. Applies to globalStorage and directory modes; adjacent files are never auto-evicted."
         },
         "logViewer.colorPalette": {
           "type": "array",
