@@ -227,6 +227,15 @@ function highlightSearchInHtml(html: string, plain: string): string {
 
 // Pool of line elements reused across virtualization renders.
 const linePool: HTMLDivElement[] = [];
+// Live mapping from lineIdx → element currently rendered for that line. Keyed
+// by line index (not slot position) so that scrolling does not disturb DOM
+// nodes for lines that remain in view. Without this, a mouse-drag selection
+// would flash on every scroll frame as the browser re-resolves the selection
+// range against re-created DOM.
+const renderedLineEls = new Map<number, HTMLDivElement>();
+// When content (filters/search/font/etc.) changes, every line must be
+// re-applied even if it's still in view. Scrolls leave this false.
+let renderDirty = true;
 
 function getLineEl(): HTMLDivElement {
   const el = linePool.pop();
@@ -241,6 +250,14 @@ function recycleLineEl(el: HTMLDivElement): void {
   el.style.backgroundColor = '';
   el.style.borderLeftColor = '';
   linePool.push(el);
+}
+
+function clearRenderedLines(): void {
+  for (const el of renderedLineEls.values()) {
+    if (el.parentNode === viewport) viewport.removeChild(el);
+    recycleLineEl(el);
+  }
+  renderedLineEls.clear();
 }
 
 function measureLineHeight(): void {
@@ -269,27 +286,42 @@ function renderVirtualized(): void {
     Math.ceil((scrollTop + viewportHeight) / lineHeight) + OVERSCAN,
   );
 
-  // Reuse elements: keep the first `endVisIdx - startVisIdx` children, recycle the rest.
-  const needed = endVisIdx - startVisIdx;
-  while (viewport.children.length > needed) {
-    const child = viewport.lastElementChild as HTMLDivElement | null;
-    if (!child) break;
-    viewport.removeChild(child);
-    recycleLineEl(child);
-  }
-  while (viewport.children.length < needed) {
-    viewport.appendChild(getLineEl());
+  if (renderDirty) {
+    clearRenderedLines();
+    renderDirty = false;
   }
 
-  for (let k = 0; k < needed; k++) {
-    const visIdx = startVisIdx + k;
-    const lineIdx = visibleIndices[visIdx];
-    const el = viewport.children[k] as HTMLDivElement;
-    el.style.transform = `translateY(${visIdx * lineHeight}px)`;
-    el.style.position = 'absolute';
-    el.style.left = '0';
-    el.style.right = '0';
-    applyLineContent(el, lineIdx);
+  // Desired set: lineIdx → visIdx (for transform positioning).
+  const desired = new Map<number, number>();
+  for (let v = startVisIdx; v < endVisIdx; v++) {
+    desired.set(visibleIndices[v], v);
+  }
+
+  // Drop elements that scrolled out of view.
+  for (const [lineIdx, el] of Array.from(renderedLineEls)) {
+    if (!desired.has(lineIdx)) {
+      viewport.removeChild(el);
+      recycleLineEl(el);
+      renderedLineEls.delete(lineIdx);
+    }
+  }
+
+  // Add or reposition.
+  for (const [lineIdx, visIdx] of desired) {
+    let el = renderedLineEls.get(lineIdx);
+    const transform = `translateY(${visIdx * lineHeight}px)`;
+    if (!el) {
+      el = getLineEl();
+      el.style.position = 'absolute';
+      el.style.left = '0';
+      el.style.right = '0';
+      el.style.transform = transform;
+      applyLineContent(el, lineIdx);
+      viewport.appendChild(el);
+      renderedLineEls.set(lineIdx, el);
+    } else if (el.style.transform !== transform) {
+      el.style.transform = transform;
+    }
   }
 }
 
@@ -297,6 +329,7 @@ function renderWrap(): void {
   // Wrap mode: variable line heights, virtualization disabled. Render all
   // visible lines flow-positioned. For very large logs this is sluggish;
   // wrap mode is opt-in.
+  clearRenderedLines();
   spacer.style.height = '';
   // Replace children in a single pass using DocumentFragment.
   const frag = document.createDocumentFragment();
@@ -312,6 +345,7 @@ function renderWrap(): void {
 }
 
 function render(): void {
+  renderDirty = true;
   if (view.wordWrap) renderWrap();
   else renderVirtualized();
 }
