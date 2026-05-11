@@ -184,6 +184,22 @@ fn html_escape(s: &str, out: &mut String) {
     }
 }
 
+/// Lookup table: number of bytes in a UTF-8 scalar given its leading byte.
+/// Continuation bytes and invalid leaders fall back to 1 so we always advance.
+fn utf8_char_width(b: u8) -> usize {
+    if b < 0x80 {
+        1
+    } else if b < 0xc0 {
+        1
+    } else if b < 0xe0 {
+        2
+    } else if b < 0xf0 {
+        3
+    } else {
+        4
+    }
+}
+
 /// Strip OSC / DCS / SOS / PM / APC, common single-byte Fe escapes, and charset
 /// designators. CSI (ESC [ ...) is handled by the SGR loop.
 fn strip_non_csi(input: &str) -> String {
@@ -193,9 +209,12 @@ fn strip_non_csi(input: &str) -> String {
     while i < bytes.len() {
         let b = bytes[i];
         if b != 0x1b {
-            // Push bytes verbatim — input is UTF-8; we only branch on ASCII.
-            out.push(b as char);
-            i += 1;
+            // Copy one UTF-8 scalar verbatim. Casting raw bytes via `as char`
+            // would mangle multi-byte characters (e.g. `…` → three Latin-1 chars).
+            let width = utf8_char_width(b);
+            let end = (i + width).min(bytes.len());
+            out.push_str(&input[i..end]);
+            i = end;
             continue;
         }
         // ESC seen.
@@ -512,6 +531,22 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].text, "error");
         assert_eq!(lines[1].text, "okay");
+    }
+
+    #[test]
+    fn preserves_multibyte_utf8() {
+        // Ellipsis and em-dash are 3-byte UTF-8 scalars (E2 80 A6 / E2 80 94).
+        // Earlier code pushed bytes as Latin-1 chars, corrupting them.
+        assert_eq!(strip_ansi("loading… done — ok"), "loading… done — ok");
+        assert_eq!(html_of("a … b — c"), "a … b — c");
+        // CJK and emoji should also round-trip.
+        assert_eq!(strip_ansi("日本語 🚀"), "日本語 🚀");
+    }
+
+    #[test]
+    fn multibyte_text_around_ansi() {
+        let html = html_of(&format!("{ESC}[31m错误…{ESC}[0m"));
+        assert!(html.contains(">错误…</span>"));
     }
 
     #[test]
