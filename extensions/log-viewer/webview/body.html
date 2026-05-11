@@ -14,10 +14,16 @@
   <button id="btn-font-down" type="button" title="Decrease font size">A−</button>
   <button id="btn-font-up" type="button" title="Increase font size">A+</button>
   <button id="btn-font-reset" type="button" title="Reset font size">A0</button>
+  <button id="btn-end" type="button" title="Scroll to end of file (End)" hidden>End ⏭</button>
   <button id="btn-text" type="button" title="Open in default text editor">Text Editor</button>
   <span class="info" id="info"></span>
 </div>
 <div class="banner" id="banner" hidden></div>
+<div class="banner reload-banner" id="reload-banner" hidden>
+  <span id="reload-banner-text">File changed on disk.</span>
+  <button id="btn-reload" type="button">Reload</button>
+  <button id="btn-reload-dismiss" type="button" class="icon-btn" title="Dismiss">✕</button>
+</div>
 <div id="scroller">
   <div id="spacer">
     <div id="viewport"></div>

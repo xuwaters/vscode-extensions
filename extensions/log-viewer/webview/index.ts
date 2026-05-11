@@ -51,6 +51,11 @@ const btnFontUp = byId<HTMLButtonElement>('btn-font-up');
 const btnFontDown = byId<HTMLButtonElement>('btn-font-down');
 const btnFontReset = byId<HTMLButtonElement>('btn-font-reset');
 const btnText = byId<HTMLButtonElement>('btn-text');
+const btnEnd = byId<HTMLButtonElement>('btn-end');
+const reloadBanner = byId<HTMLDivElement>('reload-banner');
+const reloadBannerText = byId<HTMLSpanElement>('reload-banner-text');
+const btnReload = byId<HTMLButtonElement>('btn-reload');
+const btnReloadDismiss = byId<HTMLButtonElement>('btn-reload-dismiss');
 
 function byId<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -102,6 +107,12 @@ let streamSearchTruncated = false;
 let pendingWindowRanges = new Set<string>();
 let streamWindowReqSeq = 0;
 const STREAM_WINDOW_SIZE = 200;
+
+// Per-line measured pixel heights for streaming + wrap mode (RFC §9.1
+// option B / phase 7). For unmeasured lines we use `streamAvgHeight`
+// which is a running mean refined as lines are rendered.
+const streamLineHeights = new Map<number, number>();
+let streamAvgHeight = 18;
 
 // === Rendering ===
 
@@ -460,12 +471,15 @@ function renderVirtualized(): void {
 }
 
 function renderWrap(): void {
-  // Wrap mode: variable line heights, virtualization disabled. Render all
-  // visible lines flow-positioned. For very large logs this is sluggish;
-  // wrap mode is opt-in.
+  if (streamMode) {
+    renderWrapStreaming();
+    return;
+  }
+  // In-memory wrap mode: variable line heights, virtualization disabled.
+  // Render all visible lines flow-positioned. For very large logs this is
+  // sluggish; wrap mode is opt-in.
   clearRenderedLines();
   spacer.style.height = '';
-  // Replace children in a single pass using DocumentFragment.
   const frag = document.createDocumentFragment();
   for (let k = 0; k < visibleIndices.length; k++) {
     const lineIdx = visibleIndices[k];
@@ -476,6 +490,84 @@ function renderWrap(): void {
     frag.appendChild(el);
   }
   viewport.replaceChildren(frag);
+}
+
+/**
+ * Approximate wrap layout for streaming mode (RFC §9.1 option B):
+ * render only the visible window flow-positioned at `firstVisible *
+ * avgHeight`, where `avgHeight` is a running mean of measured line
+ * heights. The scrollbar is approximate by design — jumps to unmeasured
+ * regions land "close" and re-anchor once the window paints.
+ */
+function renderWrapStreaming(): void {
+  spacer.style.height = `${visibleIndices.length * streamAvgHeight}px`;
+
+  const scrollTop = scroller.scrollTop;
+  const viewportHeight = scroller.clientHeight;
+  const startVisIdx = Math.max(
+    0,
+    Math.floor(scrollTop / streamAvgHeight) - OVERSCAN,
+  );
+  const endVisIdx = Math.min(
+    visibleIndices.length,
+    Math.ceil((scrollTop + viewportHeight) / streamAvgHeight) + OVERSCAN,
+  );
+
+  clearRenderedLines();
+  const frag = document.createDocumentFragment();
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'absolute';
+  wrapper.style.left = '0';
+  wrapper.style.right = '0';
+  wrapper.style.transform = `translateY(${startVisIdx * streamAvgHeight}px)`;
+  for (let v = startVisIdx; v < endVisIdx; v++) {
+    const lineIdx = visibleIndices[v];
+    const el = document.createElement('div');
+    el.className = 'ln';
+    el.style.position = 'static';
+    applyLineContent(el, lineIdx);
+    wrapper.appendChild(el);
+    renderedLineEls.set(lineIdx, el);
+  }
+  frag.appendChild(wrapper);
+  viewport.replaceChildren(frag);
+
+  // After layout, sample heights and refresh the rolling average.
+  measureStreamHeights(wrapper);
+}
+
+function measureStreamHeights(container: HTMLElement): void {
+  const children = container.children;
+  let touched = false;
+  let totalSampled = 0;
+  let sumSampled = 0;
+  for (let i = 0; i < children.length; i++) {
+    const el = children[i] as HTMLElement;
+    const lineIdx = Number(el.dataset['i']);
+    if (!Number.isFinite(lineIdx)) continue;
+    const h = el.getBoundingClientRect().height;
+    if (h <= 0) continue;
+    streamLineHeights.set(lineIdx, h);
+    totalSampled += 1;
+    sumSampled += h;
+    touched = true;
+  }
+  if (!touched) return;
+  // Exponential moving average across all rendered windows. The weight
+  // is proportional to how much of the file we've now measured, capped
+  // so that we never get fully stuck on early samples.
+  const newAvg = sumSampled / totalSampled;
+  const measured = streamLineHeights.size;
+  const weight = Math.min(0.5, measured / Math.max(1, streamTotalLines));
+  const next = streamAvgHeight * (1 - weight) + newAvg * weight;
+  if (Math.abs(next - streamAvgHeight) > 0.5) {
+    streamAvgHeight = next;
+    // Refresh spacer height so the scrollbar stays roughly accurate.
+    spacer.style.height = `${visibleIndices.length * streamAvgHeight}px`;
+  } else {
+    streamAvgHeight = next;
+  }
+  void totalSampled;
 }
 
 function render(): void {
@@ -646,9 +738,8 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
       activeSetNames = new Set(msg.activeSetNames);
       palette = msg.palette;
       view = msg.state;
-      // Stream mode disables wrap (RFC §9.1 case A for v1).
-      view.wordWrap = false;
       truncated = false;
+      btnEnd.hidden = false;
       streamLineCache.clear();
       streamFilterTags.clear();
       streamSearchHits.clear();
@@ -711,6 +802,9 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
       streamSearchTotal = msg.totalHits;
       streamSearchTruncated = msg.truncated;
       partialUpdate({ remeasure: false, preserveScroll: true });
+      break;
+    case 'fileChanged':
+      showReloadBanner(msg.previousSize, msg.currentSize);
       break;
     case 'update':
       if (msg.lines) lines = msg.lines;
@@ -800,6 +894,40 @@ btnMode.addEventListener('click', () =>
 btnText.addEventListener('click', () =>
   vscode.postMessage({ type: 'openInText' }),
 );
+btnEnd.addEventListener('click', () => scrollToEnd());
+btnReload.addEventListener('click', () => {
+  hideReloadBanner();
+  vscode.postMessage({ type: 'reload' });
+});
+btnReloadDismiss.addEventListener('click', hideReloadBanner);
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'End' && (e.ctrlKey || e.metaKey)) {
+    scrollToEnd();
+    e.preventDefault();
+  }
+  if (e.key === 'Home' && (e.ctrlKey || e.metaKey)) {
+    scroller.scrollTop = 0;
+    e.preventDefault();
+  }
+});
+
+function scrollToEnd(): void {
+  // Jump to the bottom of the spacer. In stream mode this triggers a
+  // window request for the tail (served from the pre-built tail buffer
+  // if indexing is still running) — RFC §5.3.
+  scroller.scrollTop = scroller.scrollHeight;
+  scheduleScrollRender();
+}
+
+function showReloadBanner(prevSize: number, curSize: number): void {
+  reloadBanner.hidden = false;
+  const delta = curSize - prevSize;
+  const sign = delta >= 0 ? '+' : '';
+  reloadBannerText.textContent = `File changed on disk (${sign}${fmtBytes(delta)}).`;
+}
+function hideReloadBanner(): void {
+  reloadBanner.hidden = true;
+}
 btnFontUp.addEventListener('click', () => bumpFont(1));
 btnFontDown.addEventListener('click', () => bumpFont(-1));
 btnFontReset.addEventListener('click', () => setFont(0));

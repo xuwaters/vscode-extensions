@@ -165,6 +165,12 @@ export interface SearchDoneMessage {
   truncated: boolean;
 }
 
+export interface FileChangedMessage {
+  type: 'fileChanged';
+  previousSize: number;
+  currentSize: number;
+}
+
 export type HostToWebview =
   | InitMessage
   | UpdateMessage
@@ -179,7 +185,8 @@ export type HostToWebview =
   | FilterProgressMessage
   | FilterDoneMessage
   | SearchProgressMessage
-  | SearchDoneMessage;
+  | SearchDoneMessage
+  | FileChangedMessage;
 
 // ===== webview → host =====
 

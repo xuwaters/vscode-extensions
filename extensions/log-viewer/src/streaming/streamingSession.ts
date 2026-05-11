@@ -59,10 +59,23 @@ export interface StreamingSessionOptions {
   workerScript?: string;
   /** Pluggable Indexer factory for tests. */
   indexerFactory?: () => Indexer;
+  /** Bytes to pre-read from the tail of the file for the "End" affordance. */
+  tailBytes?: number;
   /** Invoked on every progress event, plus once on completion. */
   onIndexProgress: (event: IndexProgressEvent) => void;
   /** Reports unrecoverable errors (the session is then in an error state). */
   onError: (err: Error) => void;
+  /**
+   * Fired when fs.watch reports the underlying file has changed in a way
+   * that invalidates the index (size or mtime drift). The host typically
+   * surfaces this as a reload prompt — RFC §6.1.
+   */
+  onFileChanged?: (event: {
+    previousSize: number;
+    currentSize: number;
+    previousMtimeMs: number;
+    currentMtimeMs: number;
+  }) => void;
 }
 
 export interface WindowResult {
@@ -72,7 +85,26 @@ export interface WindowResult {
   lines: LineRecord[];
   /** True if the requested range exceeds what the index currently covers; `lines` may be shorter. */
   partial: boolean;
+  /** Set when the result is served from the tail buffer (line numbers are approximate). */
+  fromTail?: boolean;
 }
+
+/**
+ * Pre-rendered cache of the very last N lines of the file. Built once at
+ * session start by reading the trailing bytes; serves window requests
+ * past the indexed region so users can jump to the tail of a 10 GB file
+ * in <500 ms (RFC §5.3).
+ */
+interface TailBuffer {
+  lines: LineRecord[];
+  /** Byte offset (in the source file) of the first line we kept. */
+  byteStart: number;
+}
+
+/** Default tail-read budget in bytes. */
+export const DEFAULT_TAIL_BYTES = 1 * 1024 * 1024;
+/** Default per-line size guess used to seed totalLines before scanning. */
+export const DEFAULT_BYTES_PER_LINE_GUESS = 80;
 
 export class StreamingSession {
   private readonly opts: StreamingSessionOptions;
@@ -83,10 +115,12 @@ export class StreamingSession {
   private fd: number | null = null;
   private fileSize = 0;
   private mtimeMs = 0;
-  private totalLines = 1; // updated on complete; pre-complete we expose anchors-based estimate
+  private totalLines = 1; // updated on complete; pre-complete we expose density-estimated value
   private indexComplete = false;
   private disposed = false;
   private adjacentFallback = false;
+  private tail: TailBuffer | null = null;
+  private fsWatcher: fs.FSWatcher | null = null;
 
   constructor(opts: StreamingSessionOptions) {
     this.opts = opts;
@@ -109,6 +143,8 @@ export class StreamingSession {
       }
       this.totalLines = cached.header.totalLines;
       this.indexComplete = true;
+      this.buildTailBuffer();
+      this.startFileWatcher();
       this.opts.onIndexProgress({
         scannedLines: cached.header.totalLines - 1,
         scannedBytes: cached.header.fileSize,
@@ -119,6 +155,17 @@ export class StreamingSession {
       return;
     }
 
+    // Density-based seed so the scrollbar reaches the right ballpark
+    // before the index has had a chance to scan more than a few MB.
+    // Refined as anchors arrive.
+    this.totalLines = Math.max(
+      1,
+      Math.floor(this.fileSize / DEFAULT_BYTES_PER_LINE_GUESS),
+    );
+    // Tail buffer: read the last ~1 MB right away so "End" works immediately.
+    this.buildTailBuffer();
+    this.startFileWatcher();
+
     this.indexer.start({
       path: this.opts.fsPath,
       stride: this.stride,
@@ -128,14 +175,22 @@ export class StreamingSession {
       onProgress: ({ lines, bytes, newAnchors }) => {
         if (this.disposed) return;
         for (let i = 0; i < newAnchors.length; i++) this.anchors.push(newAnchors[i]);
-        // Lower bound on totalLines while we scan.
-        if (this.anchors.length > 0) {
+        // Refine totalLines from measured density: extrapolate the
+        // scanned head's bytes/line rate to the rest of the file. Clamp
+        // below by `lines + 1` so it's never a downward surprise.
+        if (bytes > 0 && lines > 0) {
+          const bytesPerLine = bytes / lines;
+          const remaining = Math.max(0, this.fileSize - bytes);
+          const est = lines + 1 + Math.floor(remaining / bytesPerLine);
+          this.totalLines = Math.max(est, lines + 1);
+        } else {
           this.totalLines = Math.max(this.totalLines, lines + 1);
         }
         this.opts.onIndexProgress({
           scannedLines: lines,
           scannedBytes: bytes,
           complete: false,
+          totalLines: this.totalLines,
           fileSize: this.fileSize,
         });
       },
@@ -158,6 +213,87 @@ export class StreamingSession {
         this.opts.onError(err);
       },
     });
+  }
+
+  /**
+   * Read the trailing slice of the file and render it via WASM so we can
+   * serve "scroll to end" without waiting for the head-to-tail indexer
+   * (RFC §5.3 — phase 6).
+   *
+   * Best-effort: errors are swallowed; the tail buffer just stays empty
+   * and the user sees the indexing-in-progress placeholder until the
+   * head scan catches up.
+   */
+  private buildTailBuffer(): void {
+    if (this.fd === null) return;
+    const budget = this.opts.tailBytes ?? DEFAULT_TAIL_BYTES;
+    if (this.fileSize === 0 || budget <= 0) return;
+    const byteStart = Math.max(0, this.fileSize - budget);
+    let buf: Buffer;
+    try {
+      buf = this.readSlab(byteStart, this.fileSize);
+    } catch {
+      return;
+    }
+    if (buf.length === 0) return;
+    // Skip the partial line at the head of the slab (it begins mid-line
+    // unless we read from byte 0). The first '\n' marks where the next
+    // whole line starts.
+    let slabStart = 0;
+    if (byteStart > 0) {
+      const firstNl = buf.indexOf(0x0a);
+      if (firstNl < 0) return; // no newline found in tail budget
+      slabStart = firstNl + 1;
+    }
+    const slab = buf.subarray(slabStart);
+    try {
+      const json = this.opts.wasm.renderLines(new Uint8Array(slab));
+      const parsed = JSON.parse(json) as ParsedLines;
+      const lines: LineRecord[] = parsed.text.map((t, i) => ({
+        text: t,
+        html: parsed.html[i] ?? '',
+      }));
+      // The slab may end with '\n' (yielding a trailing empty record);
+      // keep it so the tail aligns with totalLines (split semantics).
+      this.tail = { lines, byteStart: byteStart + slabStart };
+    } catch {
+      // ignore render errors; tail just won't serve
+    }
+  }
+
+  private startFileWatcher(): void {
+    if (this.fsWatcher) return;
+    try {
+      this.fsWatcher = fs.watch(this.opts.fsPath, () => {
+        if (this.disposed) return;
+        try {
+          const st = fs.statSync(this.opts.fsPath);
+          // Only fire on real change to size or mtime to suppress the
+          // chmod / inotify noise some filesystems emit.
+          if (
+            st.size !== this.fileSize ||
+            Math.floor(st.mtimeMs) !== this.mtimeMs
+          ) {
+            this.opts.onFileChanged?.({
+              previousSize: this.fileSize,
+              currentSize: st.size,
+              previousMtimeMs: this.mtimeMs,
+              currentMtimeMs: Math.floor(st.mtimeMs),
+            });
+          }
+        } catch {
+          // file removed; let the host decide what to do
+          this.opts.onFileChanged?.({
+            previousSize: this.fileSize,
+            currentSize: 0,
+            previousMtimeMs: this.mtimeMs,
+            currentMtimeMs: 0,
+          });
+        }
+      });
+    } catch {
+      // some platforms (e.g. NFS) reject fs.watch; reload will need a manual nudge
+    }
   }
 
   private tryLoadCache() {
@@ -312,27 +448,65 @@ export class StreamingSession {
   requestWindow(start: number, end: number): WindowResult {
     if (this.disposed) return { start, lines: [], partial: true };
     const view = this.view();
+    if (start < 0 || start >= view.totalLines) {
+      return { start, lines: [], partial: false };
+    }
+
     const plan = planWindow(view, start, end);
-    if (!plan) return { start, lines: [], partial: false };
+    if (plan) {
+      const cacheKey = `${start}:${end}`;
+      const cached = this.windowCache.get(cacheKey);
+      if (cached) return { start, lines: cached, partial: false };
 
-    const cacheKey = `${start}:${end}`;
-    const cached = this.windowCache.get(cacheKey);
-    if (cached) return { start, lines: cached, partial: false };
+      const slab = this.readSlab(plan.byteStart, plan.byteEnd);
+      const json = this.opts.wasm.renderLines(new Uint8Array(slab));
+      const parsed = JSON.parse(json) as ParsedLines;
+      const all: LineRecord[] = parsed.text.map((t, i) => ({
+        text: t,
+        html: parsed.html[i] ?? '',
+      }));
+      const want = Math.min(plan.linesInSlab, all.length);
+      const slice = all.slice(plan.localStart, Math.min(plan.localEnd, want));
+      this.windowCache.set(cacheKey, slice);
+      return {
+        start,
+        lines: slice,
+        partial: slice.length < end - start,
+      };
+    }
 
-    const slab = this.readSlab(plan.byteStart, plan.byteEnd);
-    const json = this.opts.wasm.renderLines(new Uint8Array(slab));
-    const parsed = JSON.parse(json) as ParsedLines;
-    const all: LineRecord[] = parsed.text.map((t, i) => ({
-      text: t,
-      html: parsed.html[i] ?? '',
-    }));
-    const want = Math.min(plan.linesInSlab, all.length);
-    const slice = all.slice(plan.localStart, Math.min(plan.localEnd, want));
-    this.windowCache.set(cacheKey, slice);
+    // Not covered by the index yet. Tail buffer may have it.
+    const tail = this.tailFallback(start, end);
+    if (tail.lines.length > 0) return tail;
+    return { start, lines: [], partial: true };
+  }
+
+  /**
+   * Serve a window from the pre-rendered tail buffer when the indexer
+   * hasn't reached the requested range. Line numbers shown to the user
+   * are still relative to `totalLines` (which is an estimate until
+   * indexing finishes), so the caller is told `fromTail=true`.
+   */
+  private tailFallback(start: number, end: number): WindowResult {
+    const tail = this.tail;
+    if (!tail || tail.lines.length === 0) {
+      return { start, lines: [], partial: true };
+    }
+    const tailFirstLine = Math.max(0, this.totalLines - tail.lines.length);
+    if (start < tailFirstLine) {
+      // Requested window starts before the tail buffer covers — can't help.
+      return { start, lines: [], partial: true };
+    }
+    const localStart = start - tailFirstLine;
+    const localEnd = Math.min(tail.lines.length, end - tailFirstLine);
+    if (localStart >= tail.lines.length) {
+      return { start, lines: [], partial: true };
+    }
     return {
       start,
-      lines: slice,
-      partial: slice.length < end - start,
+      lines: tail.lines.slice(localStart, localEnd),
+      partial: localEnd - localStart < end - start,
+      fromTail: true,
     };
   }
 
@@ -424,6 +598,14 @@ export class StreamingSession {
       // ignore
     }
     await this.indexer.dispose();
+    if (this.fsWatcher) {
+      try {
+        this.fsWatcher.close();
+      } catch {
+        // ignore
+      }
+      this.fsWatcher = null;
+    }
     if (this.fd !== null) {
       try {
         fs.closeSync(this.fd);
@@ -433,5 +615,6 @@ export class StreamingSession {
       this.fd = null;
     }
     this.windowCache.clear();
+    this.tail = null;
   }
 }

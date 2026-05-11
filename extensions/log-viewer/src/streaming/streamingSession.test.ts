@@ -98,6 +98,47 @@ describe.skipIf(!wasm || !haveWorker)('StreamingSession', () => {
     }
   });
 
+  it('serves a tail window before indexing completes', async () => {
+    // Stand up a session but don't wait for indexing to finish; instead
+    // request a tail window right away. The tail buffer is built during
+    // `start()` so the very last lines are servable immediately.
+    const session = await new Promise<StreamingSession>((resolve, reject) => {
+      let resolved = false;
+      const s = new StreamingSession({
+        fsPath: logPath,
+        wasm: wasm!,
+        cache: {
+          globalStorageDir: cacheDir,
+          mode: 'globalStorage',
+          budgetBytes: 100 * 1024 * 1024,
+        },
+        stride: 32,
+        chunkSize: 8 * 1024,
+        batchAnchors: 16,
+        workerScript,
+        onIndexProgress: () => {
+          if (!resolved) {
+            resolved = true;
+            resolve(s);
+          }
+        },
+        onError: (e) => reject(e),
+      });
+      s.start().catch(reject);
+    });
+    try {
+      const total = session.getTotalLines();
+      const win = session.requestWindow(total - 5, total);
+      // Tail buffer covers the last lines even if anchors don't yet.
+      expect(win.lines.length).toBeGreaterThan(0);
+      // The last real line is "line 0499".
+      const last = win.lines.find((l) => l.text === 'line 0499');
+      expect(last).toBeDefined();
+    } finally {
+      await session.dispose();
+    }
+  });
+
   it('reuses the persistent cache on a second open', async () => {
     const first = await makeSession();
     await first.dispose();

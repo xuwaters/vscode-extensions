@@ -64,6 +64,26 @@ body {
   font-size: 12px;
 }
 .banner[hidden] { display: none; }
+.reload-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--vscode-inputValidation-infoBackground, #1e4f6e);
+  color: var(--vscode-inputValidation-infoForeground, #fff);
+  border-bottom-color: var(--vscode-inputValidation-infoBorder, transparent);
+}
+.reload-banner #reload-banner-text { flex: 1 1 auto; }
+.reload-banner button {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: 0;
+  padding: 2px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+  font: inherit;
+}
+.reload-banner button:hover { background: var(--vscode-button-hoverBackground); }
+.reload-banner button.icon-btn { background: transparent; color: inherit; }
 #scroller {
   flex: 1 1 auto;
   overflow: auto;
