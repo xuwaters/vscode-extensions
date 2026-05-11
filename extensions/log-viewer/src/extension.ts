@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LogEditorProvider } from './editorProvider.js';
-import { globalIndexDir } from './indexer/cache.js';
+import { INDEX_FILE_SUFFIX, globalIndexDir } from './indexer/cache.js';
 import { loadWasm } from './wasm.js';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -106,7 +106,7 @@ export function activate(context: vscode.ExtensionContext): void {
       for (const dir of dirs) {
         try {
           for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (ent.isFile() && ent.name.endsWith('.idx')) {
+            if (ent.isFile() && ent.name.endsWith(INDEX_FILE_SUFFIX)) {
               try {
                 fs.unlinkSync(path.join(dir, ent.name));
                 removed += 1;

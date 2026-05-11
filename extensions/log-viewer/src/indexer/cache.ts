@@ -24,6 +24,7 @@ export const INDEX_MAGIC = Buffer.from('LGIX', 'ascii');
 export const INDEX_VERSION = 1;
 export const INDEX_HEADER_SIZE = 4 + 4 + 4 + 8 + 8 + 8 + 16 + 8;
 export const PATH_HASH_BYTES = 16;
+export const INDEX_FILE_SUFFIX = '.bin';
 
 export interface IndexHeader {
   stride: number;
@@ -61,7 +62,7 @@ export function globalIndexDir(globalStorageDir: string): string {
 /** Stable cache filename for a given log file. */
 export function cacheKey(fsPath: string, size: number, mtimeMs: number): string {
   const hash = crypto.createHash('sha1').update(fsPath).digest('hex').slice(0, 16);
-  return `${hash}-${size}-${mtimeMs}.idx`;
+  return `${hash}-${size}-${mtimeMs}${INDEX_FILE_SUFFIX}`;
 }
 
 export function pathHashOf(fsPath: string): Buffer {
@@ -79,7 +80,7 @@ export function resolveCachePath(
     case 'adjacent': {
       const dir = path.dirname(logPath);
       const base = path.basename(logPath);
-      return path.join(dir, `${base}.bin`);
+      return path.join(dir, `${base}${INDEX_FILE_SUFFIX}`);
     }
     case 'directory': {
       const customDir = paths.customDir;
@@ -156,7 +157,7 @@ export interface DecodeOptions {
   expectedPathHash?: Buffer;
 }
 
-/** Decode an .idx buffer. Rejects on header mismatch with caller's expectations. */
+/** Decode an index buffer. Rejects on header mismatch with caller's expectations. */
 export function decodeIndexFile(buf: Buffer, opts: DecodeOptions = {}): IndexFile {
   if (buf.length < INDEX_HEADER_SIZE) {
     throw new DecodeIndexError('index file truncated (header)', 'truncated');
@@ -211,7 +212,7 @@ export function decodeIndexFile(buf: Buffer, opts: DecodeOptions = {}): IndexFil
   };
 }
 
-/** Atomically write an .idx file. */
+/** Atomically write an index file. */
 export function writeIndexFile(filePath: string, file: IndexFile): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
@@ -243,7 +244,7 @@ export interface EvictionResult {
   removedFiles: number;
 }
 
-/** Drop oldest-`atime` `.idx` files under `dir` until total size ≤ budgetBytes. */
+/** Drop oldest-`atime` index files under `dir` until total size ≤ budgetBytes. */
 export function evictCache(dir: string, budgetBytes: number): EvictionResult {
   let scannedBytes = 0;
   let removedBytes = 0;
@@ -256,7 +257,7 @@ export function evictCache(dir: string, budgetBytes: number): EvictionResult {
   }
   const files: Array<{ name: string; size: number; atime: number }> = [];
   for (const ent of entries) {
-    if (!ent.isFile() || !ent.name.endsWith('.idx')) continue;
+    if (!ent.isFile() || !ent.name.endsWith(INDEX_FILE_SUFFIX)) continue;
     const fp = path.join(dir, ent.name);
     try {
       const st = fs.statSync(fp);

@@ -91,15 +91,15 @@ describe('cache', () => {
     };
     const globalP = resolveCachePath('globalStorage', '/var/log/x.log', 1, 2, paths);
     expect(globalP.startsWith('/storage/index/index/')).toBe(true);
-    expect(globalP.endsWith('.idx')).toBe(true);
+    expect(globalP.endsWith('.bin')).toBe(true);
     const adjP = resolveCachePath('adjacent', '/var/log/x.log', 1, 2, paths);
-    expect(adjP).toBe('/var/log/.x.log.idx');
+    expect(adjP).toBe('/var/log/x.log.bin');
     const dirP = resolveCachePath('directory', '/var/log/x.log', 1, 2, paths);
     expect(dirP.startsWith('/custom/')).toBe(true);
   });
 
   it('writes and reads back via tryReadIndexFile', () => {
-    const filePath = path.join(dir, 'sub', 'idx.idx');
+    const filePath = path.join(dir, 'sub', 'idx.bin');
     const anchors = new BigUint64Array([0n, 100n, 200n]);
     writeIndexFile(filePath, {
       header: {
@@ -119,17 +119,17 @@ describe('cache', () => {
   });
 
   it('tryReadIndexFile returns null on missing or invalid', () => {
-    expect(tryReadIndexFile(path.join(dir, 'nope.idx'))).toBeNull();
-    const bad = path.join(dir, 'bad.idx');
+    expect(tryReadIndexFile(path.join(dir, 'nope.bin'))).toBeNull();
+    const bad = path.join(dir, 'bad.bin');
     fs.writeFileSync(bad, Buffer.alloc(10));
     expect(tryReadIndexFile(bad)).toBeNull();
   });
 
   it('evictCache drops oldest atime files past budget', () => {
-    // Write 5 .idx files of 100 bytes each, with staggered atimes.
+    // Write 5 .bin files of 100 bytes each, with staggered atimes.
     const sizes: number[] = [];
     for (let i = 0; i < 5; i++) {
-      const fp = path.join(dir, `f${i}.idx`);
+      const fp = path.join(dir, `f${i}.bin`);
       fs.writeFileSync(fp, Buffer.alloc(100));
       // Stagger atime so f0 is oldest, f4 newest.
       const atime = new Date(Date.now() - (5 - i) * 1000);
@@ -141,12 +141,12 @@ describe('cache', () => {
     expect(result.scannedBytes).toBe(500);
     expect(result.removedFiles).toBeGreaterThanOrEqual(2);
     // f0 should be gone; f4 should still exist.
-    expect(fs.existsSync(path.join(dir, 'f4.idx'))).toBe(true);
-    expect(fs.existsSync(path.join(dir, 'f0.idx'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'f4.bin'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'f0.bin'))).toBe(false);
   });
 
   it('evictCache no-op when under budget', () => {
-    fs.writeFileSync(path.join(dir, 'a.idx'), Buffer.alloc(100));
+    fs.writeFileSync(path.join(dir, 'a.bin'), Buffer.alloc(100));
     const r = evictCache(dir, 1000);
     expect(r.removedFiles).toBe(0);
     expect(r.removedBytes).toBe(0);

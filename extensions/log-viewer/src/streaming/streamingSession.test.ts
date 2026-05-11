@@ -142,9 +142,9 @@ describe.skipIf(!wasm || !haveWorker)('StreamingSession', () => {
   it('reuses the persistent cache on a second open', async () => {
     const first = await makeSession();
     await first.dispose();
-    // Look for the .idx file.
+    // Look for the index file.
     const entries = fs.readdirSync(path.join(cacheDir, 'index'));
-    expect(entries.some((e) => e.endsWith('.idx'))).toBe(true);
+    expect(entries.some((e) => e.endsWith('.bin'))).toBe(true);
 
     // Second open should complete synchronously (from cache) before
     // we'd otherwise be able to indexer-progress.
