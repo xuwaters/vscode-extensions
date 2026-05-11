@@ -226,6 +226,62 @@ Three things move:
 3. **The webview scrolls a virtual range.** Today's DOM holds every
    line; tomorrow's holds at most a few hundred.
 
+### 4.1 Engine / adapter split
+
+A second axis of change, orthogonal to large-file support but enabled
+by the same refactor: the parsing/indexing/matching logic is carved
+out of `crates/log-parser` into a transport-agnostic engine crate
+that any consumer — VSCode, a CLI, a future Zed extension, an
+out-of-process server — can use without depending on `wasm-bindgen`.
+
+```
+crates/log-engine/                     # pure Rust, no wasm-bindgen
+  ├── src/
+  │   ├── lib.rs                       # public engine API
+  │   ├── ansi.rs                      # moved from log-parser
+  │   ├── filter.rs                    # moved from log-parser
+  │   ├── index.rs                     # NEW: anchor scan, index file format
+  │   └── render.rs                    # NEW: byte-slab → LineRecord
+  └── tests/
+
+crates/log-parser/                     # thin WASM adapter (existing crate, slimmed)
+  └── src/lib.rs                       # wasm-bindgen wrappers around log-engine
+
+crates/log-cli/                        # FUTURE — thin CLI adapter
+  └── src/main.rs                      # `logcat`-like binary; phase 7+
+
+crates/log-engine-server/              # FUTURE — thin JSON-RPC-over-stdio binary
+  └── src/main.rs                      # for Zed and other out-of-process consumers
+```
+
+What lives where:
+
+- **`log-engine`** owns the data structures (`Index`, `LineRecord`,
+  `Match`, compiled rules), the on-disk index file format from §5.4,
+  the byte-slab → line-record renderer, and the streaming scan
+  helpers. No I/O — the engine takes byte slices and returns
+  results. (One exception: it owns the index file *format* including
+  the encode/decode functions; it does not own the file *I/O* —
+  callers do that.)
+- **`log-parser`** stays as the WASM adapter. Its surface shrinks to
+  the three exports in §7.1 (`render_lines`, `match_lines`,
+  `search_lines`), each a `wasm-bindgen` thin wrapper that
+  borrow-decodes the JS arrays into `&[u8]` / `&[u32]` and calls
+  into `log-engine`.
+- **`log-cli`** and **`log-engine-server`** don't exist in v1. They're
+  named here so the engine API stays honest about what reuse looks
+  like; building either is a follow-up.
+
+Why this matters for the RFC: it keeps the VSCode large-file work
+focused (we ship WASM, no per-platform binaries, no IPC), while not
+trapping the engine inside `wasm-bindgen` types. The engine API is
+designed for the harder of its two consumers (a future native server
+that needs `Read + Seek`, threading, async cancellation), and the
+WASM adapter takes a constrained subset.
+
+The out-of-process path is sketched in §11.5 and deferred to a
+follow-up RFC.
+
 ## 5. Indexing
 
 ### 5.1 What an "index" is
@@ -705,15 +761,65 @@ input settles for 200 ms.
 | Phase | Deliverable | Done when |
 |-------|-------------|-----------|
 | 0 | This RFC accepted | Reviewer sign-off; license/threading questions answered |
-| 1 | Stateless WASM render API (`render_lines`, `match_lines`, `search_lines`) | Crate tests cover ANSI rendering and matching against synthetic byte slabs; existing `LogIndex` retained for small-file path |
+| 1a | **`crates/log-engine` carved out of `log-parser`** (§4.1) | New crate compiles standalone (no `wasm-bindgen` dep); existing tests for ANSI/filter move with the code and still pass; `log-parser` re-exports through it |
+| 1b | Stateless render/match/search API on the engine | `log_engine::render_lines`, `match_lines`, `search_lines` operate on byte slabs + line-break arrays; `log-parser` exposes them via `wasm-bindgen`; crate tests cover synthetic slabs |
 | 2 | Indexer worker | Standalone worker thread indexes `data/fixtures/big.log` (synthetic 1 GB) in <2 s on warm cache; emits anchor batches; cancellable; tested in `extensions/log-viewer/src/indexer.test.ts` |
-| 3 | Persistent index cache | Re-opening the same fixture skips indexing; cache eviction respects 100 MB budget; tested with hash collisions |
+| 3 | Persistent index cache | Re-opening the same fixture skips indexing; cache eviction respects 100 MB budget; tested with hash collisions; index file format defined in `log-engine::index` so future consumers share it byte-for-byte |
 | 4 | Streaming render path + virtual-scroll webview | Open a 1 GB log, scroll to end, jump to line N — all sub-second after first paint; word-wrap disabled in this mode |
 | 5 | Streaming filter + search | Filter hits stream in for the same 1 GB file; cancellation interrupts within ~50 ms |
 | 6 | Bisection tail-jump (§5.3) | Pressing `End` on a cold-cache 10 GB file paints the tail in <500 ms |
 | 7 | Polish | Word-wrap in streaming mode (per-window measured); `fs.watch` reload prompt; mmap exploration |
 
-Phases 1–5 are the v1 cut. Phases 6–7 are post-launch.
+Phases 1a–5 are the v1 cut. Phases 6–7 are post-launch. Phase 1a
+(the engine carve-out) is non-negotiable in the v1 cut: it is what
+keeps the engine API honest and unblocks any future out-of-process
+consumer (§11.5) without a second refactor.
+
+### 11.5 Future: out-of-process server (deferred to RFC 008)
+
+`crates/log-engine` is designed so a thin `crates/log-engine-server`
+binary can wrap it for editors that prefer out-of-process — primarily
+**Zed** (no WASM extension model today, native `process::Command`
+plugins instead), but also CLI usage and any Rust-friendly editor
+that is not VSCode.
+
+The shape, sketched here for the engine API to be designed against
+but **not built in this RFC**:
+
+- **Transport**: JSON-RPC 2.0 over stdio. *Not* LSP — LSP's
+  vocabulary (`textDocument/*`) doesn't fit "give me bytes
+  N..M of file F" or "stream filter hits from offset X". We use
+  LSP's wire framing (`Content-Length:` headers) for tooling
+  familiarity and nothing else.
+- **Methods**: `session/open(path)`, `session/window(id, start, n)`,
+  `session/filter(id, rules)` (streams `filter/partial`
+  notifications), `session/search(id, q)`, `session/cancel(token)`,
+  `session/close(id)`. Mirrors the in-process host API one-to-one.
+- **Lifecycle**: editor spawns one server per workspace; server
+  multiplexes multiple open files; crashes are caught by the editor
+  and the server is respawned. The persistent index cache (§5.4) is
+  shared between in-process and out-of-process consumers — the file
+  format is defined in `log-engine` precisely so a `.idx` written by
+  the VSCode extension can be loaded by the server, and vice versa.
+- **Distribution**: per-platform binaries (darwin-arm64/x64,
+  linux-arm64/x64, win-arm64/x64) published as a separate cargo
+  binary release; editor extensions pull the matching one or accept
+  a `serverPath` setting.
+
+Why **not** in this RFC:
+
+- VSCode-targeted users get nothing from the binary — WASM works
+  there, the marketplace already accepts our extension, and per-
+  platform binaries would require splitting one VSIX into six.
+- Real cost (lifecycle, IPC, packaging) for no incremental user
+  value until a second editor consumer exists.
+- Engine API can be designed to support this without building it.
+
+The trigger to write RFC 008 is concrete: somebody (us or a
+contributor) wants to ship a Zed plugin or a `logcat` CLI. Until
+then, `log-engine` sitting in the workspace is sufficient — its
+mere existence demonstrates the engine is reusable and de-risks the
+follow-up.
 
 ## 12. Risks
 
@@ -744,3 +850,11 @@ sessions (§3.4), and turning filter / search into streaming passes
 Small files keep their fast path unchanged. WASM stops owning the
 file and starts being a stateless line-renderer; the host owns disk
 I/O, indexing, and windowing. The truncation badge goes away.
+
+Alongside the user-visible work, the parsing/indexing/matching logic
+is carved out of `crates/log-parser` into a new transport-agnostic
+`crates/log-engine` crate (§4.1). The VSCode extension stays on the
+WASM adapter — no per-platform binary, no IPC, web-host support
+preserved. A future `crates/log-engine-server` (§11.5, deferred to
+RFC 008) can wrap the same engine for Zed and CLI consumers without
+re-doing the work, sharing the on-disk index format byte-for-byte.
