@@ -196,42 +196,19 @@ async function openAtRevision(arg: FileNodePayload, deps: CommandDeps): Promise<
     }
   }
 
-  // Probe the actual file URI first so VSCode tells us the languageId it
-  // would have used for the working-tree file. Our custom scheme has no
-  // file extension in the basename (the tab reads `utils.ts (main)`), so
-  // VSCode can't infer the language on its own — we set it explicitly.
-  const languageId = await detectLanguage(sourceUri);
-
-  // Use our own scheme so the editor tab reads `<filename> (<ref>)`
-  // rather than just the bare filename — gives the user immediate context
-  // about which revision they're looking at. Open via openTextDocument +
-  // showTextDocument so VSCode honors our custom-scheme URI's basename for
-  // the tab title (vscode.open sometimes rewrites the label).
+  // The URI's basename is the original filename, so VSCode infers the
+  // language from the extension. The ref label is surfaced as a tab-level
+  // badge + tooltip via the registered FileDecorationProvider.
   const uri = buildRefUri({
     repoRoot: parent.repoRoot,
     ref: targetRef,
     filePath: sourceUri.fsPath,
     relPath: sourceRel,
     label: targetLabel,
+    side: targetRef === 'HEAD' ? 'working' : 'compare',
   });
   const doc = await vscode.workspace.openTextDocument(uri);
-  if (languageId && languageId !== doc.languageId) {
-    await vscode.languages.setTextDocumentLanguage(doc, languageId);
-  }
   await vscode.window.showTextDocument(doc, { preview: true });
-}
-
-async function detectLanguage(fileUri: vscode.Uri): Promise<string | undefined> {
-  // openTextDocument on the working-tree file returns a doc whose languageId
-  // VSCode picked using its own filename → language tables (extensions and
-  // filename rules contributed by every installed language pack). It also
-  // caches, so a subsequent open of the same file is cheap.
-  try {
-    const probe = await vscode.workspace.openTextDocument(fileUri);
-    return probe.languageId;
-  } catch {
-    return undefined;
-  }
 }
 
 async function openFile(arg: FileNodePayload): Promise<void> {

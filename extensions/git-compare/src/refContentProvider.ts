@@ -3,10 +3,14 @@ import type { GitAPI, Repository } from './gitApi';
 
 export const REF_SCHEME = 'git-compare-ref';
 
+export type RefSide = 'working' | 'compare';
+
 interface RefUriQuery {
   repoRoot: string;
   ref: string;
   path: string;
+  label: string;
+  side: RefSide;
 }
 
 class RefContentProvider implements vscode.TextDocumentContentProvider {
@@ -38,37 +42,42 @@ export function registerRefContentProvider(
   );
 }
 
-// Build a URI whose basename is `<filename> (<label>)` so the editor tab
-// reads e.g. `extension.ts (origin~main)` — the original filename stays
-// intact (the user reads it the same way they'd read it in the explorer),
-// and the ref tag sits at the end as a visible annotation. The trade-off is
-// that VSCode can't infer the language from the extension anymore, so the
-// caller is expected to pair this with an explicit `setTextDocumentLanguage`.
+// Build a URI whose basename is the original filename so VSCode can infer
+// the language from the extension. The ref label is carried in the query
+// for the FileDecorationProvider to surface as a badge + tooltip on the tab.
+// Same path opened at different refs yields distinct URIs (different query),
+// so they appear as separate documents.
 export function buildRefUri(opts: {
   repoRoot: string;
   ref: string;
   filePath: string; // absolute fs path of the working-tree file
   relPath: string; // path inside the repo, '/'-separated
   label: string; // human-friendly ref label (branch / tag / sha)
+  side: RefSide; // which side of the comparison this URI represents
 }): vscode.Uri {
-  const filename = baseName(opts.relPath);
-  const safeLabel = sanitizeLabel(opts.label);
-  const tabName = `${filename} (${safeLabel})`;
-  // Keep the original repo-relative directory in the path so multiple files
-  // with the same name from different folders don't collide; place tabName at
-  // the end so it becomes the tab title.
-  const dir = filename === opts.relPath ? '' : opts.relPath.slice(0, -filename.length);
-  const path = `/${dir}${tabName}`;
   const query: RefUriQuery = {
     repoRoot: opts.repoRoot,
     ref: opts.ref,
     path: opts.filePath,
+    label: opts.label,
+    side: opts.side,
   };
   return vscode.Uri.from({
     scheme: REF_SCHEME,
-    path,
+    path: `/${opts.relPath}`,
     query: JSON.stringify(query),
   });
+}
+
+export interface RefUriInfo {
+  label: string;
+  side: RefSide;
+}
+
+export function parseRefUriInfo(uri: vscode.Uri): RefUriInfo | undefined {
+  const q = parseQuery(uri);
+  if (!q) return undefined;
+  return { label: q.label, side: q.side };
 }
 
 function parseQuery(uri: vscode.Uri): RefUriQuery | undefined {
@@ -77,15 +86,4 @@ function parseQuery(uri: vscode.Uri): RefUriQuery | undefined {
   } catch {
     return undefined;
   }
-}
-
-function sanitizeLabel(label: string): string {
-  // `/` in ref names like `origin/main` would break the URI path semantics
-  // and look weird in a tab. `~` is conventional shorthand in git output.
-  return label.replace(/\//g, '~');
-}
-
-function baseName(relPath: string): string {
-  const idx = relPath.lastIndexOf('/');
-  return idx === -1 ? relPath : relPath.slice(idx + 1);
 }

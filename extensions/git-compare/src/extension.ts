@@ -3,6 +3,7 @@ import { registerCommands } from './commands';
 import { registerEmptyContentProvider } from './emptyProvider';
 import { getGitApi, type GitAPI, type Repository } from './gitApi';
 import { registerRefContentProvider } from './refContentProvider';
+import { registerRefDecorationProvider } from './refDecorationProvider';
 import { CompareState } from './state';
 import { CompareTreeDataProvider } from './treeProvider';
 
@@ -15,6 +16,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   registerEmptyContentProvider(context);
   registerRefContentProvider(context, api);
+  registerRefDecorationProvider(context);
 
   const state = new CompareState(context.workspaceState);
   context.subscriptions.push(state);
