@@ -2,7 +2,7 @@
   "name": "wx-vsce-cloudflare-ai-models",
   "displayName": "Cloudflare AI Models",
   "description": "Register Cloudflare Workers AI / AI Gateway models (Kimi K2.6, Qwen3, etc.) as language models that any LM-aware extension — including GitHub Copilot Chat — can call. Built on the OpenAI-compatible REST shape, so self-hosted vLLM/LiteLLM/Together/Groq endpoints also work.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -19,7 +19,8 @@
     "languageModelChatProviders": [
       {
         "vendor": "wx-cloudflare-ai",
-        "displayName": "Cloudflare AI"
+        "displayName": "Cloudflare AI",
+        "managementCommand": "wx-cloudflare-ai.addCloudflarePreset"
       }
     ],
     "commands": [
