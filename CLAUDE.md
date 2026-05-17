@@ -1,1 +1,2 @@
 - don't forget to copy .vscodeignore when creating a new vscode extension project
+- claude temp folder is inside the {REPO_ROOT}/target/tmp/claude
