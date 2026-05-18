@@ -482,7 +482,7 @@ fn lex_error_to_diag(e: &LexErrorKind, span: ByteSpan) -> ProtoDiagnostic {
         LexErrorKind::UnterminatedString => ProtoDiagnostic::new(
             DiagnosticCode::LexUnterminatedString,
             Severity::Error,
-            "Unterminated string literal".into(),
+            "Unterminated string literal",
             span,
         ),
         LexErrorKind::InvalidEscape(ch) => ProtoDiagnostic::new(

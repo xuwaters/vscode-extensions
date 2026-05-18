@@ -1,59 +1,22 @@
-//! Minimal virtual filesystem — a map from file URI to its parsed state.
+//! Makefile workspace, built on the shared [`analyzer_core::vfs`] generics.
 //!
 //! Makefile analysis is single-file: we do not follow `include` directives
-//! during parsing (resolving those is left to Phase 2). The workspace
-//! therefore exists only to hold the `ParsedFile`s the editor has pushed
-//! at us via `update_file`.
+//! during parsing.
 
-use crate::diagnostics::MakeDiagnostic;
-use crate::parse::{self, ParsedFile};
-use std::collections::HashMap;
+use analyzer_core::vfs::AnalyzerLang;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FileUri(String);
+pub use analyzer_core::vfs::{FileUri, ParsedFile as CoreParsedFile};
 
-impl FileUri {
-    pub fn new(uri: impl Into<String>) -> Self {
-        FileUri(uri.into())
-    }
+pub struct MakefileLang;
 
-    pub fn as_str(&self) -> &str {
-        &self.0
+impl AnalyzerLang for MakefileLang {
+    type Ast = crate::ast::File;
+    type Code = crate::diagnostics::DiagnosticCode;
+
+    fn parse(uri: FileUri, source: String) -> CoreParsedFile<Self> {
+        crate::parse::parse(uri, source)
     }
 }
 
-pub struct Workspace {
-    files: HashMap<FileUri, ParsedFile>,
-}
-
-impl Workspace {
-    pub fn new() -> Self {
-        Workspace { files: HashMap::new() }
-    }
-
-    pub fn update_file(&mut self, uri: FileUri, source: String) {
-        let parsed = parse::parse(uri.clone(), source);
-        self.files.insert(uri, parsed);
-    }
-
-    pub fn remove_file(&mut self, uri: &FileUri) {
-        self.files.remove(uri);
-    }
-
-    pub fn file(&self, uri: &FileUri) -> Option<&ParsedFile> {
-        self.files.get(uri)
-    }
-
-    pub fn diagnostics_for(&self, uri: &FileUri) -> Vec<MakeDiagnostic> {
-        self.files
-            .get(uri)
-            .map(|f| f.diagnostics.clone())
-            .unwrap_or_default()
-    }
-}
-
-impl Default for Workspace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub type Workspace = analyzer_core::vfs::Workspace<MakefileLang>;
+pub type ParsedFile = analyzer_core::vfs::ParsedFile<MakefileLang>;

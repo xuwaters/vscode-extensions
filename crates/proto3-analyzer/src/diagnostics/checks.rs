@@ -220,7 +220,7 @@ fn check_field_map(f: &ast::FieldDecl, out: &mut Vec<ProtoDiagnostic>) {
             out.push(ProtoDiagnostic::new(
                 DiagnosticCode::MapKeyTypeInvalid,
                 Severity::Error,
-                "map key cannot be a map".into(),
+                "map key cannot be a map",
                 inner.span,
             ));
         }

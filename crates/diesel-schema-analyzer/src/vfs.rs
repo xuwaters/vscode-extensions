@@ -1,54 +1,20 @@
-//! Minimal virtual filesystem — a map from file URI to its parsed state.
+//! Workspace built on the shared [`analyzer_core::vfs`] generics. Parsing
+//! lives in [`crate::parse`] — `DieselLang::parse` just forwards there.
 
-use crate::diagnostics::SchemaDiagnostic;
-use crate::parse::{self, ParsedFile};
-use std::collections::HashMap;
+use analyzer_core::vfs::AnalyzerLang;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FileUri(String);
+pub use analyzer_core::vfs::{FileUri, ParsedFile as CoreParsedFile};
 
-impl FileUri {
-    pub fn new(uri: impl Into<String>) -> Self {
-        FileUri(uri.into())
-    }
+pub struct DieselLang;
 
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+impl AnalyzerLang for DieselLang {
+    type Ast = crate::ast::SchemaFile;
+    type Code = crate::diagnostics::DiagnosticCode;
 
-pub struct Workspace {
-    files: HashMap<FileUri, ParsedFile>,
-}
-
-impl Workspace {
-    pub fn new() -> Self {
-        Workspace { files: HashMap::new() }
-    }
-
-    pub fn update_file(&mut self, uri: FileUri, source: String) {
-        let parsed = parse::parse(uri.clone(), source);
-        self.files.insert(uri, parsed);
-    }
-
-    pub fn remove_file(&mut self, uri: &FileUri) {
-        self.files.remove(uri);
-    }
-
-    pub fn file(&self, uri: &FileUri) -> Option<&ParsedFile> {
-        self.files.get(uri)
-    }
-
-    pub fn diagnostics_for(&self, uri: &FileUri) -> Vec<SchemaDiagnostic> {
-        self.files
-            .get(uri)
-            .map(|f| f.diagnostics.clone())
-            .unwrap_or_default()
+    fn parse(uri: FileUri, source: String) -> CoreParsedFile<Self> {
+        crate::parse::parse(uri, source)
     }
 }
 
-impl Default for Workspace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub type Workspace = analyzer_core::vfs::Workspace<DieselLang>;
+pub type ParsedFile = analyzer_core::vfs::ParsedFile<DieselLang>;

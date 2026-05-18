@@ -1,18 +1,12 @@
 //! Diagnostic types emitted by the diesel-schema parser and resolver.
+//! Severity and the diagnostic carrier live in `analyzer-core`; this
+//! module only defines the diesel-specific code enum.
 
-use crate::spans::ByteSpan;
-use serde::{Deserialize, Serialize};
+pub use analyzer_core::diagnostics::Severity;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Severity {
-    Error,
-    Warning,
-    Info,
-    Hint,
-}
+use analyzer_core::diagnostics::{Diagnostic, DiagnosticCode as DiagnosticCodeTrait};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCode {
     /// DS001 — `diesel::table!` body did not parse.
     MalformedTable,
@@ -35,8 +29,8 @@ pub enum DiagnosticCode {
     JoinableNotAllowedTogether,
 }
 
-impl DiagnosticCode {
-    pub fn as_str(self) -> &'static str {
+impl DiagnosticCodeTrait for DiagnosticCode {
+    fn as_str(self) -> &'static str {
         use DiagnosticCode::*;
         match self {
             MalformedTable => "DS001",
@@ -52,24 +46,10 @@ impl DiagnosticCode {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SchemaDiagnostic {
-    pub code: DiagnosticCode,
-    pub severity: Severity,
-    pub message: String,
-    pub span: ByteSpan,
-}
-
-impl SchemaDiagnostic {
-    pub fn error(code: DiagnosticCode, message: impl Into<String>, span: ByteSpan) -> Self {
-        SchemaDiagnostic { code, severity: Severity::Error, message: message.into(), span }
-    }
-
-    pub fn warning(code: DiagnosticCode, message: impl Into<String>, span: ByteSpan) -> Self {
-        SchemaDiagnostic { code, severity: Severity::Warning, message: message.into(), span }
-    }
-
-    pub fn info(code: DiagnosticCode, message: impl Into<String>, span: ByteSpan) -> Self {
-        SchemaDiagnostic { code, severity: Severity::Info, message: message.into(), span }
+impl DiagnosticCode {
+    pub fn as_str(self) -> &'static str {
+        <Self as DiagnosticCodeTrait>::as_str(self)
     }
 }
+
+pub type SchemaDiagnostic = Diagnostic<DiagnosticCode>;

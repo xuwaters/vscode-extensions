@@ -151,7 +151,7 @@ fn check_fields(
                         out.push(ProtoDiagnostic::new(
                             DiagnosticCode::TextprotoFieldTypeMismatch,
                             Severity::Error,
-                            "Any field payload must be a message literal".into(),
+                            "Any field payload must be a message literal",
                             f.value.span(),
                         ));
                     }

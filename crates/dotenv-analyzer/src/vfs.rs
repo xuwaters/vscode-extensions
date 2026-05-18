@@ -1,54 +1,29 @@
-//! Minimal virtual filesystem — a map from file URI to its parsed state.
+//! Minimal virtual filesystem — built atop the shared
+//! [`analyzer_core::vfs`] generics. Plugging in the dotenv parser is a
+//! tiny `AnalyzerLang` impl below.
 
-use crate::diagnostics::DotenvDiagnostic;
-use crate::parse::{self, ParsedFile};
-use std::collections::HashMap;
+use crate::ast;
+use crate::diagnostics::DiagnosticCode;
+use crate::parser::Parser;
+use crate::spans::SpanTable;
+use analyzer_core::vfs::AnalyzerLang;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FileUri(String);
+pub use analyzer_core::vfs::{FileUri, ParsedFile as CoreParsedFile};
 
-impl FileUri {
-    pub fn new(uri: impl Into<String>) -> Self {
-        FileUri(uri.into())
-    }
+pub struct DotenvLang;
 
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+impl AnalyzerLang for DotenvLang {
+    type Ast = ast::File;
+    type Code = DiagnosticCode;
 
-pub struct Workspace {
-    files: HashMap<FileUri, ParsedFile>,
-}
-
-impl Workspace {
-    pub fn new() -> Self {
-        Workspace { files: HashMap::new() }
-    }
-
-    pub fn update_file(&mut self, uri: FileUri, source: String) {
-        let parsed = parse::parse(uri.clone(), source);
-        self.files.insert(uri, parsed);
-    }
-
-    pub fn remove_file(&mut self, uri: &FileUri) {
-        self.files.remove(uri);
-    }
-
-    pub fn file(&self, uri: &FileUri) -> Option<&ParsedFile> {
-        self.files.get(uri)
-    }
-
-    pub fn diagnostics_for(&self, uri: &FileUri) -> Vec<DotenvDiagnostic> {
-        self.files
-            .get(uri)
-            .map(|f| f.diagnostics.clone())
-            .unwrap_or_default()
+    fn parse(uri: FileUri, source: String) -> CoreParsedFile<Self> {
+        let spans = SpanTable::new(&source);
+        let mut parser = Parser::new(&source);
+        let ast = parser.parse_file();
+        let diagnostics = parser.into_diagnostics();
+        CoreParsedFile { uri, source, ast, spans, diagnostics }
     }
 }
 
-impl Default for Workspace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub type Workspace = analyzer_core::vfs::Workspace<DotenvLang>;
+pub type ParsedFile = analyzer_core::vfs::ParsedFile<DotenvLang>;

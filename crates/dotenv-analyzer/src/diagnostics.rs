@@ -1,18 +1,12 @@
-//! Diagnostic types emitted by the dotenv parser.
+//! Diagnostic types emitted by the dotenv parser. The diagnostic shape
+//! (severity, message, span) lives in `analyzer-core`; this module only
+//! defines the dotenv-specific code enum.
 
-use crate::spans::ByteSpan;
-use serde::{Deserialize, Serialize};
+pub use analyzer_core::diagnostics::Severity;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Severity {
-    Error,
-    Warning,
-    Info,
-    Hint,
-}
+use analyzer_core::diagnostics::{Diagnostic, DiagnosticCode as DiagnosticCodeTrait};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCode {
     InvalidKey,          // ENV001 — key not a valid identifier
     MissingEquals,       // ENV002 — non-blank, non-comment line without `=`
@@ -23,8 +17,8 @@ pub enum DiagnosticCode {
     EmptyKey,            // ENV007 — `=value` with no name
 }
 
-impl DiagnosticCode {
-    pub fn as_str(self) -> &'static str {
+impl DiagnosticCodeTrait for DiagnosticCode {
+    fn as_str(self) -> &'static str {
         use DiagnosticCode::*;
         match self {
             InvalidKey => "ENV001",
@@ -38,24 +32,12 @@ impl DiagnosticCode {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct DotenvDiagnostic {
-    pub code: DiagnosticCode,
-    pub severity: Severity,
-    pub message: String,
-    pub span: ByteSpan,
-}
-
-impl DotenvDiagnostic {
-    pub fn error(code: DiagnosticCode, message: impl Into<String>, span: ByteSpan) -> Self {
-        DotenvDiagnostic { code, severity: Severity::Error, message: message.into(), span }
-    }
-
-    pub fn warning(code: DiagnosticCode, message: impl Into<String>, span: ByteSpan) -> Self {
-        DotenvDiagnostic { code, severity: Severity::Warning, message: message.into(), span }
-    }
-
-    pub fn info(code: DiagnosticCode, message: impl Into<String>, span: ByteSpan) -> Self {
-        DotenvDiagnostic { code, severity: Severity::Info, message: message.into(), span }
+impl DiagnosticCode {
+    /// Inherent shadow of the trait method so existing `code.as_str()`
+    /// callers don't have to import the trait.
+    pub fn as_str(self) -> &'static str {
+        <Self as DiagnosticCodeTrait>::as_str(self)
     }
 }
+
+pub type DotenvDiagnostic = Diagnostic<DiagnosticCode>;

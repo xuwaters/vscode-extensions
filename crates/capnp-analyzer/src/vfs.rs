@@ -9,14 +9,8 @@
 
 use crate::diagnostics::{analyze, Analysis};
 use rustc_hash::{FxHashMap, FxHashSet};
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
-pub struct FileUri(pub String);
-
-impl FileUri {
-    pub fn as_str(&self) -> &str { &self.0 }
-}
+pub use analyzer_core::vfs::FileUri;
 
 #[derive(Debug, Clone)]
 pub struct IncludePath(pub String);

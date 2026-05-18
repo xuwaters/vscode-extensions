@@ -223,7 +223,7 @@ impl<'s> Parser<'s> {
                     self.diagnostics.push(ProtoDiagnostic::new(
                         DiagnosticCode::ParseExpected,
                         Severity::Error,
-                        "Expected integer literal after `-`".into(),
+                        "Expected integer literal after `-`",
                         start,
                     ));
                 }

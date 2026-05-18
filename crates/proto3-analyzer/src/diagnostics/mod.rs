@@ -1,7 +1,8 @@
 //! Diagnostic types and the diagnostic-engine driver.
 
-use crate::spans::ByteSpan;
-use serde::{Deserialize, Serialize};
+use analyzer_core::diagnostics::{Diagnostic, DiagnosticCode as DiagnosticCodeTrait};
+
+pub use analyzer_core::diagnostics::Severity;
 
 mod checks;
 mod resolve_checks;
@@ -11,16 +12,7 @@ pub use checks::run_all_checks;
 pub use resolve_checks::run_resolve_checks;
 pub use style::{run_style_checks, StyleConfig};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Severity {
-    Error,
-    Warning,
-    Info,
-    Hint,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCode {
     ParseUnexpectedToken,     // PROTO0001
     ParseExpected,             // PROTO0002
@@ -74,8 +66,8 @@ pub enum DiagnosticCode {
     TextprotoAnyUnsupported,       // PROTO0117
 }
 
-impl DiagnosticCode {
-    pub fn as_str(self) -> &'static str {
+impl DiagnosticCodeTrait for DiagnosticCode {
+    fn as_str(self) -> &'static str {
         use DiagnosticCode::*;
         match self {
             ParseUnexpectedToken => "PROTO0001",
@@ -121,16 +113,12 @@ impl DiagnosticCode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProtoDiagnostic {
-    pub code: DiagnosticCode,
-    pub severity: Severity,
-    pub message: String,
-    pub span: ByteSpan,
-}
-
-impl ProtoDiagnostic {
-    pub fn new(code: DiagnosticCode, severity: Severity, message: String, span: ByteSpan) -> Self {
-        ProtoDiagnostic { code, severity, message, span }
+impl DiagnosticCode {
+    /// Inherent shadow of the [`DiagnosticCodeTrait`] method so callers
+    /// don't have to import the trait just to stringify a code.
+    pub fn as_str(self) -> &'static str {
+        <Self as DiagnosticCodeTrait>::as_str(self)
     }
 }
+
+pub type ProtoDiagnostic = Diagnostic<DiagnosticCode>;

@@ -1,24 +1,10 @@
-//! The parse pipeline — parse a single source string into a [`ParsedFile`].
+//! Parse pipeline — thin facade over [`crate::vfs::DotenvLang`].
 
-use crate::ast;
-use crate::diagnostics::DotenvDiagnostic;
-use crate::parser::Parser;
-use crate::spans::SpanTable;
+use analyzer_core::vfs::AnalyzerLang;
+
+pub use crate::vfs::{DotenvLang, ParsedFile};
 use crate::vfs::FileUri;
 
-#[derive(Debug, Clone)]
-pub struct ParsedFile {
-    pub uri: FileUri,
-    pub source: String,
-    pub ast: ast::File,
-    pub spans: SpanTable,
-    pub diagnostics: Vec<DotenvDiagnostic>,
-}
-
 pub fn parse(uri: FileUri, source: String) -> ParsedFile {
-    let spans = SpanTable::new(&source);
-    let mut parser = Parser::new(&source);
-    let ast = parser.parse_file();
-    let diagnostics = parser.into_diagnostics();
-    ParsedFile { uri, source, ast, spans, diagnostics }
+    <DotenvLang as AnalyzerLang>::parse(uri, source)
 }

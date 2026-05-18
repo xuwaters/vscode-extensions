@@ -11,35 +11,9 @@ use crate::spans::ByteSpan;
 use crate::textproto;
 use crate::well_known;
 use rustc_hash::{FxHashMap, FxHashSet};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-/// A URI-like identifier for a file. We don't require a real `file://` —
-/// the extension host can pass any canonical string. Well-known types use
-/// a dedicated `proto3-wkt:` scheme.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct FileUri(pub String);
-
-impl FileUri {
-    pub fn new(s: impl Into<String>) -> Self {
-        FileUri(s.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<&str> for FileUri {
-    fn from(s: &str) -> Self {
-        FileUri(s.to_string())
-    }
-}
-
-impl From<String> for FileUri {
-    fn from(s: String) -> Self {
-        FileUri(s)
-    }
-}
+pub use analyzer_core::vfs::FileUri;
 
 /// An include-path entry. Matches `protoc -I ...` semantics.
 #[derive(Debug, Clone)]

@@ -9,14 +9,7 @@ use crate::spans::SpanTable;
 use crate::vfs::FileUri;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Debug, Clone)]
-pub struct ParsedFile {
-    pub uri: FileUri,
-    pub source: String,
-    pub ast: SchemaFile,
-    pub spans: SpanTable,
-    pub diagnostics: Vec<SchemaDiagnostic>,
-}
+pub use crate::vfs::ParsedFile;
 
 pub fn parse(uri: FileUri, source: String) -> ParsedFile {
     let spans = SpanTable::new(&source);

@@ -1,18 +1,12 @@
-//! Diagnostic types emitted by the lexer and parser.
+//! Diagnostic types emitted by the lexer and parser. Severity and the
+//! diagnostic carrier live in `analyzer-core`; this module only defines
+//! the makefile-specific code enum.
 
-use crate::spans::ByteSpan;
-use serde::{Deserialize, Serialize};
+pub use analyzer_core::diagnostics::Severity;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Severity {
-    Error,
-    Warning,
-    Info,
-    Hint,
-}
+use analyzer_core::diagnostics::{Diagnostic, DiagnosticCode as DiagnosticCodeTrait};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCode {
     RecipeUsesSpaces,        // MAKE001
     RecipeOutsideRule,        // MAKE002
@@ -23,8 +17,8 @@ pub enum DiagnosticCode {
     AssignToAutoVariable,     // MAKE007
 }
 
-impl DiagnosticCode {
-    pub fn as_str(self) -> &'static str {
+impl DiagnosticCodeTrait for DiagnosticCode {
+    fn as_str(self) -> &'static str {
         use DiagnosticCode::*;
         match self {
             RecipeUsesSpaces => "MAKE001",
@@ -38,20 +32,10 @@ impl DiagnosticCode {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct MakeDiagnostic {
-    pub code: DiagnosticCode,
-    pub severity: Severity,
-    pub message: String,
-    pub span: ByteSpan,
-}
-
-impl MakeDiagnostic {
-    pub fn error(code: DiagnosticCode, message: impl Into<String>, span: ByteSpan) -> Self {
-        MakeDiagnostic { code, severity: Severity::Error, message: message.into(), span }
-    }
-
-    pub fn warning(code: DiagnosticCode, message: impl Into<String>, span: ByteSpan) -> Self {
-        MakeDiagnostic { code, severity: Severity::Warning, message: message.into(), span }
+impl DiagnosticCode {
+    pub fn as_str(self) -> &'static str {
+        <Self as DiagnosticCodeTrait>::as_str(self)
     }
 }
+
+pub type MakeDiagnostic = Diagnostic<DiagnosticCode>;

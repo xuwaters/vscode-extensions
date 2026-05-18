@@ -27,7 +27,7 @@ impl<'s> Parser<'s> {
                             self.diagnostics.push(ProtoDiagnostic::new(
                                 DiagnosticCode::ParseUnexpectedToken,
                                 Severity::Error,
-                                "Duplicate `package` declaration".into(),
+                                "Duplicate `package` declaration",
                                 p.span,
                             ));
                         } else {
