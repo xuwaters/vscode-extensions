@@ -9,9 +9,12 @@
     "typecheck": "pnpm -r run typecheck",
     "watch": "pnpm -r --parallel run watch",
     "package": "pnpm --filter './extensions/**' run package",
-    "test": "pnpm -r run test"
+    "test": "pnpm -r run test",
+    "bump": "deno --allow-read --allow-write scripts/bump-extension-versions.ts"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "@types/node": "^25.8.0"
+  },
   "engines": {
     "node": ">=20.19.0"
   },
