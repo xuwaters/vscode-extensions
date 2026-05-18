@@ -2,7 +2,7 @@
   "name": "wx-vsce-capnproto",
   "displayName": "Cap'n Proto Ultra",
   "description": "Cap'n Proto (.capnp) schema editing — syntax highlighting, outline, and diagnostics powered by a Rust analyzer compiled to WebAssembly.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -39,14 +39,20 @@
       }
     ],
     "commands": [
-      { "command": "capnp.restart", "title": "Cap'n Proto: Restart Analyzer", "category": "Cap'n Proto" }
+      {
+        "command": "capnp.restart",
+        "title": "Cap'n Proto: Restart Analyzer",
+        "category": "Cap'n Proto"
+      }
     ],
     "configuration": {
       "title": "Cap'n Proto",
       "properties": {
         "capnp.includePaths": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "markdownDescription": "Additional include paths for `using X = import \"…\"` resolution. Workspace-relative or absolute. Workspace roots are always searched in addition to this list."
         },
