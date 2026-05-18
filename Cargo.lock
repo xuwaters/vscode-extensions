@@ -133,6 +133,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 name = "capnp-analyzer"
 version = "0.1.0"
 dependencies = [
+ "analyzer-core",
  "console_error_panic_hook",
  "indexmap",
  "pretty_assertions",
@@ -268,6 +269,7 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 name = "diesel-schema-analyzer"
 version = "0.1.0"
 dependencies = [
+ "analyzer-core",
  "console_error_panic_hook",
  "pretty_assertions",
  "serde",
@@ -508,6 +510,7 @@ dependencies = [
 name = "makefile-analyzer"
 version = "0.1.0"
 dependencies = [
+ "analyzer-core",
  "cli-completions",
  "cli-completions-data-fish",
  "console_error_panic_hook",
@@ -636,6 +639,7 @@ dependencies = [
 name = "proto3-analyzer"
 version = "0.1.0"
 dependencies = [
+ "analyzer-core",
  "console_error_panic_hook",
  "id-arena",
  "indexmap",

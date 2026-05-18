@@ -9,6 +9,7 @@ license = "MIT"
 crate-type = [ "cdylib", "rlib" ]
 
 [dependencies]
+analyzer-core = { path = "../analyzer-core" }
 rustc-hash = "2"
 smol_str = "0.3"
 indexmap = "2"

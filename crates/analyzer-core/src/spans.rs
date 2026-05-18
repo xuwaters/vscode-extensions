@@ -26,12 +26,30 @@ impl ByteSpan {
         Self::new(start as u32, end as u32)
     }
 
+    pub fn len(&self) -> u32 {
+        self.end - self.start
+    }
+
     pub fn is_empty(&self) -> bool {
         self.start == self.end
     }
 
+    /// Inclusive hit-test: `start <= offset <= end`.
+    ///
+    /// Suits cursor-based editor queries where a cursor positioned exactly
+    /// at the trailing edge should still count as "inside" the span (you
+    /// just typed the last character of an identifier and ask for hover).
     pub fn contains(&self, offset: u32) -> bool {
         offset >= self.start && offset <= self.end
+    }
+
+    /// Strict half-open hit-test: `start <= offset < end`.
+    ///
+    /// Matches the formal `[start, end)` definition. Use this when the
+    /// trailing edge belongs to the *next* token (e.g. textproto field
+    /// resolution where adjoining values must not both match).
+    pub fn contains_strict(&self, offset: u32) -> bool {
+        self.start <= offset && offset < self.end
     }
 
     pub fn join(self, other: ByteSpan) -> ByteSpan {
@@ -62,6 +80,10 @@ impl SpanTable {
             }
         }
         SpanTable { line_starts, source_len: source.len() as u32 }
+    }
+
+    pub fn source_len(&self) -> u32 {
+        self.source_len
     }
 
     pub fn offset_to_line_col(&self, source: &str, offset: u32) -> LineCol {
@@ -144,5 +166,46 @@ mod tests {
         let a = ByteSpan::new(3, 7);
         let b = ByteSpan::new(5, 10);
         assert_eq!(a.join(b), ByteSpan::new(3, 10));
+    }
+
+    #[test]
+    fn contains_is_inclusive_at_both_edges() {
+        let s = ByteSpan::new(3, 7);
+        assert!(s.contains(3));
+        assert!(s.contains(5));
+        assert!(s.contains(7));
+        assert!(!s.contains(2));
+        assert!(!s.contains(8));
+    }
+
+    #[test]
+    fn contains_strict_excludes_trailing_edge() {
+        let s = ByteSpan::new(3, 7);
+        assert!(s.contains_strict(3));
+        assert!(s.contains_strict(6));
+        assert!(!s.contains_strict(7));
+        assert!(!s.contains_strict(2));
+    }
+
+    #[test]
+    fn len_matches_byte_distance() {
+        assert_eq!(ByteSpan::new(3, 10).len(), 7);
+        assert_eq!(ByteSpan::EMPTY.len(), 0);
+    }
+
+    #[test]
+    fn source_len_matches_input() {
+        let src = "hello\nworld";
+        assert_eq!(SpanTable::new(src).source_len(), src.len() as u32);
+    }
+
+    #[test]
+    fn line_col_table_basic_offsets() {
+        let src = "a\nbb\nccc";
+        let t = SpanTable::new(src);
+        assert_eq!(t.offset_to_line_col(src, 0), LineCol { line: 0, col: 0 });
+        assert_eq!(t.offset_to_line_col(src, 2), LineCol { line: 1, col: 0 });
+        assert_eq!(t.offset_to_line_col(src, 5), LineCol { line: 2, col: 0 });
+        assert_eq!(t.offset_to_line_col(src, 7), LineCol { line: 2, col: 2 });
     }
 }

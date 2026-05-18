@@ -185,7 +185,7 @@ fn descend_to_offset(
     offset: u32,
 ) -> String {
     for f in fields {
-        if !f.span.contains(offset) {
+        if !f.span.contains_strict(offset) {
             continue;
         }
         let sub_fqn = child_message_fqn(ws, index, current_fqn, f);
@@ -193,13 +193,13 @@ fn descend_to_offset(
             return current_fqn.to_string();
         };
         match &f.value {
-            Value::Message { fields: inner, span, .. } if span.contains(offset) => {
+            Value::Message { fields: inner, span, .. } if span.contains_strict(offset) => {
                 return descend_to_offset(ws, index, &sub, inner, offset);
             }
             Value::List { elements, .. } => {
                 for el in elements {
                     if let Value::Message { fields: inner, span, .. } = el {
-                        if span.contains(offset) {
+                        if span.contains_strict(offset) {
                             return descend_to_offset(ws, index, &sub, inner, offset);
                         }
                     }
@@ -232,10 +232,10 @@ fn find_field_name(
     offset: u32,
 ) -> Option<(ast::Field, String)> {
     for f in fields {
-        if f.name.span().contains(offset) {
+        if f.name.span().contains_strict(offset) {
             return Some((f.clone(), current_fqn.to_string()));
         }
-        if !f.span.contains(offset) {
+        if !f.span.contains_strict(offset) {
             continue;
         }
         if let Some(sub) = child_message_fqn(ws, index, current_fqn, f) {
@@ -282,7 +282,7 @@ fn find_enclosing_field(
     offset: u32,
 ) -> Option<(ast::Field, String)> {
     for f in fields {
-        if !f.span.contains(offset) {
+        if !f.span.contains_strict(offset) {
             continue;
         }
         // Prefer a deeper hit inside nested messages.
@@ -380,8 +380,8 @@ fn render_enum_value_hover(
         return None;
     };
     let ident_span = match &field.value {
-        Value::Ident(i) if i.span.contains(offset) => i.span,
-        Value::SignedIdent { ident, span } if span.contains(offset) => ident.span,
+        Value::Ident(i) if i.span.contains_strict(offset) => i.span,
+        Value::SignedIdent { ident, span } if span.contains_strict(offset) => ident.span,
         _ => return None,
     };
     let ident_name = match &field.value {
@@ -427,7 +427,7 @@ fn header_hover(
 ) -> Option<Hover> {
     let hints = pt.header();
     if let Some(ann) = &hints.proto_message {
-        if ann.value_span.contains(offset) {
+        if ann.value_span.contains_strict(offset) {
             let md = match resolve_message_fqn(
                 index,
                 hints
@@ -447,7 +447,7 @@ fn header_hover(
         }
     }
     if let Some(ann) = &hints.proto_file {
-        if ann.value_span.contains(offset) {
+        if ann.value_span.contains_strict(offset) {
             let md = match resolve_header_file(ws, &ann.value) {
                 Some(uri) => format!("```\n{}\n```", uri.as_str()),
                 None => format!("Cannot resolve schema file `{}`", ann.value),
@@ -515,8 +515,8 @@ fn enum_value_definition(
         return None;
     };
     let ident_name = match &field.value {
-        Value::Ident(i) if i.span.contains(offset) => i.name.as_str(),
-        Value::SignedIdent { ident, span } if span.contains(offset) => ident.name.as_str(),
+        Value::Ident(i) if i.span.contains_strict(offset) => i.name.as_str(),
+        Value::SignedIdent { ident, span } if span.contains_strict(offset) => ident.name.as_str(),
         _ => return None,
     };
     let ctx = Ctx { ws, index };
@@ -547,7 +547,7 @@ fn header_definition(
 ) -> Option<Location> {
     let hints = pt.header();
     if let Some(ann) = &hints.proto_message {
-        if ann.value_span.contains(offset) {
+        if ann.value_span.contains_strict(offset) {
             let fqn = resolve_message_fqn(
                 index,
                 hints
@@ -565,7 +565,7 @@ fn header_definition(
         }
     }
     if let Some(ann) = &hints.proto_file {
-        if ann.value_span.contains(offset) {
+        if ann.value_span.contains_strict(offset) {
             let uri = resolve_header_file(ws, &ann.value)?;
             return Some(Location {
                 file: uri.as_str().to_string(),
