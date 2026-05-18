@@ -1,0 +1,9 @@
+[package]
+name = "analyzer-core"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Shared building blocks for the per-language analyzer crates (spans, diagnostics, workspace, WASM harness)."
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = [ "derive" ] }
