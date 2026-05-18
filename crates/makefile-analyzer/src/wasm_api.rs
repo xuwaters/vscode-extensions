@@ -1,12 +1,14 @@
 //! WASM entry points. The surface is intentionally flat and string-typed
 //! so the TypeScript host can treat the module as "JSON in, JSON out".
 
-use crate::diagnostics::{MakeDiagnostic, Severity};
+use crate::features::document_symbols::DocumentSymbol;
 use crate::features::{completion, document_symbols, folding};
 use crate::spans::{LineCol, SpanTable};
 use crate::vfs::{FileUri, Workspace};
+use analyzer_core::lsp::{
+    span_to_line_cols, to_lsp_diagnostic, LspDiagnostic, LspDocumentSymbol, LspFoldingRange,
+};
 use cli_completions_data_fish as fish_completions;
-use serde::Serialize;
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
@@ -17,34 +19,6 @@ fn init() {
 
 #[wasm_bindgen]
 pub struct Analyzer(RefCell<Workspace>);
-
-#[derive(Serialize)]
-struct LspDiagnostic {
-    code: String,
-    severity: String,
-    message: String,
-    start: LineCol,
-    end: LineCol,
-}
-
-#[derive(Serialize)]
-struct LspDocumentSymbol {
-    name: String,
-    detail: String,
-    kind: String,
-    range_start: LineCol,
-    range_end: LineCol,
-    selection_start: LineCol,
-    selection_end: LineCol,
-    children: Vec<LspDocumentSymbol>,
-}
-
-#[derive(Serialize)]
-struct LspFoldingRange {
-    start_line: u32,
-    end_line: u32,
-    kind: String,
-}
 
 #[wasm_bindgen]
 impl Analyzer {
@@ -72,7 +46,7 @@ impl Analyzer {
         let items: Vec<LspDiagnostic> = ws
             .diagnostics_for(&uri)
             .into_iter()
-            .map(|d| to_lsp_diag(d, &pf.source, &pf.spans))
+            .map(|d| to_lsp_diagnostic(d, &pf.source, &pf.spans))
             .collect();
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
     }
@@ -112,8 +86,7 @@ impl Analyzer {
         let lsp: Vec<LspFoldingRange> = ranges
             .into_iter()
             .map(|r| {
-                let start = pf.spans.offset_to_line_col(&pf.source, r.span.start);
-                let end = pf.spans.offset_to_line_col(&pf.source, r.span.end);
+                let (start, end) = span_to_line_cols(r.span, &pf.source, &pf.spans);
                 LspFoldingRange {
                     start_line: start.line,
                     end_line: end.line,
@@ -125,43 +98,21 @@ impl Analyzer {
     }
 }
 
-fn severity_str(s: Severity) -> &'static str {
-    match s {
-        Severity::Error => "error",
-        Severity::Warning => "warning",
-        Severity::Info => "info",
-        Severity::Hint => "hint",
-    }
-}
-
-fn to_lsp_diag(d: MakeDiagnostic, source: &str, spans: &SpanTable) -> LspDiagnostic {
-    LspDiagnostic {
-        code: d.code.as_str().to_string(),
-        severity: severity_str(d.severity).to_string(),
-        message: d.message,
-        start: spans.offset_to_line_col(source, d.span.start),
-        end: spans.offset_to_line_col(source, d.span.end),
-    }
-}
-
-fn to_lsp_symbol(
-    s: document_symbols::DocumentSymbol,
-    source: &str,
-    spans: &SpanTable,
-) -> LspDocumentSymbol {
-    let children = s
-        .children
-        .into_iter()
-        .map(|c| to_lsp_symbol(c, source, spans))
-        .collect();
+fn to_lsp_symbol(s: DocumentSymbol, source: &str, spans: &SpanTable) -> LspDocumentSymbol {
+    let (range_start, range_end) = span_to_line_cols(s.range, source, spans);
+    let (selection_start, selection_end) = span_to_line_cols(s.selection_range, source, spans);
     LspDocumentSymbol {
         name: s.name,
         detail: s.detail,
         kind: format!("{:?}", s.kind),
-        range_start: spans.offset_to_line_col(source, s.range.start),
-        range_end: spans.offset_to_line_col(source, s.range.end),
-        selection_start: spans.offset_to_line_col(source, s.selection_range.start),
-        selection_end: spans.offset_to_line_col(source, s.selection_range.end),
-        children,
+        range_start,
+        range_end,
+        selection_start,
+        selection_end,
+        children: s
+            .children
+            .into_iter()
+            .map(|c| to_lsp_symbol(c, source, spans))
+            .collect(),
     }
 }

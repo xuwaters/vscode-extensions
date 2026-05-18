@@ -1,11 +1,13 @@
 //! WASM entry points. The surface is intentionally flat and string-typed
 //! so the TypeScript host can treat the module as "JSON in, JSON out".
 
-use crate::diagnostics::{DotenvDiagnostic, Severity};
 use crate::features::{completion, document_symbols, folding, hover};
-use crate::spans::{LineCol, SpanTable};
+use crate::spans::LineCol;
 use crate::vfs::{FileUri, Workspace};
-use serde::Serialize;
+use analyzer_core::lsp::{
+    span_to_line_cols, to_lsp_diagnostic, LspDiagnostic, LspDocumentSymbol, LspFoldingRange,
+    LspHover,
+};
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
@@ -16,40 +18,6 @@ fn init() {
 
 #[wasm_bindgen]
 pub struct Analyzer(RefCell<Workspace>);
-
-#[derive(Serialize)]
-struct LspDiagnostic {
-    code: String,
-    severity: String,
-    message: String,
-    start: LineCol,
-    end: LineCol,
-}
-
-#[derive(Serialize)]
-struct LspDocumentSymbol {
-    name: String,
-    detail: String,
-    kind: String,
-    range_start: LineCol,
-    range_end: LineCol,
-    selection_start: LineCol,
-    selection_end: LineCol,
-}
-
-#[derive(Serialize)]
-struct LspFoldingRange {
-    start_line: u32,
-    end_line: u32,
-    kind: String,
-}
-
-#[derive(Serialize)]
-struct LspHover {
-    contents: String,
-    start: LineCol,
-    end: LineCol,
-}
 
 #[wasm_bindgen]
 impl Analyzer {
@@ -77,7 +45,7 @@ impl Analyzer {
         let items: Vec<LspDiagnostic> = ws
             .diagnostics_for(&uri)
             .into_iter()
-            .map(|d| to_lsp_diag(d, &pf.source, &pf.spans))
+            .map(|d| to_lsp_diagnostic(d, &pf.source, &pf.spans))
             .collect();
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
     }
@@ -91,14 +59,20 @@ impl Analyzer {
         let symbols = document_symbols::document_symbols(&pf.ast, &pf.source);
         let items: Vec<LspDocumentSymbol> = symbols
             .into_iter()
-            .map(|s| LspDocumentSymbol {
-                name: s.name,
-                detail: s.detail,
-                kind: format!("{:?}", s.kind),
-                range_start: pf.spans.offset_to_line_col(&pf.source, s.range.start),
-                range_end: pf.spans.offset_to_line_col(&pf.source, s.range.end),
-                selection_start: pf.spans.offset_to_line_col(&pf.source, s.selection_range.start),
-                selection_end: pf.spans.offset_to_line_col(&pf.source, s.selection_range.end),
+            .map(|s| {
+                let (range_start, range_end) = span_to_line_cols(s.range, &pf.source, &pf.spans);
+                let (selection_start, selection_end) =
+                    span_to_line_cols(s.selection_range, &pf.source, &pf.spans);
+                LspDocumentSymbol {
+                    name: s.name,
+                    detail: s.detail,
+                    kind: format!("{:?}", s.kind),
+                    range_start,
+                    range_end,
+                    selection_start,
+                    selection_end,
+                    children: Vec::new(),
+                }
             })
             .collect();
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
@@ -114,8 +88,7 @@ impl Analyzer {
         let lsp: Vec<LspFoldingRange> = ranges
             .into_iter()
             .map(|r| {
-                let start = pf.spans.offset_to_line_col(&pf.source, r.span.start);
-                let end = pf.spans.offset_to_line_col(&pf.source, r.span.end);
+                let (start, end) = span_to_line_cols(r.span, &pf.source, &pf.spans);
                 LspFoldingRange {
                     start_line: start.line,
                     end_line: end.line,
@@ -145,30 +118,8 @@ impl Analyzer {
         let Some(h) = hover::hover(pf, LineCol { line, col }) else {
             return "null".into();
         };
-        let lsp = LspHover {
-            contents: h.contents,
-            start: pf.spans.offset_to_line_col(&pf.source, h.range.start),
-            end: pf.spans.offset_to_line_col(&pf.source, h.range.end),
-        };
+        let (start, end) = span_to_line_cols(h.range, &pf.source, &pf.spans);
+        let lsp = LspHover { contents: h.contents, start, end };
         serde_json::to_string(&lsp).unwrap_or_else(|_| "null".into())
-    }
-}
-
-fn severity_str(s: Severity) -> &'static str {
-    match s {
-        Severity::Error => "error",
-        Severity::Warning => "warning",
-        Severity::Info => "info",
-        Severity::Hint => "hint",
-    }
-}
-
-fn to_lsp_diag(d: DotenvDiagnostic, source: &str, spans: &SpanTable) -> LspDiagnostic {
-    LspDiagnostic {
-        code: d.code.as_str().to_string(),
-        severity: severity_str(d.severity).to_string(),
-        message: d.message,
-        start: spans.offset_to_line_col(source, d.span.start),
-        end: spans.offset_to_line_col(source, d.span.end),
     }
 }

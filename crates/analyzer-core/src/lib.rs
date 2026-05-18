@@ -10,5 +10,6 @@
 //! FoldingRange, …) and a WASM harness macro — see the refactor plan.
 
 pub mod diagnostics;
+pub mod lsp;
 pub mod spans;
 pub mod vfs;
