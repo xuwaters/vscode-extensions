@@ -171,6 +171,14 @@ async function openAtRevision(arg: FileNodePayload, deps: CommandDeps): Promise<
     );
     return;
   }
+
+  // For added files on the working (HEAD) side, the content provider would
+  // open a read-only document with a "W" badge. The file exists on disk —
+  // open it directly so the user gets the full editing experience.
+  if (targetRef === 'HEAD' && isAddition(status)) {
+    await openFile(arg);
+    return;
+  }
   // For "changed" the target is the *left* (older) side of the diff, so a
   // rename means the file lives at its original path. For behind/ahead the
   // target is the right (newer) side, where the renamed file is at its
