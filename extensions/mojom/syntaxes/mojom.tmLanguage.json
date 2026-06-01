@@ -1,0 +1,279 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Mojom",
+  "scopeName": "source.mojom",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#attribute" },
+    { "include": "#string" },
+    { "include": "#module" },
+    { "include": "#import" },
+    { "include": "#const_decl" },
+    { "include": "#enum" },
+    { "include": "#enum_without_body" },
+    { "include": "#struct" },
+    { "include": "#struct_without_body" },
+    { "include": "#interface" },
+    { "include": "#union" }
+  ],
+  "repository": {
+    "block_comment": {
+      "name": "comment.block.mojom",
+      "begin": "/\\*",
+      "end": "\\*/"
+    },
+    "line_comment": {
+      "name": "comment.line.double-slash.mojom",
+      "begin": "//",
+      "end": "$"
+    },
+    "comments": {
+      "patterns": [
+        { "include": "#block_comment" },
+        { "include": "#line_comment" }
+      ]
+    },
+    "attribute": {
+      "name": "meta.attribute.mojom",
+      "begin": "\\[",
+      "end": "\\]",
+      "patterns": [
+        { "include": "#string" },
+        { "include": "#numeric" },
+        {
+          "name": "entity.other.attribute-name.mojom",
+          "match": "[_A-Za-z][_A-Za-z0-9]*"
+        }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.mojom",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.mojom",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numeric": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.mojom",
+          "match": "(-?0[xX][0-9a-fA-F]+)"
+        },
+        {
+          "name": "constant.numeric.float.mojom",
+          "match": "(-?[0-9]*\\.[0-9]+([eE][-+]?[0-9]+)?)"
+        },
+        {
+          "name": "constant.numeric.decimal.mojom",
+          "match": "(-?[0-9]+)"
+        }
+      ]
+    },
+    "ordinal": {
+      "name": "meta.ordinal.mojom",
+      "match": "(@)([0-9]+)",
+      "captures": {
+        "1": { "name": "punctuation.definition.ordinal.mojom" },
+        "2": { "name": "constant.numeric.integer.mojom" }
+      }
+    },
+    "literals": {
+      "patterns": [
+        { "include": "#string" },
+        { "include": "#numeric" },
+        {
+          "name": "constant.language.mojom",
+          "match": "\\b(true|false|default)\\b"
+        }
+      ]
+    },
+    "user_defined_type": {
+      "name": "entity.name.type.class.mojom",
+      "match": "\\b([A-Z]|[_.[:alnum:]]+\\.)[[:alnum:]]*\\b"
+    },
+    "capital_const": {
+      "name": "variable.other.constant.mojom",
+      "match": "\\b([A-Z]|[_.[:alnum:]]+\\.)[_A-Z]+\\b"
+    },
+    "type": {
+      "patterns": [
+        {
+          "name": "storage.type.simple.mojom",
+          "match": "\\b(bool|int8|uint8|int16|uint16|int32|uint32|int64|uint64|float|double|string)\\b"
+        },
+        {
+          "name": "storage.type.complex.mojom",
+          "match": "\\b(array|map|associated|pending_remote|pending_receiver|pending_associated_remote|pending_associated_receiver|handle|message_pipe|shared_buffer|data_pipe_consumer|data_pipe_producer|platform)\\b"
+        },
+        {
+          "name": "meta.generic.mojom",
+          "begin": "<",
+          "end": ">",
+          "patterns": [
+            { "include": "#type" },
+            { "include": "#user_defined_type" }
+          ]
+        }
+      ]
+    },
+    "module": {
+      "name": "meta.module.mojom",
+      "begin": "\\b(module)\\s+([_.[:alnum:]]+)",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.module.mojom" },
+        "2": { "name": "entity.name.namespace.mojom" }
+      },
+      "end": ";"
+    },
+    "import": {
+      "name": "meta.import.mojom",
+      "begin": "\\b(import)\\b",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.import.mojom" }
+      },
+      "end": ";",
+      "patterns": [
+        { "include": "#string" }
+      ]
+    },
+    "const_decl": {
+      "name": "meta.constant.mojom",
+      "begin": "\\b(const)\\b",
+      "beginCaptures": {
+        "1": { "name": "storage.type.constant.mojom" }
+      },
+      "end": ";",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#literals" },
+        { "include": "#type" },
+        {
+          "name": "variable.other.constant.mojom",
+          "match": "[._[:alnum:]]+"
+        }
+      ]
+    },
+    "enum": {
+      "name": "meta.enum.mojom",
+      "begin": "\\b(enum)\\s+([_[:alnum:]]+)\\s*{",
+      "beginCaptures": {
+        "1": { "name": "storage.type.enum.mojom" },
+        "2": { "name": "entity.name.type.enum.mojom" }
+      },
+      "end": "}\\s*;",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#attribute" },
+        { "include": "#numeric" },
+        {
+          "name": "variable.other.enummember.mojom",
+          "match": "[._[:alnum:]]+"
+        }
+      ]
+    },
+    "enum_without_body": {
+      "name": "meta.enum.mojom",
+      "match": "\\b(enum)\\s+([_[:alnum:]]+)\\s*;",
+      "captures": {
+        "1": { "name": "storage.type.enum.mojom" },
+        "2": { "name": "entity.name.type.enum.mojom" }
+      }
+    },
+    "struct": {
+      "name": "meta.struct.mojom",
+      "begin": "\\b(struct)\\s+([_[:alnum:]]+)\\s*{",
+      "beginCaptures": {
+        "1": { "name": "storage.type.struct.mojom" },
+        "2": { "name": "entity.name.type.struct.mojom" }
+      },
+      "end": "}\\s*;",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#attribute" },
+        { "include": "#const_decl" },
+        { "include": "#enum" },
+        { "include": "#ordinal" },
+        { "include": "#type" },
+        { "include": "#literals" },
+        { "include": "#capital_const" },
+        { "include": "#user_defined_type" },
+        {
+          "name": "variable.other.member.mojom",
+          "match": "[._[:alnum:]]+"
+        }
+      ]
+    },
+    "struct_without_body": {
+      "name": "meta.struct.mojom",
+      "match": "\\b(struct)\\s+([_[:alnum:]]+)\\s*;",
+      "captures": {
+        "1": { "name": "storage.type.struct.mojom" },
+        "2": { "name": "entity.name.type.struct.mojom" }
+      }
+    },
+    "interface": {
+      "name": "meta.interface.mojom",
+      "begin": "\\b(interface)\\s+([_[:alnum:]]+)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.interface.mojom" },
+        "2": { "name": "entity.name.type.interface.mojom" }
+      },
+      "end": "}\\s*;",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#attribute" },
+        { "include": "#const_decl" },
+        { "include": "#enum" },
+        { "include": "#method_decl" }
+      ]
+    },
+    "method_decl": {
+      "name": "meta.method.mojom",
+      "begin": "([_[:alnum:]]+)\\s*(@[0-9]+)?\\s*(?=\\()",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.mojom" },
+        "2": { "name": "constant.numeric.integer.mojom" }
+      },
+      "end": ";",
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "name": "keyword.operator.arrow.mojom",
+          "match": "=>"
+        },
+        { "include": "#ordinal" },
+        { "include": "#type" },
+        { "include": "#literals" },
+        { "include": "#user_defined_type" },
+        {
+          "name": "variable.parameter.mojom",
+          "match": "[._[:alnum:]]+"
+        }
+      ]
+    },
+    "union": {
+      "name": "meta.union.mojom",
+      "begin": "\\b(union)\\s+([_[:alnum:]]+)\\s*{",
+      "beginCaptures": {
+        "1": { "name": "storage.type.union.mojom" },
+        "2": { "name": "entity.name.type.union.mojom" }
+      },
+      "end": "}\\s*;",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#attribute" },
+        { "include": "#ordinal" },
+        { "include": "#type" },
+        { "include": "#user_defined_type" },
+        {
+          "name": "variable.other.member.mojom",
+          "match": "[._[:alnum:]]+"
+        }
+      ]
+    }
+  }
+}
