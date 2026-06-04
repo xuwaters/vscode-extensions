@@ -23,6 +23,13 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('markdownLivePreview.showPreviewToSide', () =>
       open(vscode.ViewColumn.Beside),
     ),
+    vscode.commands.registerCommand('markdownLivePreview.toggleFocus', () =>
+      manager.toggleFocus(),
+    ),
+    vscode.commands.registerCommand(
+      'markdownLivePreview.togglePreviewLock',
+      () => manager.togglePreviewLock(),
+    ),
   );
 }
 

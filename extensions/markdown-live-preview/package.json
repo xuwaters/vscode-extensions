@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-live-preview",
   "displayName": "Markdown Preview",
   "description": "Live Markdown preview with math (KaTeX), mermaid diagrams, syntax highlighting, and editor scroll sync",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -26,6 +26,18 @@
         "title": "Open Preview to the Side",
         "category": "Markdown Preview",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "markdownLivePreview.toggleFocus",
+        "title": "Toggle Focus Between Editor and Preview",
+        "category": "Markdown Preview",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "markdownLivePreview.togglePreviewLock",
+        "title": "Toggle Preview Lock (Follow Active Editor)",
+        "category": "Markdown Preview",
+        "icon": "$(lock)"
       }
     ],
     "menus": {
@@ -37,12 +49,30 @@
         {
           "command": "markdownLivePreview.showPreviewToSide",
           "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx"
+        },
+        {
+          "command": "markdownLivePreview.toggleFocus",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownLivePreview.previewVisible"
+        },
+        {
+          "command": "markdownLivePreview.togglePreviewLock",
+          "when": "markdownLivePreview.previewVisible"
         }
       ],
       "editor/title": [
         {
           "command": "markdownLivePreview.showPreviewToSide",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx) && !markdownLivePreview.previewVisible",
+          "group": "navigation"
+        },
+        {
+          "command": "markdownLivePreview.toggleFocus",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx) && markdownLivePreview.previewVisible",
+          "group": "navigation"
+        },
+        {
+          "command": "markdownLivePreview.togglePreviewLock",
+          "when": "activeWebviewPanelId == markdownLivePreview.preview",
           "group": "navigation"
         }
       ],
@@ -66,6 +96,18 @@
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
         "when": "editorLangId == markdown || editorLangId == mdx"
+      },
+      {
+        "command": "markdownLivePreview.toggleFocus",
+        "key": "ctrl+k ctrl+v",
+        "mac": "cmd+k cmd+v",
+        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownLivePreview.preview"
+      },
+      {
+        "command": "markdownLivePreview.togglePreviewLock",
+        "key": "ctrl+k ctrl+l",
+        "mac": "cmd+k cmd+l",
+        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownLivePreview.preview"
       }
     ],
     "configuration": {
@@ -75,6 +117,11 @@
           "type": "boolean",
           "default": true,
           "description": "Keep the preview scrolled to the editor's top visible line."
+        },
+        "markdownLivePreview.lockPreviewGroup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lock the editor group the side preview opens in, so newly-opened files land in the main group instead of replacing the preview."
         },
         "markdownLivePreview.breaks": {
           "type": "boolean",
