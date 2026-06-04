@@ -110,6 +110,38 @@ describe('scanIndex', () => {
     expect(collectAnchors(emitted).length).toBe(21);
   });
 
+  it('flushes periodically by byte interval, not only by batch size', () => {
+    // 200 single-char lines. With a huge batchAnchors the batch-count
+    // threshold never trips, but flushIntervalBytes should still force
+    // periodic flushes so anchors and progress stream out from the first
+    // chunks rather than only at EOF.
+    const lines: string[] = [];
+    for (let i = 0; i < 200; i++) lines.push('x');
+    const src = Buffer.from(lines.join('\n') + '\n'); // 400 bytes
+    const emitted: BigUint64Array[] = [];
+    const bytesAt: number[] = [];
+    scanIndex({
+      stride: 1,
+      chunkSize: 16,
+      batchAnchors: 1_000_000, // effectively disables batch-count flushing
+      flushIntervalBytes: 64,
+      read: fakeRead(src),
+      emitAnchors: (a, _lineCount, byteOffset) => {
+        emitted.push(a);
+        bytesAt.push(Number(byteOffset));
+      },
+    });
+    // Multiple flushes happened despite never reaching batchAnchors.
+    expect(emitted.length).toBeGreaterThan(2);
+    // Reported byte offsets advance monotonically and reach EOF.
+    for (let i = 1; i < bytesAt.length; i++) {
+      expect(bytesAt[i]).toBeGreaterThanOrEqual(bytesAt[i - 1]);
+    }
+    expect(bytesAt[bytesAt.length - 1]).toBe(src.length);
+    // Still exactly one anchor per line (200) plus anchor 0 for the head.
+    expect(collectAnchors(emitted).length).toBe(201);
+  });
+
   it('supports cancellation between chunks', () => {
     const src = Buffer.alloc(4096, 0x61); // all 'a', no newlines
     let calls = 0;

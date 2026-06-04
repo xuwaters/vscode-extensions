@@ -61,6 +61,8 @@ export interface StreamingSessionOptions {
   indexerFactory?: () => Indexer;
   /** Bytes to pre-read from the tail of the file for the "End" affordance. */
   tailBytes?: number;
+  /** Bytes to pre-read from the head of the file for the first-page fast path. */
+  headBytes?: number;
   /** Invoked on every progress event, plus once on completion. */
   onIndexProgress: (event: IndexProgressEvent) => void;
   /** Reports unrecoverable errors (the session is then in an error state). */
@@ -101,8 +103,21 @@ interface TailBuffer {
   byteStart: number;
 }
 
+/**
+ * Pre-rendered cache of the first N lines of the file. Built once at session
+ * start by reading the leading bytes, so the very first page renders
+ * immediately — before the indexer has scanned far enough to produce any
+ * anchors. Covers lines `[0, lines.length)` exactly (line index === array
+ * index). Superseded by the index proper once anchors reach the head.
+ */
+interface HeadBuffer {
+  lines: LineRecord[];
+}
+
 /** Default tail-read budget in bytes. */
 export const DEFAULT_TAIL_BYTES = 1 * 1024 * 1024;
+/** Default head-read budget in bytes (first-page fast path). */
+export const DEFAULT_HEAD_BYTES = 1 * 1024 * 1024;
 /** Default per-line size guess used to seed totalLines before scanning. */
 export const DEFAULT_BYTES_PER_LINE_GUESS = 80;
 
@@ -120,6 +135,7 @@ export class StreamingSession {
   private disposed = false;
   private adjacentFallback = false;
   private tail: TailBuffer | null = null;
+  private head: HeadBuffer | null = null;
   private fsWatcher: fs.FSWatcher | null = null;
 
   constructor(opts: StreamingSessionOptions) {
@@ -162,7 +178,10 @@ export class StreamingSession {
       1,
       Math.floor(this.fileSize / DEFAULT_BYTES_PER_LINE_GUESS),
     );
-    // Tail buffer: read the last ~1 MB right away so "End" works immediately.
+    // Head/tail buffers: read the first and last ~1 MB right away so the
+    // first page renders and "End" works immediately — before the indexer
+    // has produced any anchors (RFC §5.3).
+    this.buildHeadBuffer();
     this.buildTailBuffer();
     this.startFileWatcher();
 
@@ -258,6 +277,58 @@ export class StreamingSession {
       this.tail = { lines, byteStart: byteStart + slabStart };
     } catch {
       // ignore render errors; tail just won't serve
+    }
+  }
+
+  /**
+   * Read the leading slice of the file and render it via WASM so the first
+   * page is servable instantly, before the head-to-tail indexer has produced
+   * any anchors (RFC §5.3 — first-page fast path).
+   *
+   * Best-effort: errors are swallowed; the head buffer just stays empty and
+   * the first page shows the indexing-in-progress placeholder until anchors
+   * arrive.
+   */
+  private buildHeadBuffer(): void {
+    if (this.fd === null) return;
+    const budget = this.opts.headBytes ?? DEFAULT_HEAD_BYTES;
+    if (this.fileSize === 0 || budget <= 0) return;
+    const readLen = Math.min(budget, this.fileSize);
+    let buf: Buffer;
+    try {
+      buf = this.readSlab(0, readLen);
+    } catch {
+      return;
+    }
+    if (buf.length === 0) return;
+    const reachedEof = readLen >= this.fileSize;
+    let slab = buf;
+    if (!reachedEof) {
+      // The slab ends mid-line (we read a fixed byte budget). Trim back to the
+      // last '\n' so we only keep complete lines; the partial tail line is
+      // served later by the index proper.
+      const lastNl = buf.lastIndexOf(0x0a);
+      if (lastNl < 0) return; // first line longer than the budget — can't help
+      slab = buf.subarray(0, lastNl + 1);
+    }
+    try {
+      const json = this.opts.wasm.renderLines(new Uint8Array(slab));
+      const parsed = JSON.parse(json) as ParsedLines;
+      const lines: LineRecord[] = parsed.text.map((t, i) => ({
+        text: t,
+        html: parsed.html[i] ?? '',
+      }));
+      // A slab ending in '\n' yields a trailing empty record (split semantics).
+      // When we trimmed mid-file, that record is the start of the next
+      // (partial) line — drop it so `lines` maps 1:1 to whole lines [0, n).
+      // When we read the whole file, keep every record so the head covers
+      // [0, totalLines) including any genuine trailing empty line.
+      if (!reachedEof && lines.length > 0 && lines[lines.length - 1].text === '') {
+        lines.pop();
+      }
+      this.head = { lines };
+    } catch {
+      // ignore render errors; head just won't serve
     }
   }
 
@@ -415,6 +486,7 @@ export class StreamingSession {
       stride: this.stride,
       totalLines: this.totalLines,
       fileSize: this.fileSize,
+      complete: this.indexComplete,
     };
   }
 
@@ -471,18 +543,44 @@ export class StreamingSession {
       }));
       const want = Math.min(plan.linesInSlab, all.length);
       const slice = all.slice(plan.localStart, Math.min(plan.localEnd, want));
-      this.windowCache.set(cacheKey, slice);
-      return {
-        start,
-        lines: slice,
-        partial: slice.length < end - start,
-      };
+      const partial = slice.length < end - start;
+      // Only cache final results. A partial slice produced while indexing is
+      // still in flight is provisional (the frontier hasn't reached `end`
+      // yet); caching it would pin the gap and starve the re-request that
+      // fills it once more anchors arrive. A partial slice on a complete
+      // index is the genuine end of file and safe to cache.
+      if (view.complete || !partial) {
+        this.windowCache.set(cacheKey, slice);
+      }
+      return { start, lines: slice, partial };
     }
 
-    // Not covered by the index yet. Tail buffer may have it.
+    // Not covered by the index yet. The head buffer covers the first page and
+    // the tail buffer covers the end — try whichever the request falls in.
+    const head = this.headFallback(start, end);
+    if (head.lines.length > 0) return head;
     const tail = this.tailFallback(start, end);
     if (tail.lines.length > 0) return tail;
     return { start, lines: [], partial: true };
+  }
+
+  /**
+   * Serve a window from the pre-rendered head buffer when the indexer hasn't
+   * reached the requested range yet. The head buffer covers lines
+   * `[0, head.lines.length)` exactly, so line numbers are precise (unlike the
+   * tail, whose offset depends on the still-estimated `totalLines`).
+   */
+  private headFallback(start: number, end: number): WindowResult {
+    const head = this.head;
+    if (!head || head.lines.length === 0 || start >= head.lines.length) {
+      return { start, lines: [], partial: true };
+    }
+    const localEnd = Math.min(head.lines.length, end);
+    return {
+      start,
+      lines: head.lines.slice(start, localEnd),
+      partial: localEnd - start < end - start,
+    };
   }
 
   /**
@@ -620,5 +718,6 @@ export class StreamingSession {
     }
     this.windowCache.clear();
     this.tail = null;
+    this.head = null;
   }
 }

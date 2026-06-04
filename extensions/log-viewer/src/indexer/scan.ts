@@ -26,6 +26,14 @@ export interface ScanOptions {
   isCancelled?: () => boolean;
   /** Flush threshold for pending anchors (default: 4096). */
   batchAnchors?: number;
+  /**
+   * Flush pending anchors (and a progress event) at least every this many
+   * bytes of scanned data, even if `batchAnchors` hasn't been reached
+   * (default: `chunkSize`). Keeps the index progressively usable and the
+   * indexing progress bar moving from the first chunk rather than only
+   * after ~`batchAnchors * stride` lines have been seen.
+   */
+  flushIntervalBytes?: number;
 }
 
 export interface ScanResult {
@@ -50,12 +58,14 @@ export function scanIndex(opts: ScanOptions): ScanResult {
   const chunkSize = opts.chunkSize;
   if (chunkSize < 1) throw new Error('scanIndex: chunkSize must be >= 1');
   const batchAnchors = opts.batchAnchors ?? 4096;
+  const flushIntervalBytes = BigInt(opts.flushIntervalBytes ?? chunkSize);
 
   const buf = Buffer.allocUnsafe(chunkSize);
   let fileOffset = 0n;
   let lineNum = 0; // count of newlines seen
   // We pre-emit anchor[0] for line 0 = byte 0.
   let pending: bigint[] = [0n];
+  let bytesAtLastFlush = 0n;
 
   const flush = (final: boolean): void => {
     if (pending.length === 0) return;
@@ -63,6 +73,7 @@ export function scanIndex(opts: ScanOptions): ScanResult {
     for (let i = 0; i < pending.length; i++) arr[i] = pending[i];
     opts.emitAnchors(arr, lineNum, fileOffset);
     pending = [];
+    bytesAtLastFlush = fileOffset;
     void final;
   };
 
@@ -85,7 +96,12 @@ export function scanIndex(opts: ScanOptions): ScanResult {
       i = j + 1;
     }
     fileOffset += BigInt(n);
-    if (pending.length >= batchAnchors) flush(false);
+    if (
+      pending.length >= batchAnchors ||
+      (pending.length > 0 && fileOffset - bytesAtLastFlush >= flushIntervalBytes)
+    ) {
+      flush(false);
+    }
   }
   flush(true);
   return { totalLines: lineNum + 1, fileSize: fileOffset, cancelled: false };

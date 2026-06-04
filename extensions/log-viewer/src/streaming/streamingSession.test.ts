@@ -139,6 +139,37 @@ describe.skipIf(!wasm || !haveWorker)('StreamingSession', () => {
     }
   });
 
+  it('serves the head window before indexing completes', async () => {
+    // The head buffer is built synchronously during `start()`, so the very
+    // first page is renderable immediately — without waiting for the indexer
+    // to produce any anchors. Request it right after start() resolves, before
+    // awaiting indexing progress.
+    const session = new StreamingSession({
+      fsPath: logPath,
+      wasm: wasm!,
+      cache: {
+        globalStorageDir: cacheDir,
+        mode: 'memory',
+        budgetBytes: 100 * 1024 * 1024,
+      },
+      stride: 32,
+      chunkSize: 8 * 1024,
+      batchAnchors: 16,
+      workerScript,
+      onIndexProgress: () => {},
+      onError: () => {},
+    });
+    await session.start();
+    try {
+      const win = session.requestWindow(0, 5);
+      expect(win.lines.length).toBeGreaterThanOrEqual(5);
+      expect(win.lines[0].text).toBe('line 0000');
+      expect(win.lines[4].text).toBe('line 0004');
+    } finally {
+      await session.dispose();
+    }
+  });
+
   it('memory mode renders windows but writes nothing to disk', async () => {
     const session = await new Promise<StreamingSession>((resolve, reject) => {
       const s = new StreamingSession({

@@ -21,6 +21,13 @@ export interface IndexView {
   stride: number;
   totalLines: number;
   fileSize: number;
+  /**
+   * True once the index has scanned the whole file. Only when complete is it
+   * safe to read past the last anchor all the way to EOF; while indexing is
+   * still in flight that range isn't covered yet and reading to `fileSize`
+   * could pull gigabytes to render a small window.
+   */
+  complete?: boolean;
 }
 
 /**
@@ -49,12 +56,21 @@ export function planWindow(idx: IndexView, start: number, end: number): WindowPl
   if (endAnchorIdx < idx.anchors.length) {
     byteEnd = Number(idx.anchors[endAnchorIdx]);
     linesInSlab = endAnchorIdx * stride - firstLineInSlab;
-  } else {
-    // Beyond the last anchor: only safe to read if the index is at EOF.
-    // Caller can detect partial coverage by checking the returned plan
-    // against its known progress.
+  } else if (idx.complete) {
+    // Beyond the last anchor and the index is at EOF: the final partial
+    // stride genuinely runs to the end of the file.
     byteEnd = idx.fileSize;
     linesInSlab = total - firstLineInSlab;
+  } else {
+    // Index still in flight: anchors past `end` haven't been produced. Only
+    // the bytes up to the last known anchor are safely a whole-line slab —
+    // reading to `fileSize` here could pull the entire unindexed remainder.
+    // Serve what's covered (the caller marks the rest partial and re-requests
+    // as indexing advances).
+    const lastAnchorIdx = idx.anchors.length - 1;
+    if (lastAnchorIdx <= startAnchorIdx) return null;
+    byteEnd = Number(idx.anchors[lastAnchorIdx]);
+    linesInSlab = lastAnchorIdx * stride - firstLineInSlab;
   }
   const localStart = start - firstLineInSlab;
   const localEnd = clampedEnd - firstLineInSlab;

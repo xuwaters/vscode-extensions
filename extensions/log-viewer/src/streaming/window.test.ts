@@ -9,6 +9,7 @@ describe('planWindow', () => {
     stride: 2,
     totalLines: 11, // 10 newlines → 11 lines (last one empty)
     fileSize: 20,
+    complete: true,
   };
 
   it('plans a small window inside one stride', () => {
@@ -40,6 +41,25 @@ describe('planWindow', () => {
     expect(p.localStart).toBe(0);
     // clamped end = 11 → local 3 (8,9,10).
     expect(p.localEnd).toBe(3);
+  });
+
+  it('does not read to EOF past the last anchor while indexing', () => {
+    // Same anchors, but the index is still in flight: a request whose end
+    // runs past the last anchor must clamp to the last anchor, not read to
+    // fileSize (which would pull the whole unindexed remainder).
+    const inflight = { ...idx, complete: false };
+    const p = planWindow(inflight, 8, 999)!;
+    expect(p.byteStart).toBe(16); // anchors[4]
+    expect(p.byteEnd).toBe(20); // anchors[5] (last anchor), NOT fileSize-by-EOF
+    // Only the fully-covered stride [8,10) is in the slab; line 10 is dropped.
+    expect(p.linesInSlab).toBe(2);
+  });
+
+  it('returns null when nothing past the start anchor is covered yet', () => {
+    // Index in flight and the start sits in the last known stride: no further
+    // anchor exists, so there is no safe whole-line slab to serve.
+    const inflight = { ...idx, complete: false };
+    expect(planWindow(inflight, 10, 12)).toBeNull();
   });
 
   it('returns null for empty range', () => {

@@ -2,7 +2,7 @@
   "name": "wx-vsce-log-viewer",
   "displayName": "Log Viewer",
   "description": "Pretty viewer for .log files with ANSI escape sequence rendering",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "publisher": "weixu",
   "engines": {
