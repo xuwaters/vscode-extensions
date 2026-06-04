@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-markdown-live-preview",
-  "displayName": "Markdown Live Preview",
-  "description": "Obsidian-style live preview editor for Markdown files with source, read, and live preview modes",
-  "version": "0.1.1",
+  "displayName": "Markdown Preview",
+  "description": "Live Markdown preview with math (KaTeX), mermaid diagrams, syntax highlighting, and editor scroll sync",
+  "version": "0.3.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -14,101 +14,92 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
-    "customEditors": [
-      {
-        "viewType": "markdownLivePreview.editor",
-        "displayName": "Markdown Live Preview",
-        "selector": [
-          {
-            "filenamePattern": "*.md"
-          },
-          {
-            "filenamePattern": "*.markdown"
-          },
-          {
-            "filenamePattern": "*.mdx"
-          }
-        ],
-        "priority": "option"
-      }
-    ],
     "commands": [
       {
-        "command": "markdownLivePreview.open",
-        "title": "Open in Live Preview",
-        "category": "Markdown Live Preview"
+        "command": "markdownLivePreview.showPreview",
+        "title": "Open Preview",
+        "category": "Markdown Preview",
+        "icon": "$(open-preview)"
       },
       {
-        "command": "markdownLivePreview.cycleMode",
-        "title": "Cycle Editor Mode (Source → Live Preview → Read)",
-        "category": "Markdown Live Preview"
-      },
-      {
-        "command": "markdownLivePreview.setModeSource",
-        "title": "Switch to Source Mode",
-        "category": "Markdown Live Preview"
-      },
-      {
-        "command": "markdownLivePreview.setModeRead",
-        "title": "Switch to Read Mode",
-        "category": "Markdown Live Preview"
-      },
-      {
-        "command": "markdownLivePreview.setModeLivePreview",
-        "title": "Switch to Live Preview Mode",
-        "category": "Markdown Live Preview"
+        "command": "markdownLivePreview.showPreviewToSide",
+        "title": "Open Preview to the Side",
+        "category": "Markdown Preview",
+        "icon": "$(open-preview)"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "markdownLivePreview.showPreview",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx"
+        },
+        {
+          "command": "markdownLivePreview.showPreviewToSide",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "markdownLivePreview.showPreviewToSide",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "markdownLivePreview.showPreview",
+          "when": "resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx",
+          "group": "navigation"
+        }
+      ]
+    },
     "keybindings": [
       {
-        "command": "markdownLivePreview.cycleMode",
-        "key": "ctrl+shift+m",
-        "mac": "cmd+shift+m",
-        "when": "activeCustomEditorId == 'markdownLivePreview.editor'"
+        "command": "markdownLivePreview.showPreviewToSide",
+        "key": "ctrl+k v",
+        "mac": "cmd+k v",
+        "when": "editorLangId == markdown || editorLangId == mdx"
+      },
+      {
+        "command": "markdownLivePreview.showPreview",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v",
+        "when": "editorLangId == markdown || editorLangId == mdx"
       }
     ],
     "configuration": {
-      "title": "Markdown Live Preview",
+      "title": "Markdown Preview",
       "properties": {
-        "markdownLivePreview.defaultMode": {
-          "type": "string",
-          "default": "live-preview",
-          "enum": [
-            "source",
-            "read",
-            "live-preview"
-          ],
-          "enumDescriptions": [
-            "Raw markdown source editor (CodeMirror)",
-            "Read-only rendered preview",
-            "Obsidian-style live preview with block-level editing"
-          ],
-          "description": "Default mode when opening a markdown file"
-        },
-        "markdownLivePreview.codeBlockTheme": {
-          "type": "string",
-          "default": "auto",
-          "enum": [
-            "auto",
-            "github",
-            "monokai"
-          ],
-          "description": "Syntax highlighting theme for code blocks"
-        },
-        "markdownLivePreview.mermaid.enabled": {
+        "markdownLivePreview.scrollSync": {
           "type": "boolean",
           "default": true,
-          "description": "Render mermaid diagrams in preview and read modes"
+          "description": "Keep the preview scrolled to the editor's top visible line."
+        },
+        "markdownLivePreview.breaks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Render a single newline inside a paragraph as a line break."
+        },
+        "markdownLivePreview.linkify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically turn bare URLs into clickable links."
         },
         "markdownLivePreview.math.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Render LaTeX math expressions ($inline$ and $$display$$) via KaTeX"
+          "description": "Render LaTeX math expressions ($inline$ and $$display$$) via KaTeX."
+        },
+        "markdownLivePreview.mermaid.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render ```mermaid fenced code blocks as diagrams."
         },
         "markdownLivePreview.frontmatter.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Render YAML frontmatter as a styled metadata card"
+          "description": "Render leading YAML frontmatter as a styled metadata card."
         }
       }
     }
@@ -124,11 +115,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@codemirror/lang-markdown": "^6.0.0",
-    "@codemirror/state": "^6.0.0",
-    "@codemirror/theme-one-dark": "^6.0.0",
-    "@codemirror/view": "^6.0.0",
-    "codemirror": "^6.0.0",
+    "highlight.js": "^11.9.0",
     "js-yaml": "^4.1.0",
     "katex": "^0.16.0",
     "markdown-it": "^14.0.0",

@@ -1,0 +1,96 @@
+/*
+ * highlight.js token theme, keyed off VSCode's body theme classes so code
+ * blocks follow the editor's light/dark mode. Colors approximate the GitHub
+ * light/dark syntax themes. `.hljs` itself inherits the code-block background
+ * from preview.css; only token foregrounds are set here.
+ */
+
+.markdown-preview .hljs { color: var(--vscode-editor-foreground); }
+
+/* ── Dark (default) ────────────────────────────────────────────────── */
+.hljs-comment,
+.hljs-quote { color: #8b949e; font-style: italic; }
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag,
+.hljs-section,
+.hljs-name { color: #ff7b72; }
+
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string,
+.hljs-addition { color: #a5d6ff; }
+
+.hljs-number,
+.hljs-literal,
+.hljs-boolean { color: #79c0ff; }
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-title.class_,
+.hljs-built_in,
+.hljs-type { color: #d2a8ff; }
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id { color: #79c0ff; }
+
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link { color: #ffa657; }
+
+.hljs-tag,
+.hljs-meta,
+.hljs-params { color: #7ee787; }
+
+.hljs-deletion { color: #ffa198; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+
+/* ── Light overrides ───────────────────────────────────────────────── */
+.vscode-light .hljs-comment,
+.vscode-light .hljs-quote { color: #6e7781; }
+
+.vscode-light .hljs-keyword,
+.vscode-light .hljs-selector-tag,
+.vscode-light .hljs-doctag,
+.vscode-light .hljs-section,
+.vscode-light .hljs-name { color: #cf222e; }
+
+.vscode-light .hljs-string,
+.vscode-light .hljs-regexp,
+.vscode-light .hljs-meta .hljs-string,
+.vscode-light .hljs-addition { color: #0a3069; }
+
+.vscode-light .hljs-number,
+.vscode-light .hljs-literal,
+.vscode-light .hljs-boolean { color: #0550ae; }
+
+.vscode-light .hljs-title,
+.vscode-light .hljs-title.function_,
+.vscode-light .hljs-title.class_,
+.vscode-light .hljs-built_in,
+.vscode-light .hljs-type { color: #8250df; }
+
+.vscode-light .hljs-attr,
+.vscode-light .hljs-attribute,
+.vscode-light .hljs-variable,
+.vscode-light .hljs-template-variable,
+.vscode-light .hljs-selector-attr,
+.vscode-light .hljs-selector-class,
+.vscode-light .hljs-selector-id { color: #0550ae; }
+
+.vscode-light .hljs-symbol,
+.vscode-light .hljs-bullet,
+.vscode-light .hljs-link { color: #953800; }
+
+.vscode-light .hljs-tag,
+.vscode-light .hljs-meta,
+.vscode-light .hljs-params { color: #116329; }
+
+.vscode-light .hljs-deletion { color: #82071e; }

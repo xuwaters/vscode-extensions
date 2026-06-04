@@ -1,24 +1,24 @@
-/**
- * Simple syntax highlighting for code blocks using CSS classes.
- * A lightweight approach that works without heavy dependencies.
- * Can be replaced with Shiki or highlight.js in Phase 3.
- */
+// Syntax highlighting for fenced code blocks. We use highlight.js's "common"
+// bundle (≈40 popular languages) to keep the webview bundle reasonable while
+// still covering the languages most markdown authors reach for.
+import hljs from 'highlight.js/lib/common';
 
-/** Apply basic keyword highlighting to a code block. Returns escaped HTML with span tags. */
-export function highlightCode(code: string, lang: string): string {
-  // For now, return escaped HTML with a language class.
-  // Phase 3 will integrate a proper highlighter (Shiki/highlight.js).
-  return `<pre class="code-block"><code class="language-${escapeAttr(lang)}">${escapeHtml(code)}</code></pre>`;
+/** Highlight `code` for `lang`, returning HTML. Falls back to escaped text. */
+export function highlightToHtml(code: string, lang: string): string {
+  const language = lang.toLowerCase();
+  if (language && hljs.getLanguage(language)) {
+    try {
+      return hljs.highlight(code, { language, ignoreIllegals: true }).value;
+    } catch {
+      // Unsupported syntax for the grammar — fall through to plain escaping.
+    }
+  }
+  return escapeHtml(code);
 }
 
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function escapeAttr(text: string): string {
-  return text.replace(/[^a-zA-Z0-9_-]/g, '');
+    .replace(/>/g, '&gt;');
 }

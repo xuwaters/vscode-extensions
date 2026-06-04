@@ -1,130 +1,123 @@
-import { ModeController } from './modeController';
-import type {
-  HostToWebviewMessage,
-  DocInitMessage,
-  DocUpdateMessage,
-  ModeSetMessage,
-} from '../src/messages';
-import type { EditorMode } from './renderers/types';
-
-// Import styles
 import './styles/preview.css';
-import './styles/editor.css';
 import './styles/frontmatter.css';
+import './styles/highlight.css';
 import './styles/math.css';
 import './styles/mermaid.css';
+import 'katex/dist/katex.min.css';
 
-// Acquire the VSCode API
+import { MarkdownRenderer } from './markdown';
+import { renderMermaid } from './mermaid';
+import type {
+  HostToWebview,
+  UpdateMessage,
+  WebviewToHost,
+} from '../src/messages';
+
+declare function acquireVsCodeApi(): {
+  postMessage(message: WebviewToHost): void;
+  getState(): unknown;
+  setState(state: unknown): void;
+};
+
 const vscode = acquireVsCodeApi();
+const content = document.getElementById('content') as HTMLElement;
+const renderer = new MarkdownRenderer();
 
-// Root container
-const root = document.getElementById('root')!;
-root.className = 'live-preview-container';
-
-// Detect theme from body class
-function getTheme(): 'light' | 'dark' {
-  return document.body.classList.contains('vscode-light') ? 'light' : 'dark';
+function currentTheme(): 'light' | 'dark' {
+  const cls = document.body.classList;
+  return cls.contains('vscode-light') || cls.contains('vscode-high-contrast-light')
+    ? 'light'
+    : 'dark';
 }
 
-let controller: ModeController | null = null;
-let documentUri = '';
-let documentVersion = 0;
-
-// Edit debounce
-let editTimeout: ReturnType<typeof setTimeout> | null = null;
-let pendingEdit: { startLine: number; endLine: number; newText: string } | null = null;
-
-function sendEdit(startLine: number, endLine: number, newText: string): void {
-  // Debounce edits to avoid flooding the host
-  pendingEdit = { startLine, endLine, newText };
-  if (editTimeout) clearTimeout(editTimeout);
-  editTimeout = setTimeout(() => {
-    if (pendingEdit) {
-      vscode.postMessage({
-        type: 'edit:apply',
-        startLine: pendingEdit.startLine,
-        endLine: pendingEdit.endLine,
-        newText: pendingEdit.newText,
-        version: documentVersion,
-      });
-      pendingEdit = null;
-    }
-  }, 50);
-}
-
-function sendCursorChanged(line: number): void {
-  vscode.postMessage({ type: 'cursor:changed', line });
-}
-
-// Handle messages from the extension host
 window.addEventListener('message', (event) => {
-  const msg = event.data as HostToWebviewMessage & { type: string };
-
+  const msg = event.data as HostToWebview;
   switch (msg.type) {
-    case 'doc:init':
-      handleDocInit(msg as DocInitMessage);
+    case 'update':
+      handleUpdate(msg);
       break;
-
-    case 'doc:update':
-      handleDocUpdate(msg as DocUpdateMessage);
-      break;
-
-    case 'edit:ack':
-      documentVersion = (msg as { version: number }).version;
-      break;
-
-    case 'mode:set':
-      handleModeSet(msg as ModeSetMessage);
-      break;
-
-    case 'mode:cycle':
-      handleModeCycle();
-      break;
-
-    case 'config:update':
-      // Could re-create controller with new theme, but for now just note it
+    case 'scroll':
+      scrollToLine(msg.line);
       break;
   }
 });
 
-function handleDocInit(msg: DocInitMessage): void {
-  documentUri = msg.uri;
-  documentVersion = 0;
+function handleUpdate(msg: UpdateMessage): void {
+  // Keep the reader's place while editing: remember the top source line,
+  // re-render, then restore to the same line after layout settles.
+  const topLine = currentTopLine();
+  content.innerHTML = renderer.render(msg.markdown, msg.baseHref, msg.settings);
 
-  controller = new ModeController(
-    root,
-    sendEdit,
-    sendCursorChanged,
-    getTheme(),
-  );
+  if (msg.settings.mermaid) {
+    void renderMermaid(content, currentTheme());
+  }
 
-  controller.init(msg.content, msg.uri, msg.mode as EditorMode);
+  requestAnimationFrame(() => scrollToLine(topLine));
 }
 
-function handleDocUpdate(msg: DocUpdateMessage): void {
-  if (!controller) return;
-  documentVersion = msg.version;
-  controller.applyDocumentChanges(msg.changes);
+// ── Scroll sync ──────────────────────────────────────────────────────
+
+/** Absolute document offset of an element's top edge. */
+function absoluteTop(el: HTMLElement): number {
+  return el.getBoundingClientRect().top + window.scrollY;
 }
 
-function handleModeSet(msg: ModeSetMessage): void {
-  if (!controller) return;
-  controller.setMode(msg.mode as EditorMode);
-  vscode.postMessage({ type: 'mode:changed', mode: msg.mode });
+/** The source line of the block currently at the top of the viewport. */
+function currentTopLine(): number {
+  const els = content.querySelectorAll<HTMLElement>('[data-line]');
+  for (const el of els) {
+    const rect = el.getBoundingClientRect();
+    if (rect.bottom >= 0) return Number(el.getAttribute('data-line'));
+  }
+  return 0;
 }
 
-function handleModeCycle(): void {
-  if (!controller) return;
-  const newMode = controller.cycleMode();
-  vscode.postMessage({ type: 'mode:changed', mode: newMode });
+/** Scroll the preview so that source `line` sits near the top of the view. */
+function scrollToLine(line: number): void {
+  const els = Array.from(content.querySelectorAll<HTMLElement>('[data-line]'));
+  if (els.length === 0) return;
+
+  let before = els[0];
+  let after: HTMLElement | null = null;
+  for (const el of els) {
+    const l = Number(el.getAttribute('data-line'));
+    if (l <= line) {
+      before = el;
+    } else {
+      after = el;
+      break;
+    }
+  }
+
+  const beforeLine = Number(before.getAttribute('data-line'));
+  let top = absoluteTop(before);
+  if (after) {
+    const afterLine = Number(after.getAttribute('data-line'));
+    if (afterLine > beforeLine) {
+      const progress = (line - beforeLine) / (afterLine - beforeLine);
+      top += progress * (absoluteTop(after) - top);
+    }
+  }
+
+  window.scrollTo({ top: Math.max(0, top - 8), behavior: 'auto' });
 }
 
-// Signal to the host that the webview is ready
-vscode.postMessage({ type: 'webview:ready' });
+// ── Link handling ────────────────────────────────────────────────────
 
-// Declare the acquireVsCodeApi function type
-declare function acquireVsCodeApi(): {
-  postMessage(msg: unknown): void;
-  getState(): unknown;
-  setState(state: unknown): void;
-};
+content.addEventListener('click', (event) => {
+  const anchor = (event.target as HTMLElement).closest('a');
+  if (!anchor) return;
+  const href = anchor.getAttribute('href');
+  if (!href) return;
+
+  event.preventDefault();
+  if (href.startsWith('#')) {
+    const target = document.getElementById(href.slice(1));
+    target?.scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
+  vscode.postMessage({ type: 'openLink', href });
+});
+
+// Signal readiness; the host replies with the first `update`.
+vscode.postMessage({ type: 'ready' });
