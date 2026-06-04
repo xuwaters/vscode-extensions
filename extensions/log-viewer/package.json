@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-log-viewer",
-  "displayName": "Log Viewer",
+  "displayName": "Log Viewer Ultra",
   "description": "Pretty viewer for .log files with ANSI escape sequence rendering",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -17,7 +17,7 @@
     "customEditors": [
       {
         "viewType": "logViewer.editor",
-        "displayName": "Log Viewer",
+        "displayName": "Log Viewer Ultra",
         "selector": [
           {
             "filenamePattern": "*.log"
@@ -32,63 +32,63 @@
     "commands": [
       {
         "command": "logViewer.openInLogViewer",
-        "title": "Open in Log Viewer",
-        "category": "Log Viewer"
+        "title": "Open in Log Viewer Ultra",
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.openInTextEditor",
         "title": "Open in Text Editor",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.toggleAnsi",
         "title": "Toggle ANSI Color Rendering",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.toggleWrap",
         "title": "Toggle Word Wrap",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.toggleLineNumbers",
         "title": "Toggle Line Numbers",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.focusSearch",
         "title": "Focus Search Box",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.toggleFilterMode",
         "title": "Toggle Filter Mode (Highlight / Only Matching)",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.fontSizeIncrease",
         "title": "Increase Font Size",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.fontSizeDecrease",
         "title": "Decrease Font Size",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.fontSizeReset",
         "title": "Reset Font Size",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.editFilterSets",
         "title": "Edit Filter Sets",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       },
       {
         "command": "logViewer.clearIndexCache",
         "title": "Clear Index Cache",
-        "category": "Log Viewer"
+        "category": "Log Viewer Ultra"
       }
     ],
     "keybindings": [
@@ -127,7 +127,7 @@
       ]
     },
     "configuration": {
-      "title": "Log Viewer",
+      "title": "Log Viewer Ultra",
       "properties": {
         "logViewer.renderAnsi": {
           "type": "boolean",
