@@ -54,6 +54,12 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('logViewer.toggleLineNumbers', () => {
+      provider.sendToActive({ type: 'commandToggle', key: 'lineNumbers' });
+    }),
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('logViewer.toggleFilterMode', () => {
       provider.sendToActive({ type: 'commandToggle', key: 'filterMode' });
     }),

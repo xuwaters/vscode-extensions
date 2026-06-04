@@ -44,6 +44,7 @@ const setsMenu = byId<HTMLDivElement>('sets-menu');
 const filterEditor = byId<HTMLDivElement>('filter-editor');
 const btnAnsi = byId<HTMLButtonElement>('btn-ansi');
 const btnWrap = byId<HTMLButtonElement>('btn-wrap');
+const btnLineNum = byId<HTMLButtonElement>('btn-linenum');
 const btnMode = byId<HTMLButtonElement>('btn-mode');
 const btnRegex = byId<HTMLButtonElement>('btn-regex');
 const btnCase = byId<HTMLButtonElement>('btn-case');
@@ -73,6 +74,7 @@ let palette: string[] = [];
 let view: ViewState = {
   renderAnsi: true,
   wordWrap: false,
+  lineNumbers: false,
   fontSize: 0,
   filterMode: 'highlight',
 };
@@ -281,6 +283,7 @@ function applyLineContent(div: HTMLDivElement, idx: number): void {
     div.style.backgroundColor = '';
     div.style.borderLeftColor = 'transparent';
     div.dataset['i'] = String(idx);
+    div.dataset['ln'] = String(idx + 1);
     requestWindowForLine(idx);
     return;
   }
@@ -296,6 +299,7 @@ function applyLineContent(div: HTMLDivElement, idx: number): void {
   div.style.backgroundColor = bg ?? '';
   div.style.borderLeftColor = bg ?? 'transparent';
   div.dataset['i'] = String(idx);
+  div.dataset['ln'] = String(idx + 1);
 }
 
 /**
@@ -598,12 +602,17 @@ function applyFontSize(): void {
 function applyToolbarState(): void {
   btnAnsi.classList.toggle('active', view.renderAnsi);
   btnWrap.classList.toggle('active', view.wordWrap);
+  btnLineNum.classList.toggle('active', view.lineNumbers);
   btnRegex.classList.toggle('active', searchRegex);
   btnCase.classList.toggle('active', searchCase);
   btnMode.textContent =
     view.filterMode === 'highlight' ? 'Highlight' : 'Only matching';
   btnMode.classList.toggle('active', view.filterMode === 'only-matching');
   document.body.classList.toggle('wrap', view.wordWrap);
+  document.body.classList.toggle('show-line-numbers', view.lineNumbers);
+  // Size the gutter to the widest line number so digits stay right-aligned.
+  const digits = Math.max(2, String(Math.max(1, totalLineCount())).length);
+  document.body.style.setProperty('--ln-gutter-width', `${digits}ch`);
   applyFontSize();
 }
 
@@ -848,6 +857,11 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
           type: 'setState',
           state: { wordWrap: !view.wordWrap },
         });
+      } else if (msg.key === 'lineNumbers') {
+        vscode.postMessage({
+          type: 'setState',
+          state: { lineNumbers: !view.lineNumbers },
+        });
       } else if (msg.key === 'filterMode') {
         vscode.postMessage({
           type: 'setState',
@@ -882,6 +896,12 @@ btnAnsi.addEventListener('click', () =>
 );
 btnWrap.addEventListener('click', () =>
   vscode.postMessage({ type: 'setState', state: { wordWrap: !view.wordWrap } }),
+);
+btnLineNum.addEventListener('click', () =>
+  vscode.postMessage({
+    type: 'setState',
+    state: { lineNumbers: !view.lineNumbers },
+  }),
 );
 btnMode.addEventListener('click', () =>
   vscode.postMessage({

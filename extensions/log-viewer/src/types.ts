@@ -32,6 +32,8 @@ export type FilterMode = 'highlight' | 'only-matching';
 export interface ViewState {
   renderAnsi: boolean;
   wordWrap: boolean;
+  /** Show the original file line number in a left gutter. */
+  lineNumbers: boolean;
   /** 0 = inherit editor default. */
   fontSize: number;
   filterMode: FilterMode;
@@ -79,7 +81,7 @@ export interface FocusSearchMessage {
 export interface CommandToggleMessage {
   type: 'commandToggle';
   /** Names map to webview-side handlers; see webview script. */
-  key: 'renderAnsi' | 'wordWrap' | 'filterMode';
+  key: 'renderAnsi' | 'wordWrap' | 'lineNumbers' | 'filterMode';
 }
 
 export interface FontSizeCommandMessage {

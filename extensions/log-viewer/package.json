@@ -2,7 +2,7 @@
   "name": "wx-vsce-log-viewer",
   "displayName": "Log Viewer",
   "description": "Pretty viewer for .log files with ANSI escape sequence rendering",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -48,6 +48,11 @@
       {
         "command": "logViewer.toggleWrap",
         "title": "Toggle Word Wrap",
+        "category": "Log Viewer"
+      },
+      {
+        "command": "logViewer.toggleLineNumbers",
+        "title": "Toggle Line Numbers",
         "category": "Log Viewer"
       },
       {
@@ -133,6 +138,11 @@
           "type": "boolean",
           "default": false,
           "description": "Wrap long lines in the log viewer."
+        },
+        "logViewer.lineNumbers": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the original file line number in a left gutter. Can be toggled at runtime from the toolbar."
         },
         "logViewer.maxFileSizeBytes": {
           "type": "number",

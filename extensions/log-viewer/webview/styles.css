@@ -108,6 +108,20 @@ body {
   border-left: 3px solid transparent;
 }
 body.wrap .ln { white-space: pre-wrap; word-break: break-word; }
+/* Line-number gutter. Rendered as a ::before pseudo-element so the digits are
+   never part of text selection/copy and don't disturb the search-highlight
+   HTML walker, which operates on the line's innerHTML. */
+body.show-line-numbers .ln::before {
+  content: attr(data-ln);
+  display: inline-block;
+  width: var(--ln-gutter-width, 4ch);
+  margin-right: 12px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--vscode-editorLineNumber-foreground, rgba(150,150,150,0.7));
+  border-right: 1px solid var(--vscode-editorWidget-border, rgba(128,128,128,0.25));
+  user-select: none;
+}
 mark.search-hit {
   background: var(--vscode-editor-findMatchHighlightBackground, rgba(255,213,0,0.5));
   color: inherit;
