@@ -2,7 +2,7 @@
   "name": "wx-vsce-log-viewer",
   "displayName": "Log Viewer",
   "description": "Pretty viewer for .log files with ANSI escape sequence rendering",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -268,12 +268,13 @@
         "logViewer.indexLocation": {
           "type": "string",
           "enum": [
+            "memory",
             "globalStorage",
             "adjacent",
             "directory"
           ],
-          "default": "globalStorage",
-          "markdownDescription": "Where to persist the line index for large logs.\n- `globalStorage` (default): under the extension's global storage — safe, hidden, never fails on read-only paths.\n- `adjacent`: writes `.<name>.idx` next to the log itself. Falls back to globalStorage if the directory isn't writable.\n- `directory`: a user-configured path; see `logViewer.indexDirectory`."
+          "default": "memory",
+          "markdownDescription": "Where to persist the line index for large logs.\n- `memory` (default): kept in memory only — never written to disk, discarded when the editor closes, and rebuilt on the next open. The index is tiny (~8 bytes per 1024 lines), so rebuilds are fast even for multi-GB logs.\n- `globalStorage`: under the extension's global storage — safe, hidden, never fails on read-only paths, and reused across sessions.\n- `adjacent`: writes `<name>.bin` next to the log itself. Falls back to globalStorage if the directory isn't writable.\n- `directory`: a user-configured path; see `logViewer.indexDirectory`."
         },
         "logViewer.indexDirectory": {
           "type": "string",

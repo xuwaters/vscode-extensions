@@ -139,6 +139,38 @@ describe.skipIf(!wasm || !haveWorker)('StreamingSession', () => {
     }
   });
 
+  it('memory mode renders windows but writes nothing to disk', async () => {
+    const session = await new Promise<StreamingSession>((resolve, reject) => {
+      const s = new StreamingSession({
+        fsPath: logPath,
+        wasm: wasm!,
+        cache: {
+          globalStorageDir: cacheDir,
+          mode: 'memory',
+          budgetBytes: 100 * 1024 * 1024,
+        },
+        stride: 32,
+        chunkSize: 8 * 1024,
+        batchAnchors: 16,
+        workerScript,
+        onIndexProgress: (e) => {
+          if (e.complete) resolve(s);
+        },
+        onError: (e) => reject(e),
+      });
+      s.start().catch(reject);
+    });
+    try {
+      // The in-memory index serves windows just like the persisted modes.
+      const win = session.requestWindow(100, 105);
+      expect(win.lines[0].text).toBe('line 0100');
+      // No index directory should have been created under globalStorage.
+      expect(fs.existsSync(path.join(cacheDir, 'index'))).toBe(false);
+    } finally {
+      await session.dispose();
+    }
+  });
+
   it('reuses the persistent cache on a second open', async () => {
     const first = await makeSession();
     await first.dispose();

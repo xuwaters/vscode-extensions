@@ -98,6 +98,14 @@ describe('cache', () => {
     expect(dirP.startsWith('/custom/')).toBe(true);
   });
 
+  it('resolveCachePath rejects memory mode (no on-disk path)', () => {
+    expect(() =>
+      resolveCachePath('memory', '/var/log/x.log', 1, 2, {
+        globalStorageDir: '/storage/index',
+      }),
+    ).toThrowError(/not persisted to disk/);
+  });
+
   it('writes and reads back via tryReadIndexFile', () => {
     const filePath = path.join(dir, 'sub', 'idx.bin');
     const anchors = new BigUint64Array([0n, 100n, 200n]);

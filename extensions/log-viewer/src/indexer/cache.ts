@@ -41,7 +41,11 @@ export interface IndexFile {
   anchors: BigUint64Array;
 }
 
-export type IndexLocationMode = 'globalStorage' | 'adjacent' | 'directory';
+export type IndexLocationMode =
+  | 'memory'
+  | 'globalStorage'
+  | 'adjacent'
+  | 'directory';
 
 export interface CachePaths {
   /**
@@ -77,6 +81,10 @@ export function resolveCachePath(
   paths: CachePaths,
 ): string {
   switch (mode) {
+    case 'memory':
+      // The index lives only in the session's in-memory anchor array; there
+      // is no on-disk path. Callers must short-circuit before reaching here.
+      throw new Error('indexLocation=memory is not persisted to disk');
     case 'adjacent': {
       const dir = path.dirname(logPath);
       const base = path.basename(logPath);

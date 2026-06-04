@@ -297,6 +297,8 @@ export class StreamingSession {
   }
 
   private tryLoadCache() {
+    // Memory mode keeps the index in `this.anchors` only — nothing on disk.
+    if (this.opts.cache.mode === 'memory') return null;
     try {
       const cachePath = resolveCachePath(
         this.opts.cache.mode,
@@ -319,6 +321,8 @@ export class StreamingSession {
   }
 
   private persistCache(): void {
+    // Memory mode never touches disk: skip the write and the eviction sweep.
+    if (this.opts.cache.mode === 'memory') return;
     const fileSize = this.fileSize;
     const anchorsArr = new BigUint64Array(this.anchors.length);
     for (let i = 0; i < this.anchors.length; i++) anchorsArr[i] = this.anchors[i];
