@@ -2,7 +2,7 @@
   "name": "wx-vsce-askama-templates",
   "displayName": "Askama Templates",
   "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -92,6 +92,48 @@
           ".ts.jinja2"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-toml",
+        "aliases": [
+          "Askama TOML",
+          "askama-toml"
+        ],
+        "extensions": [
+          ".toml.askama",
+          ".toml.j2",
+          ".toml.jinja",
+          ".toml.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-css",
+        "aliases": [
+          "Askama CSS",
+          "askama-css"
+        ],
+        "extensions": [
+          ".css.askama",
+          ".css.j2",
+          ".css.jinja",
+          ".css.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-json",
+        "aliases": [
+          "Askama JSON",
+          "askama-json"
+        ],
+        "extensions": [
+          ".json.askama",
+          ".json.j2",
+          ".json.jinja",
+          ".json.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -125,13 +167,31 @@
         "path": "./syntaxes/askama-ts.tmLanguage.json"
       },
       {
+        "language": "askama-toml",
+        "scopeName": "source.toml.askama",
+        "path": "./syntaxes/askama-toml.tmLanguage.json"
+      },
+      {
+        "language": "askama-css",
+        "scopeName": "source.css.askama",
+        "path": "./syntaxes/askama-css.tmLanguage.json"
+      },
+      {
+        "language": "askama-json",
+        "scopeName": "source.json.askama",
+        "path": "./syntaxes/askama-json.tmLanguage.json"
+      },
+      {
         "scopeName": "askama.injection",
         "path": "./syntaxes/askama-injection.tmLanguage.json",
         "injectTo": [
           "text.html.askama",
           "source.rust.askama",
           "source.js.askama",
-          "source.ts.askama"
+          "source.ts.askama",
+          "source.toml.askama",
+          "source.css.askama",
+          "source.json.askama"
         ]
       }
     ],
@@ -154,6 +214,18 @@
       },
       {
         "language": "askama-ts",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-toml",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-css",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-json",
         "path": "./snippets/askama.json"
       }
     ],

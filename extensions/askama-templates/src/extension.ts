@@ -6,6 +6,9 @@ const ASKAMA_LANGUAGES = new Set([
   'askama-rust',
   'askama-js',
   'askama-ts',
+  'askama-toml',
+  'askama-css',
+  'askama-json',
 ]);
 
 const KEYWORD_RE = /\b(if|else|elif|endif|for|endfor|in|match|when|endwhen|endmatch|block|endblock|extends|include|import|macro|endmacro|call|endcall|filter|endfilter|let|set|mut|decl|declare|endlet|continue|break|raw|endraw)\b/g;
