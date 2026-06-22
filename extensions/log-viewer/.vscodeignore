@@ -8,3 +8,4 @@ tsdown.config.mts
 **/*.js.map
 **/*.ts.map
 wasm/.gitignore
+temp
