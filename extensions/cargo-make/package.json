@@ -1,0 +1,79 @@
+{
+  "name": "wx-vsce-cargo-make",
+  "displayName": "cargo-make (Makefile.toml)",
+  "description": "cargo-make Makefile.toml editing — syntax highlighting (with embedded script highlighting), outline, completion, hover, and diagnostics powered by a Rust analyzer compiled to WebAssembly.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:cargo-make"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "cargo-make",
+        "aliases": [
+          "cargo-make",
+          "Makefile.toml"
+        ],
+        "filenames": [
+          "Makefile.toml"
+        ],
+        "filenamePatterns": [
+          "**/*.makefile.toml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cargo-make",
+        "scopeName": "source.cargo-make",
+        "path": "./syntaxes/cargo-make.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.shellscript": "shellscript"
+        }
+      }
+    ],
+    "configuration": {
+      "title": "cargo-make",
+      "properties": {
+        "cargoMake.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Emit diagnostics for TOML parse errors, unknown task/config keys, conflicting task actions, and self-dependencies."
+        },
+        "cargoMake.diagnostics.onType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Recompute diagnostics as you type (debounced). Turn off to only recompute on save."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:wasm": "cd ../../crates/cargo-make-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/cargo-make/wasm --out-name cargo_make_analyzer",
+    "build": "tsdown",
+    "clean": "rm -rf dist wasm",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build"
+  }
+}

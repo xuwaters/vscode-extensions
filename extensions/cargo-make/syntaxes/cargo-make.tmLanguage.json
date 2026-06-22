@@ -1,0 +1,241 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "cargo-make",
+  "scopeName": "source.cargo-make",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#script-embeds" },
+    { "include": "#table" },
+    { "include": "#key-value" },
+    { "include": "#value" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "(#).*$",
+      "name": "comment.line.number-sign.cargo-make",
+      "captures": {
+        "1": { "name": "punctuation.definition.comment.cargo-make" }
+      }
+    },
+
+    "table": {
+      "patterns": [
+        {
+          "match": "^\\s*(\\[\\[)([^\\]]*)(\\]\\])",
+          "name": "meta.table-array.cargo-make",
+          "captures": {
+            "1": { "name": "punctuation.definition.table-array.begin.cargo-make" },
+            "2": {
+              "name": "entity.name.section.table-array.cargo-make",
+              "patterns": [{ "include": "#table-path" }]
+            },
+            "3": { "name": "punctuation.definition.table-array.end.cargo-make" }
+          }
+        },
+        {
+          "match": "^\\s*(\\[)([^\\]]*)(\\])",
+          "name": "meta.table.cargo-make",
+          "captures": {
+            "1": { "name": "punctuation.definition.table.begin.cargo-make" },
+            "2": {
+              "name": "entity.name.section.table.cargo-make",
+              "patterns": [{ "include": "#table-path" }]
+            },
+            "3": { "name": "punctuation.definition.table.end.cargo-make" }
+          }
+        }
+      ]
+    },
+
+    "table-path": {
+      "patterns": [
+        { "match": "\\.", "name": "punctuation.separator.dot.cargo-make" },
+        { "match": "\"[^\"]*\"|'[^']*'", "name": "string.quoted.table.cargo-make" },
+        { "match": "[A-Za-z0-9_\\-]+", "name": "entity.name.section.cargo-make" }
+      ]
+    },
+
+    "script-embeds": {
+      "patterns": [
+        {
+          "comment": "Multi-line basic string script — highlighted as shell.",
+          "begin": "^\\s*(script|install_script|condition_script|load_script|linux_load_script|windows_load_script|mac_load_script|pre|main|post)(?:\\.[A-Za-z_]+)?\\s*(=)\\s*(\"\"\")",
+          "end": "(\"\"\")",
+          "beginCaptures": {
+            "1": { "name": "support.type.property-name.cargo-make" },
+            "2": { "name": "punctuation.separator.key-value.cargo-make" },
+            "3": { "name": "punctuation.definition.string.begin.cargo-make" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.string.end.cargo-make" }
+          },
+          "contentName": "meta.embedded.block.shellscript",
+          "patterns": [{ "include": "source.shell" }]
+        },
+        {
+          "comment": "Multi-line literal string script — highlighted as shell.",
+          "begin": "^\\s*(script|install_script|condition_script|load_script|linux_load_script|windows_load_script|mac_load_script|pre|main|post)(?:\\.[A-Za-z_]+)?\\s*(=)\\s*(''')",
+          "end": "(''')",
+          "beginCaptures": {
+            "1": { "name": "support.type.property-name.cargo-make" },
+            "2": { "name": "punctuation.separator.key-value.cargo-make" },
+            "3": { "name": "punctuation.definition.string.begin.cargo-make" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.string.end.cargo-make" }
+          },
+          "contentName": "meta.embedded.block.shellscript",
+          "patterns": [{ "include": "source.shell" }]
+        },
+        {
+          "comment": "Single-line basic string script — highlighted as shell.",
+          "begin": "^\\s*(script|install_script|condition_script|load_script|linux_load_script|windows_load_script|mac_load_script|pre|main|post)(?:\\.[A-Za-z_]+)?\\s*(=)\\s*(\")(?!\"\")",
+          "end": "(\")",
+          "beginCaptures": {
+            "1": { "name": "support.type.property-name.cargo-make" },
+            "2": { "name": "punctuation.separator.key-value.cargo-make" },
+            "3": { "name": "punctuation.definition.string.begin.cargo-make" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.string.end.cargo-make" }
+          },
+          "contentName": "meta.embedded.line.shellscript",
+          "patterns": [{ "include": "source.shell" }]
+        },
+        {
+          "comment": "Single-line literal string script — highlighted as shell.",
+          "begin": "^\\s*(script|install_script|condition_script|load_script|linux_load_script|windows_load_script|mac_load_script|pre|main|post)(?:\\.[A-Za-z_]+)?\\s*(=)\\s*(')(?!'')",
+          "end": "(')",
+          "beginCaptures": {
+            "1": { "name": "support.type.property-name.cargo-make" },
+            "2": { "name": "punctuation.separator.key-value.cargo-make" },
+            "3": { "name": "punctuation.definition.string.begin.cargo-make" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.string.end.cargo-make" }
+          },
+          "contentName": "meta.embedded.line.shellscript",
+          "patterns": [{ "include": "source.shell" }]
+        }
+      ]
+    },
+
+    "key-value": {
+      "comment": "A bare or quoted key followed by `=`.",
+      "match": "(?:^|\\{|,)\\s*(?:([A-Za-z0-9_\\-]+)|(\"[^\"]*\")|('[^']*'))\\s*(=)",
+      "captures": {
+        "1": { "name": "support.type.property-name.cargo-make" },
+        "2": { "name": "support.type.property-name.quoted.cargo-make" },
+        "3": { "name": "support.type.property-name.quoted.cargo-make" },
+        "4": { "name": "punctuation.separator.key-value.cargo-make" }
+      }
+    },
+
+    "value": {
+      "patterns": [
+        { "include": "#string" },
+        { "include": "#boolean" },
+        { "include": "#datetime" },
+        { "include": "#number" },
+        { "include": "#array" },
+        { "include": "#inline-table" }
+      ]
+    },
+
+    "string": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.basic.cargo-make",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [
+            { "match": "\\\\.", "name": "constant.character.escape.cargo-make" },
+            { "include": "#var-interpolation" }
+          ]
+        },
+        {
+          "name": "string.quoted.triple.literal.cargo-make",
+          "begin": "'''",
+          "end": "'''"
+        },
+        {
+          "name": "string.quoted.double.cargo-make",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            { "match": "\\\\.", "name": "constant.character.escape.cargo-make" },
+            { "include": "#var-interpolation" }
+          ]
+        },
+        {
+          "name": "string.quoted.single.cargo-make",
+          "begin": "'",
+          "end": "'"
+        }
+      ]
+    },
+
+    "var-interpolation": {
+      "comment": "cargo-make environment substitution inside strings: ${VAR}.",
+      "match": "(\\$\\{)([^}]*)(\\})",
+      "name": "meta.template.expression.cargo-make",
+      "captures": {
+        "1": { "name": "punctuation.definition.template-expression.begin.cargo-make" },
+        "2": { "name": "variable.other.cargo-make" },
+        "3": { "name": "punctuation.definition.template-expression.end.cargo-make" }
+      }
+    },
+
+    "boolean": {
+      "match": "\\b(true|false)\\b",
+      "name": "constant.language.boolean.cargo-make"
+    },
+
+    "datetime": {
+      "match": "\\b\\d{4}-\\d{2}-\\d{2}([Tt ]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]\\d{2}:\\d{2})?)?\\b",
+      "name": "constant.other.datetime.cargo-make"
+    },
+
+    "number": {
+      "patterns": [
+        {
+          "match": "(?<![\\w.])[+-]?(0x[0-9A-Fa-f_]+|0o[0-7_]+|0b[01_]+)\\b",
+          "name": "constant.numeric.integer.cargo-make"
+        },
+        {
+          "match": "(?<![\\w.])[+-]?\\d[\\d_]*(\\.[\\d_]+)?([eE][+-]?\\d[\\d_]*)?\\b",
+          "name": "constant.numeric.cargo-make"
+        },
+        {
+          "match": "[+-]?(inf|nan)\\b",
+          "name": "constant.numeric.cargo-make"
+        }
+      ]
+    },
+
+    "array": {
+      "begin": "\\[",
+      "end": "\\]",
+      "beginCaptures": { "0": { "name": "punctuation.definition.array.begin.cargo-make" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.array.end.cargo-make" } },
+      "patterns": [
+        { "include": "#comment" },
+        { "match": ",", "name": "punctuation.separator.array.cargo-make" },
+        { "include": "#value" }
+      ]
+    },
+
+    "inline-table": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": { "0": { "name": "punctuation.definition.inline-table.begin.cargo-make" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.inline-table.end.cargo-make" } },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#key-value" },
+        { "match": ",", "name": "punctuation.separator.inline-table.cargo-make" },
+        { "include": "#value" }
+      ]
+    }
+  }
+}
