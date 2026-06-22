@@ -2,7 +2,7 @@
   "name": "wx-vsce-cargo-make",
   "displayName": "cargo-make (Makefile.toml)",
   "description": "cargo-make Makefile.toml editing — syntax highlighting (with embedded script highlighting), outline, completion, hover, and diagnostics powered by a Rust analyzer compiled to WebAssembly.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -40,7 +40,12 @@
         "path": "./syntaxes/cargo-make.tmLanguage.json",
         "embeddedLanguages": {
           "meta.embedded.block.shellscript": "shellscript",
-          "meta.embedded.line.shellscript": "shellscript"
+          "meta.embedded.line.shellscript": "shellscript",
+          "meta.embedded.block.python": "python",
+          "meta.embedded.block.js": "javascript",
+          "meta.embedded.block.ruby": "ruby",
+          "meta.embedded.block.perl": "perl",
+          "meta.embedded.block.rust": "rust"
         }
       }
     ],

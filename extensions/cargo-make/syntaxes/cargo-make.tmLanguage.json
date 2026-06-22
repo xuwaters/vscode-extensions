@@ -88,7 +88,7 @@
             "1": { "name": "punctuation.definition.string.end.cargo-make" }
           },
           "contentName": "meta.embedded.block.shellscript",
-          "patterns": [{ "include": "source.shell" }]
+          "patterns": [{ "include": "#script-body" }]
         },
         {
           "comment": "Multi-line literal string script — highlighted as shell.",
@@ -103,7 +103,7 @@
             "1": { "name": "punctuation.definition.string.end.cargo-make" }
           },
           "contentName": "meta.embedded.block.shellscript",
-          "patterns": [{ "include": "source.shell" }]
+          "patterns": [{ "include": "#script-body" }]
         },
         {
           "comment": "Single-line basic string script — highlighted as shell.",
@@ -138,6 +138,43 @@
       ]
     },
 
+    "script-body": {
+      "comment": "Body of a multi-line script block. Defaults to shell, but if the first line is a shebang (`#!/usr/bin/env python`, `#!@rust`, …) the matching grammar is embedded from the shebang down to the closing delimiter. A sibling `script_runner` key cannot influence this — TextMate has no cross-key state — so a shebang is the way to get non-shell highlighting.",
+      "patterns": [
+        {
+          "begin": "^\\s*#!.*\\bpython[0-9.]*\\b.*$",
+          "end": "(?='''|\"\"\")",
+          "contentName": "meta.embedded.block.python",
+          "patterns": [{ "include": "source.python" }]
+        },
+        {
+          "begin": "^\\s*#!.*\\bnode\\b.*$",
+          "end": "(?='''|\"\"\")",
+          "contentName": "meta.embedded.block.js",
+          "patterns": [{ "include": "source.js" }]
+        },
+        {
+          "begin": "^\\s*#!.*\\bruby\\b.*$",
+          "end": "(?='''|\"\"\")",
+          "contentName": "meta.embedded.block.ruby",
+          "patterns": [{ "include": "source.ruby" }]
+        },
+        {
+          "begin": "^\\s*#!.*\\bperl\\b.*$",
+          "end": "(?='''|\"\"\")",
+          "contentName": "meta.embedded.block.perl",
+          "patterns": [{ "include": "source.perl" }]
+        },
+        {
+          "begin": "^\\s*#!\\s*@rust\\b.*$",
+          "end": "(?='''|\"\"\")",
+          "contentName": "meta.embedded.block.rust",
+          "patterns": [{ "include": "source.rust" }]
+        },
+        { "include": "source.shell" }
+      ]
+    },
+
     "shell-strings": {
       "comment": "Bare quoted strings whose content is highlighted as shell. Used inside a `script = [ … ]` array.",
       "patterns": [
@@ -147,7 +184,7 @@
           "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.cargo-make" } },
           "endCaptures": { "0": { "name": "punctuation.definition.string.end.cargo-make" } },
           "contentName": "meta.embedded.block.shellscript",
-          "patterns": [{ "include": "source.shell" }]
+          "patterns": [{ "include": "#script-body" }]
         },
         {
           "begin": "'''",
@@ -155,7 +192,7 @@
           "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.cargo-make" } },
           "endCaptures": { "0": { "name": "punctuation.definition.string.end.cargo-make" } },
           "contentName": "meta.embedded.block.shellscript",
-          "patterns": [{ "include": "source.shell" }]
+          "patterns": [{ "include": "#script-body" }]
         },
         {
           "begin": "\"(?!\"\")",
