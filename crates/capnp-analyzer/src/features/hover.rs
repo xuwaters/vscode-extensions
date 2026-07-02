@@ -42,6 +42,9 @@ pub fn hover(
         Resolution::FileAlias { file, .. } => {
             format!("```capnp\nimport \"…\"\n```\n\nFile alias → `{}`", file.as_str())
         }
+        Resolution::Builtin { name } => {
+            format!("```capnp\n{}\n```\n\nBuilt-in Cap'n Proto type", name)
+        }
         Resolution::Unknown { candidates } => {
             let tried = candidates.iter().map(|c| format!("`{}`", c)).collect::<Vec<_>>().join(", ");
             let shown = site.path.iter().map(|i| i.text.as_str()).collect::<Vec<_>>().join(".");

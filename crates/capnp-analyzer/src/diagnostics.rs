@@ -13,7 +13,7 @@
 
 use crate::ast::*;
 use crate::parser::{parse, ParseError};
-use crate::resolve::{collect_type_use_sites, Resolution, WorkspaceIndex};
+use crate::resolve::{collect_type_use_sites, is_builtin, Resolution, WorkspaceIndex};
 use crate::spans::ByteSpan;
 use crate::vfs::{FileUri, Workspace};
 use rustc_hash::FxHashMap;
@@ -253,18 +253,6 @@ pub fn workspace_diagnostics(
     out
 }
 
-fn is_builtin(name: &str) -> bool {
-    matches!(
-        name,
-        "Void"
-            | "Bool"
-            | "Int8" | "Int16" | "Int32" | "Int64"
-            | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-            | "Float32" | "Float64"
-            | "Text" | "Data" | "List" | "AnyPointer" | "Capability"
-    )
-}
-
 fn check_ordinal(
     ord: &Ordinal,
     seen: &mut FxHashMap<u32, ByteSpan>,
@@ -319,6 +307,62 @@ mod tests {
         let idx = WorkspaceIndex::build(&ws);
         let diags = workspace_diagnostics(&ws, &idx, &FileUri("file:///a.capnp".into()));
         assert!(diags.iter().any(|d| d.code == "CAPNP0030"));
+    }
+
+    #[test]
+    fn local_alias_to_builtin_is_not_unknown() {
+        use crate::resolve::WorkspaceIndex;
+        use crate::vfs::{FileUri, Workspace};
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; using SlotId = Int16; struct S { slot @0 :SlotId; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let diags = workspace_diagnostics(&ws, &idx, &FileUri("file:///a.capnp".into()));
+        assert!(diags.is_empty(), "{:?}", diags);
+    }
+
+    #[test]
+    fn local_alias_to_local_type_is_not_unknown() {
+        use crate::resolve::WorkspaceIndex;
+        use crate::vfs::{FileUri, Workspace};
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; struct Point { x @0 :Int16; } using P = Point; struct S { p @0 :P; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let diags = workspace_diagnostics(&ws, &idx, &FileUri("file:///a.capnp".into()));
+        assert!(diags.is_empty(), "{:?}", diags);
+    }
+
+    #[test]
+    fn local_alias_to_unknown_type_still_reports() {
+        use crate::resolve::WorkspaceIndex;
+        use crate::vfs::{FileUri, Workspace};
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; using B = Missing; struct S { b @0 :B; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let diags = workspace_diagnostics(&ws, &idx, &FileUri("file:///a.capnp".into()));
+        assert!(diags.iter().any(|d| d.code == "CAPNP0030"), "{:?}", diags);
+    }
+
+    #[test]
+    fn local_alias_cycle_terminates_and_reports() {
+        use crate::resolve::WorkspaceIndex;
+        use crate::vfs::{FileUri, Workspace};
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; using A = B; using B = A; struct S { x @0 :A; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let diags = workspace_diagnostics(&ws, &idx, &FileUri("file:///a.capnp".into()));
+        assert!(diags.iter().any(|d| d.code == "CAPNP0030"), "{:?}", diags);
     }
 
     #[test]

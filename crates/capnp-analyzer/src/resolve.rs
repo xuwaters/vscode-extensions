@@ -185,12 +185,10 @@ fn using_to_alias(u: &Using, _source: &str) -> Option<UsingAlias> {
             span: u.span,
         });
     }
-    // Type alias — we don't retain the RHS tokens in the AST, so we can only
-    // surface this as "alias exists" for now. The symbol is still useful
-    // for completion.
+    // Local type alias: `using SlotId = Int16;` / `using T = Outer.Inner;`.
     Some(UsingAlias::Type {
         name: name.text.clone(),
-        target: Vec::new(),
+        target: u.target.iter().map(|i| i.text.clone()).collect(),
         span: u.span,
     })
 }
@@ -483,7 +481,19 @@ pub fn collect_type_use_sites(file: &File) -> Vec<TypeUseSite> {
 }
 
 fn visit_using(scope: &str, u: &Using, out: &mut Vec<TypeUseSite>) {
-    let Some(path) = u.import_path.as_ref() else { return };
+    let Some(path) = u.import_path.as_ref() else {
+        // Plain local alias — the RHS is an ordinary type reference, so it
+        // participates in hover / definition / unknown-type checking.
+        if let (Some(first), Some(last)) = (u.target.first(), u.target.last()) {
+            out.push(TypeUseSite {
+                import_path: None,
+                path: u.target.clone(),
+                enclosing_scope: SmolStr::new(scope),
+                span: first.span.join(last.span),
+            });
+        }
+        return;
+    };
     // Site covering just the `"…"` string — lets F12/hover on the filename
     // resolve to the imported file itself.
     out.push(TypeUseSite {
@@ -621,6 +631,9 @@ pub struct WorkspaceIndex {
     /// Populated from `using X = import "…".Foo.Bar;` and
     /// `using import "…".Tag;` forms.
     type_aliases: FxHashMap<FileUri, FxHashMap<SmolStr, (FileUri, Vec<SmolStr>)>>,
+    /// URI -> local-alias name -> target dotted path in the same file.
+    /// Populated from plain `using SlotId = Int16;` / `using T = A.B;` forms.
+    local_aliases: FxHashMap<FileUri, FxHashMap<SmolStr, Vec<SmolStr>>>,
     /// URI -> raw `import "…"` string -> resolved file uri. Lets inline
     /// `import "foo.capnp".Bar` expressions resolve at query time without
     /// needing the workspace.
@@ -637,6 +650,8 @@ impl WorkspaceIndex {
             FxHashMap::default();
         let mut type_aliases: FxHashMap<FileUri, FxHashMap<SmolStr, (FileUri, Vec<SmolStr>)>> =
             FxHashMap::default();
+        let mut local_aliases: FxHashMap<FileUri, FxHashMap<SmolStr, Vec<SmolStr>>> =
+            FxHashMap::default();
         let mut inline_imports: FxHashMap<FileUri, FxHashMap<String, FileUri>> =
             FxHashMap::default();
         let mut direct_imports: FxHashMap<FileUri, FxHashSet<FileUri>> = FxHashMap::default();
@@ -648,6 +663,7 @@ impl WorkspaceIndex {
             }
             let mut aliases: FxHashMap<SmolStr, FileUri> = FxHashMap::default();
             let mut t_aliases: FxHashMap<SmolStr, (FileUri, Vec<SmolStr>)> = FxHashMap::default();
+            let mut l_aliases: FxHashMap<SmolStr, Vec<SmolStr>> = FxHashMap::default();
             let mut deps: FxHashSet<FileUri> = FxHashSet::default();
             for a in &fs.aliases {
                 match a {
@@ -663,7 +679,11 @@ impl WorkspaceIndex {
                             deps.insert(file);
                         }
                     }
-                    UsingAlias::Type { .. } => {}
+                    UsingAlias::Type { name, target, .. } => {
+                        if !target.is_empty() {
+                            l_aliases.insert(name.clone(), target.clone());
+                        }
+                    }
                 }
             }
             // Also track inline `import "…"` expressions in type positions so
@@ -679,6 +699,7 @@ impl WorkspaceIndex {
             }
             file_aliases.insert(uri.clone(), aliases);
             type_aliases.insert(uri.clone(), t_aliases);
+            local_aliases.insert(uri.clone(), l_aliases);
             inline_imports.insert(uri.clone(), inlines);
             direct_imports.insert(uri.clone(), deps);
             by_file.insert(uri.clone(), fs);
@@ -701,6 +722,7 @@ impl WorkspaceIndex {
             by_file,
             file_aliases,
             type_aliases,
+            local_aliases,
             inline_imports,
             visible_from,
         }
@@ -738,6 +760,17 @@ impl WorkspaceIndex {
         enclosing_scope: &str,
         import_path: Option<&str>,
         path: &[Ident],
+    ) -> Resolution {
+        self.resolve_impl(importer, enclosing_scope, import_path, path, 0)
+    }
+
+    fn resolve_impl(
+        &self,
+        importer: &FileUri,
+        enclosing_scope: &str,
+        import_path: Option<&str>,
+        path: &[Ident],
+        alias_depth: u8,
     ) -> Resolution {
         // Inline `import "foo.capnp"[.Path]` — resolve into the named file.
         if let Some(import_path) = import_path {
@@ -823,6 +856,33 @@ impl WorkspaceIndex {
             }
         }
 
+        // Local type alias: `using SlotId = Int16;` / `using T = Outer.Inner;`
+        // — substitute the head with the alias target and resolve again from
+        // the file's top-level scope (where the alias was declared). Bounded
+        // so alias-to-alias cycles can't recurse forever.
+        if let Some(local) = self.local_aliases.get(importer) {
+            if let Some(target) = local.get(head) {
+                const MAX_ALIAS_DEPTH: u8 = 8;
+                if alias_depth >= MAX_ALIAS_DEPTH {
+                    return Resolution::Unknown {
+                        candidates: vec![format!("{} (alias cycle via {})", rest_joined, head)],
+                    };
+                }
+                let mut expanded: Vec<Ident> = target
+                    .iter()
+                    .map(|s| Ident { text: s.clone(), span: path[0].span })
+                    .collect();
+                expanded.extend(path[1..].iter().cloned());
+                return self.resolve_impl(importer, "", None, &expanded, alias_depth + 1);
+            }
+        }
+
+        // Built-in types resolve as themselves, so an alias expansion that
+        // lands on `Int16` (or a direct `List`, `Text`, …) is not "unknown".
+        if rest_names.is_empty() && is_builtin(head) {
+            return Resolution::Builtin { name: path[0].text.clone() };
+        }
+
         let candidates = scope_candidates(enclosing_scope, path);
         let local = self.by_file.get(importer);
         for cand in &candidates {
@@ -861,9 +921,26 @@ pub enum Resolution {
         file: FileUri,
         span_source: ByteSpan,
     },
+    /// A built-in type, either referenced directly (`Int16`) or through a
+    /// local alias (`using SlotId = Int16;`).
+    Builtin {
+        name: SmolStr,
+    },
     Unknown {
         candidates: Vec<String>,
     },
+}
+
+pub fn is_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "Void"
+            | "Bool"
+            | "Int8" | "Int16" | "Int32" | "Int64"
+            | "UInt8" | "UInt16" | "UInt32" | "UInt64"
+            | "Float32" | "Float64"
+            | "Text" | "Data" | "List" | "AnyPointer" | "Capability"
+    )
 }
 
 /// Given `scope = "Outer.Inner"` and `path = ["Foo", "Bar"]`, produce the
@@ -1022,6 +1099,83 @@ mod tests {
                 assert_eq!(symbol.fqn.as_str(), "Subscription");
             }
             other => panic!("expected Found Subscription, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolves_local_alias_to_builtin() {
+        use crate::vfs::Workspace;
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; using SlotId = Int16; struct S { slot @0 :SlotId; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///a.capnp".into());
+        let path = vec![Ident { text: "SlotId".into(), span: ByteSpan::EMPTY }];
+        match idx.resolve_type(&uri, "S", &path) {
+            Resolution::Builtin { name } => assert_eq!(name.as_str(), "Int16"),
+            other => panic!("expected Builtin Int16, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolves_local_alias_to_local_struct() {
+        use crate::vfs::Workspace;
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; struct Point { x @0 :Int16; } using P = Point; struct S { p @0 :P; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///a.capnp".into());
+        let path = vec![Ident { text: "P".into(), span: ByteSpan::EMPTY }];
+        match idx.resolve_type(&uri, "S", &path) {
+            Resolution::Found { symbol, visibility_ok: true } => {
+                assert_eq!(symbol.fqn.as_str(), "Point");
+            }
+            other => panic!("expected Found Point via local alias, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolves_local_alias_chain() {
+        use crate::vfs::Workspace;
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; using A = Int16; using B = A; struct S { x @0 :B; }".into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///a.capnp".into());
+        let path = vec![Ident { text: "B".into(), span: ByteSpan::EMPTY }];
+        match idx.resolve_type(&uri, "S", &path) {
+            Resolution::Builtin { name } => assert_eq!(name.as_str(), "Int16"),
+            other => panic!("expected Builtin Int16 via alias chain, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolves_local_alias_to_nested_type_with_suffix() {
+        use crate::vfs::Workspace;
+        let mut ws = Workspace::new();
+        ws.update(
+            "file:///a.capnp",
+            "@0x1; struct Outer { struct Inner { x @0 :Int16; } } \
+             using O = Outer; struct S { i @0 :O.Inner; }"
+                .into(),
+        );
+        let idx = WorkspaceIndex::build(&ws);
+        let uri = FileUri("file:///a.capnp".into());
+        let path = vec![
+            Ident { text: "O".into(), span: ByteSpan::EMPTY },
+            Ident { text: "Inner".into(), span: ByteSpan::EMPTY },
+        ];
+        match idx.resolve_type(&uri, "S", &path) {
+            Resolution::Found { symbol, visibility_ok: true } => {
+                assert_eq!(symbol.fqn.as_str(), "Outer.Inner");
+            }
+            other => panic!("expected Found Outer.Inner, got {:?}", other),
         }
     }
 

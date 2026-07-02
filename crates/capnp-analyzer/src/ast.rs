@@ -57,6 +57,10 @@ pub struct Using {
     /// Dotted path after the import string, e.g. `.Foo.Bar` in
     /// `using X = import "foo.capnp".Foo.Bar;`.
     pub import_target: Vec<Ident>,
+    /// Dotted path of a plain local alias RHS, e.g. `Int16` in
+    /// `using SlotId = Int16;` or `Outer.Inner` in `using T = Outer.Inner;`.
+    /// Empty when the RHS is an import expression.
+    pub target: Vec<Ident>,
     pub span: ByteSpan,
 }
 

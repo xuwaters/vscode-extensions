@@ -36,6 +36,8 @@ pub fn definition(
             file: file.as_str().into(),
             range: ByteSpan::EMPTY,
         }),
+        // Built-in types have no declaration to jump to.
+        Resolution::Builtin { .. } => None,
         Resolution::Unknown { .. } => None,
     }
 }

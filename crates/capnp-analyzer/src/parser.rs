@@ -162,7 +162,13 @@ impl Parser {
             let name = import_target.last().cloned();
             let end = self.peek().span;
             self.expect(&TokenKind::Semi, "using");
-            return Using { name, import_path, import_target, span: start.join(end) };
+            return Using {
+                name,
+                import_path,
+                import_target,
+                target: Vec::new(),
+                span: start.join(end),
+            };
         }
 
         let mut name = None;
@@ -176,19 +182,31 @@ impl Parser {
 
         let mut import_path = None;
         let mut import_target = Vec::new();
+        let mut target = Vec::new();
         if matches!(self.peek().kind, TokenKind::KwImport) {
             let (p, t) = self.parse_import_expr();
             import_path = p;
             import_target = t;
         } else {
-            // Right-hand side is a type reference; we just skip to `;` keeping no data.
+            // Right-hand side is a type reference. Keep the dotted path so
+            // the resolver can expand the alias; skip anything after it
+            // (e.g. generic args in `using M = List(Int16);`) up to `;`.
+            if type_keyword_text(&self.peek().kind).is_some()
+                || matches!(self.peek().kind, TokenKind::Ident(_))
+            {
+                target.push(self.parse_type_ident());
+                while matches!(self.peek().kind, TokenKind::Dot) {
+                    self.bump();
+                    target.push(self.parse_type_ident());
+                }
+            }
             while !self.at_eof() && !matches!(self.peek().kind, TokenKind::Semi) {
                 self.bump();
             }
         }
         let end = self.peek().span;
         self.expect(&TokenKind::Semi, "using");
-        Using { name, import_path, import_target, span: start.join(end) }
+        Using { name, import_path, import_target, target, span: start.join(end) }
     }
 
     /// Parse `import "path"[.Ident[.Ident…]]` starting at the `import`
