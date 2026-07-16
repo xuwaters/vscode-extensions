@@ -16,20 +16,20 @@ interface CuratedModel {
 
 const CURATED: CuratedModel[] = [
   {
+    id: "workers-ai/@cf/moonshotai/kimi-k3",
+    name: "Kimi K3 (Cloudflare)",
+    family: "kimi-k3",
+    maxInputTokens: 1_048_576,
+    maxOutputTokens: 1_048_576,
+    toolCalling: true,
+    vision: true,
+  },
+  {
     id: "workers-ai/@cf/zai-org/glm-5.2",
     name: "GLM 5.2 (Cloudflare)",
     family: "glm-5.2",
     maxInputTokens: 262144,
     maxOutputTokens: 16384,
-    toolCalling: true,
-    vision: false,
-  },
-  {
-    id: "workers-ai/@cf/moonshotai/kimi-k2.6",
-    name: "Kimi K2.6 (Cloudflare)",
-    family: "kimi-k2",
-    maxInputTokens: 262_144,
-    maxOutputTokens: 16_384,
     toolCalling: true,
     vision: false,
   },
@@ -112,7 +112,7 @@ async function pickModels(): Promise<ModelConfig[] | undefined> {
   > = CURATED.map((m) => ({
     label: m.id,
     description: m.name,
-    picked: m.id === "@cf/moonshotai/kimi-k2.6",
+    picked: m.id === "workers-ai/@cf/moonshotai/kimi-k3",
     _model: m,
   }));
   items.push({
