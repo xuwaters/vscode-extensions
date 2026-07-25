@@ -1,0 +1,47 @@
+{# This is a comment #}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ app_name }}-config
+  labels:
+    app: {{ app_name }}
+    {# Conditional keys #}
+    {% if environment is defined %}
+    environment: {{ environment }}
+    {% endif %}
+
+data:
+  {# Loop over template data #}
+  {% for entry in settings %}
+  {{ entry.key }}: "{{ entry.value | escape }}"
+  {% endfor %}
+
+  {# Variable declarations #}
+  {% let replicas = base_replicas * scale_factor %}
+  replicas: "{{ replicas }}"
+
+  {# Pattern matching #}
+  {% match log_level %}
+    {% when Level::Debug %}
+  logLevel: debug
+    {% when Level::Info %}
+  logLevel: info
+    {% when _ %}
+  logLevel: warn
+  {% endmatch %}
+
+  {# Block scalars keep template tags #}
+  banner: |
+    Welcome to {{ app_name }}
+    Build {{ build_id }} ({{ build_time | date("%Y-%m-%d") }})
+
+  {# Raw block - no template processing #}
+  {% raw %}
+  literal: "{{ this_stays_literal }}"
+  {% endraw %}
+
+{# Multiple documents #}
+---
+{% include "partials/service.yaml" %}
+
+{% block extra %}{% endblock %}

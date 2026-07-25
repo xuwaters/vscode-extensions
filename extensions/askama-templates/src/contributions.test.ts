@@ -64,6 +64,7 @@ describe('language contributions', () => {
       'askama-ts',
       'askama-tsx',
       'askama-txt',
+      'askama-yaml',
     ]);
   });
 

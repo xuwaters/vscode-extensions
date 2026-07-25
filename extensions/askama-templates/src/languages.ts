@@ -10,4 +10,5 @@ export const ASKAMA_LANGUAGES = new Set([
   'askama-md',
   'askama-jsx',
   'askama-tsx',
+  'askama-yaml',
 ]);
