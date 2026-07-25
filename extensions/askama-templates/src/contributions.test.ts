@@ -51,10 +51,36 @@ describe('language contributions', () => {
     }
   });
 
-  it('includes askama markdown', () => {
-    const md = languages.find(l => l.id === 'askama-md');
-    expect(md?.extensions).toContain('.md.askama');
-    expect(md?.extensions).toContain('.md.jinja2');
+  it('covers every supported host language', () => {
+    expect(languages.map(l => l.id).sort()).toEqual([
+      'askama-css',
+      'askama-html',
+      'askama-js',
+      'askama-json',
+      'askama-jsx',
+      'askama-md',
+      'askama-rust',
+      'askama-toml',
+      'askama-ts',
+      'askama-tsx',
+      'askama-txt',
+    ]);
+  });
+
+  it('declares all four template suffixes for every base extension', () => {
+    const suffixes = ['.askama', '.j2', '.jinja', '.jinja2'];
+    for (const lang of languages) {
+      const bases = new Map<string, string[]>();
+      for (const ext of lang.extensions) {
+        const suffix = suffixes.find(s => ext.endsWith(s));
+        expect(suffix, `${ext} (${lang.id}) has no template suffix`).toBeDefined();
+        const base = ext.slice(0, ext.length - suffix!.length);
+        bases.set(base, [...(bases.get(base) ?? []), suffix!]);
+      }
+      for (const [base, found] of bases) {
+        expect(found.sort(), `${lang.id} base "${base}"`).toEqual([...suffixes].sort());
+      }
+    }
   });
 });
 

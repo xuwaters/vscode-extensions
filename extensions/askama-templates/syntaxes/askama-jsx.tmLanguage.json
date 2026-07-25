@@ -1,0 +1,32 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Askama JSX",
+  "scopeName": "source.js.jsx.askama",
+  "patterns": [
+    { "include": "source.askama#comment" },
+    { "include": "#raw-block-jsx" },
+    { "include": "source.askama#statement" },
+    { "include": "source.askama#expression" },
+    { "include": "source.js.jsx" }
+  ],
+  "repository": {
+    "raw-block-jsx": {
+      "name": "meta.raw.block.askama",
+      "begin": "(\\{%[-+~]?)\\s*(raw)\\s*([-+~]?%\\})",
+      "end": "(\\{%[-+~]?)\\s*(endraw)\\s*([-+~]?%\\})",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.embedded.begin.askama" },
+        "2": { "name": "keyword.control.askama" },
+        "3": { "name": "punctuation.section.embedded.end.askama" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.embedded.begin.askama" },
+        "2": { "name": "keyword.control.askama" },
+        "3": { "name": "punctuation.section.embedded.end.askama" }
+      },
+      "patterns": [
+        { "include": "source.js.jsx" }
+      ]
+    }
+  }
+}

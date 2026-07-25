@@ -1,0 +1,59 @@
+{# This is a comment #}
+import React from 'react';
+{% for dep in imports %}
+import { {{ dep.name }} } from '{{ dep.path }}';
+{% endfor %}
+
+interface {{ component_name }}Props {
+  {% for field in fields %}
+  {{ field.name }}{% if field.optional %}?{% endif %}: {{ field.ty }};
+  {% endfor %}
+}
+
+export function {{ component_name }}({ items, user }: {{ component_name }}Props) {
+  {# Variable declarations #}
+  {% let title = format!("{} dashboard", app_name) %}
+  const title: string = '{{ title }}';
+
+  return (
+    <div className="{{ root_class | lower }}">
+      <h1>{title}</h1>
+
+      {# Conditional rendering #}
+      {% if show_greeting %}
+      <p>Welcome, {user.name}!</p>
+      {% elif visitor_count > 100 %}
+      <p>Visitor #{{ visitor_count }}</p>
+      {% else %}
+      <p>Welcome, guest!</p>
+      {% endif %}
+
+      {# Pattern matching #}
+      {% match status %}
+        {% when Status::Active %}
+      <span className="badge active">Active</span>
+        {% when _ %}
+      <span className="badge">Unknown</span>
+      {% endmatch %}
+
+      {# Loop over template data #}
+      <ul>
+        {% for item in items %}
+        <li key="{{ loop.index }}">{{ item.label | capitalize }}</li>
+        {% endfor %}
+      </ul>
+
+      {# Generics and type assertions stay highlighted #}
+      <span>{(items as ReadonlyArray<Item>).length} of {{ total_count }}</span>
+
+      {# Raw block - no template processing #}
+      {% raw %}
+      <span>{{ this_stays_literal }}</span>
+      {% endraw %}
+
+      {# Macro usage #}
+      {% import "macros.tsx" as m %}
+      {{ m.render_card(title="Hello", body="World") }}
+    </div>
+  );
+}

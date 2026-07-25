@@ -2,7 +2,7 @@
   "name": "wx-vsce-askama-templates",
   "displayName": "Askama Templates",
   "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -152,6 +152,34 @@
           ".markdown.jinja2"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-jsx",
+        "aliases": [
+          "Askama JSX",
+          "askama-jsx"
+        ],
+        "extensions": [
+          ".jsx.askama",
+          ".jsx.j2",
+          ".jsx.jinja",
+          ".jsx.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-tsx",
+        "aliases": [
+          "Askama TSX",
+          "askama-tsx"
+        ],
+        "extensions": [
+          ".tsx.askama",
+          ".tsx.j2",
+          ".tsx.jinja",
+          ".tsx.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -205,6 +233,16 @@
         "path": "./syntaxes/askama-md.tmLanguage.json"
       },
       {
+        "language": "askama-jsx",
+        "scopeName": "source.js.jsx.askama",
+        "path": "./syntaxes/askama-jsx.tmLanguage.json"
+      },
+      {
+        "language": "askama-tsx",
+        "scopeName": "source.tsx.askama",
+        "path": "./syntaxes/askama-tsx.tmLanguage.json"
+      },
+      {
         "scopeName": "askama.injection",
         "path": "./syntaxes/askama-injection.tmLanguage.json",
         "injectTo": [
@@ -215,7 +253,9 @@
           "source.toml.askama",
           "source.css.askama",
           "source.json.askama",
-          "text.html.markdown.askama"
+          "text.html.markdown.askama",
+          "source.js.jsx.askama",
+          "source.tsx.askama"
         ]
       }
     ],
@@ -254,6 +294,14 @@
       },
       {
         "language": "askama-md",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-jsx",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-tsx",
         "path": "./snippets/askama.json"
       }
     ],
