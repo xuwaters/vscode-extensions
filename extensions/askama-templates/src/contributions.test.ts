@@ -9,7 +9,14 @@ interface LanguageContribution {
   id: string;
   aliases: string[];
   extensions: string[];
+  filenames?: string[];
+  filenamePatterns?: string[];
   configuration: string;
+}
+
+/** Every way a language claims files, flattened for whole-set assertions. */
+function associations(lang: LanguageContribution): string[] {
+  return [...lang.extensions, ...(lang.filenames ?? []), ...(lang.filenamePatterns ?? [])];
 }
 
 interface GrammarContribution {
@@ -41,19 +48,33 @@ describe('language contributions', () => {
     expect([...ASKAMA_LANGUAGES].sort()).toEqual(languages.map(l => l.id).sort());
   });
 
-  it('gives every language a unique, non-overlapping set of file extensions', () => {
+  it('never lets two languages claim the same file association', () => {
     const seen = new Map<string, string>();
     for (const lang of languages) {
-      for (const ext of lang.extensions) {
-        expect(seen.get(ext), `${ext} claimed by ${seen.get(ext)} and ${lang.id}`).toBeUndefined();
-        seen.set(ext, lang.id);
+      for (const assoc of associations(lang)) {
+        const owner = seen.get(assoc) ?? lang.id;
+        expect(owner, `${assoc} claimed by ${owner} and ${lang.id}`).toBe(lang.id);
+        seen.set(assoc, lang.id);
       }
+    }
+  });
+
+  // VS Code resolves a file to a language by exact filename first, then by the
+  // longest matching filenamePattern, then by the longest matching extension.
+  // The built-in dotenv language claims the pattern ".env.*", which outranks our
+  // ".env.askama" extension — so the literal dotfile names have to be filenames.
+  it('claims literal dotfile names by exact filename', () => {
+    const env = languages.find(l => l.id === 'askama-env');
+    for (const name of ['.env.askama', '.env.j2', '.env.jinja', '.env.jinja2']) {
+      expect(env?.filenames, name).toContain(name);
     }
   });
 
   it('covers every supported host language', () => {
     expect(languages.map(l => l.id).sort()).toEqual([
       'askama-css',
+      'askama-env',
+      'askama-gitignore',
       'askama-html',
       'askama-js',
       'askama-json',
@@ -68,18 +89,18 @@ describe('language contributions', () => {
     ]);
   });
 
-  it('declares all four template suffixes for every base extension', () => {
+  it('declares all four template suffixes for every base name', () => {
     const suffixes = ['.askama', '.j2', '.jinja', '.jinja2'];
     for (const lang of languages) {
-      const bases = new Map<string, string[]>();
-      for (const ext of lang.extensions) {
-        const suffix = suffixes.find(s => ext.endsWith(s));
-        expect(suffix, `${ext} (${lang.id}) has no template suffix`).toBeDefined();
-        const base = ext.slice(0, ext.length - suffix!.length);
-        bases.set(base, [...(bases.get(base) ?? []), suffix!]);
+      const bases = new Map<string, Set<string>>();
+      for (const assoc of associations(lang)) {
+        const suffix = suffixes.find(s => assoc.endsWith(s));
+        expect(suffix, `${assoc} (${lang.id}) has no template suffix`).toBeDefined();
+        const base = assoc.slice(0, assoc.length - suffix!.length);
+        bases.set(base, (bases.get(base) ?? new Set()).add(suffix!));
       }
       for (const [base, found] of bases) {
-        expect(found.sort(), `${lang.id} base "${base}"`).toEqual([...suffixes].sort());
+        expect([...found].sort(), `${lang.id} base "${base}"`).toEqual([...suffixes].sort());
       }
     }
   });

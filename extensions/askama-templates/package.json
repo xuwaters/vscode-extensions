@@ -2,7 +2,7 @@
   "name": "wx-vsce-askama-templates",
   "displayName": "Askama Templates",
   "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -198,6 +198,56 @@
           ".yml.jinja2"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-gitignore",
+        "aliases": [
+          "Askama gitignore",
+          "askama-gitignore"
+        ],
+        "extensions": [
+          ".gitignore.askama",
+          ".gitignore.j2",
+          ".gitignore.jinja",
+          ".gitignore.jinja2"
+        ],
+        "filenames": [
+          "gitignore.askama",
+          "gitignore.j2",
+          "gitignore.jinja",
+          "gitignore.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-env",
+        "aliases": [
+          "Askama dotenv",
+          "askama-env"
+        ],
+        "extensions": [
+          ".env.askama",
+          ".env.j2",
+          ".env.jinja",
+          ".env.jinja2"
+        ],
+        "filenames": [
+          ".env.askama",
+          ".env.j2",
+          ".env.jinja",
+          ".env.jinja2",
+          "env.askama",
+          "env.j2",
+          "env.jinja",
+          "env.jinja2"
+        ],
+        "filenamePatterns": [
+          ".env.*.askama",
+          ".env.*.j2",
+          ".env.*.jinja",
+          ".env.*.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -266,6 +316,16 @@
         "path": "./syntaxes/askama-yaml.tmLanguage.json"
       },
       {
+        "language": "askama-gitignore",
+        "scopeName": "source.ignore.askama",
+        "path": "./syntaxes/askama-gitignore.tmLanguage.json"
+      },
+      {
+        "language": "askama-env",
+        "scopeName": "source.dotenv.askama",
+        "path": "./syntaxes/askama-env.tmLanguage.json"
+      },
+      {
         "scopeName": "askama.injection",
         "path": "./syntaxes/askama-injection.tmLanguage.json",
         "injectTo": [
@@ -279,7 +339,9 @@
           "text.html.markdown.askama",
           "source.js.jsx.askama",
           "source.tsx.askama",
-          "source.yaml.askama"
+          "source.yaml.askama",
+          "source.ignore.askama",
+          "source.dotenv.askama"
         ]
       }
     ],
@@ -330,6 +392,14 @@
       },
       {
         "language": "askama-yaml",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-gitignore",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-env",
         "path": "./snippets/askama.json"
       }
     ],

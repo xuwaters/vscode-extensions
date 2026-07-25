@@ -1,0 +1,35 @@
+{# This is a comment #}
+# Generated for {{ project_name }} — do not edit by hand
+
+{# Conditional sections #}
+{% if language == "rust" %}
+/target
+Cargo.lock
+{% elif language == "node" %}
+node_modules/
+{% if package_manager == "pnpm" %}
+.pnpm-store/
+{% endif %}
+{% else %}
+build/
+{% endif %}
+
+{# Loop over template data #}
+{% for pattern in extra_patterns %}
+{{ pattern }}
+{% endfor %}
+
+{# Variable declarations #}
+{% let out_dir = format!("{}/dist", workspace) %}
+{{ out_dir }}/
+
+{# Negated patterns #}
+!{{ keep_file }}
+
+{# Raw block - no template processing #}
+{% raw %}
+{{ this_stays_literal }}
+{% endraw %}
+
+{# Include partial #}
+{% include "partials/editors.gitignore" %}

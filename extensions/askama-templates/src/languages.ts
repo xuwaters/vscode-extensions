@@ -11,4 +11,6 @@ export const ASKAMA_LANGUAGES = new Set([
   'askama-jsx',
   'askama-tsx',
   'askama-yaml',
+  'askama-gitignore',
+  'askama-env',
 ]);
