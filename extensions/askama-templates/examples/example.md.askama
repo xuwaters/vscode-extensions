@@ -1,0 +1,75 @@
+{# This is a comment #}
+{% extends "base.md" %}
+
+{% block title %}# {{ page_title }}{% endblock %}
+
+{% block content %}
+
+## Overview
+
+{# Conditional rendering #}
+{% if user.is_authenticated %}
+Welcome, **{{ user.name | capitalize }}**!
+{% elif visitor_count > 100 %}
+Welcome, visitor #{{ visitor_count }}!
+{% else %}
+Welcome, guest!
+{% endif %}
+
+{# Loop with index #}
+{% for item in items %}
+{{ loop.index }}. `{{ item.name | truncate(30) }}` — {{ item.price | format("{:.2}") }}
+{% endfor %}
+
+{# Pattern matching #}
+{% match status %}
+  {% when Status::Active %}
+> Status: **Active**
+  {% when Status::Inactive %}
+> Status: _Inactive_
+  {% when _ %}
+> Status: Unknown
+{% endmatch %}
+
+{# Variable declarations #}
+{% let full_name = format!("{} {}", first_name, last_name) %}
+Full name: {{ full_name }}
+
+{# If let pattern #}
+{% if let Some(email) = user.email %}
+Email: <{{ email }}>
+{% endif %}
+
+{# Template tags inside fenced code blocks #}
+```rust
+let ctx = {{ context_name }};
+```
+
+{# Raw block - no template processing #}
+{% raw %}
+This {{ will_not_be_processed }} stays literal.
+{% endraw %}
+
+{# Filter block #}
+{% filter lower %}
+THIS TEXT WILL BE LOWERCASED
+{% endfilter %}
+
+{# Operators #}
+{% if count > 0 && is_enabled || !is_hidden %}
+Visible: {{ (count * 2 + offset) | safe }}
+{% endif %}
+
+{# Range and string concatenation #}
+{% for i in 0..10 %}
+- {{ "item-" ~ i }}
+{% endfor %}
+
+{# Macro usage #}
+{% import "macros.md" as m %}
+{{ m.render_card(title="Hello", body="World") }}
+
+{# Include partial #}
+{% include "partials/footer.md" %}
+
+{% endblock %}

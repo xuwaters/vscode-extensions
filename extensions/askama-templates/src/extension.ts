@@ -1,15 +1,5 @@
 import * as vscode from 'vscode';
-
-const ASKAMA_LANGUAGES = new Set([
-  'askama-html',
-  'askama-txt',
-  'askama-rust',
-  'askama-js',
-  'askama-ts',
-  'askama-toml',
-  'askama-css',
-  'askama-json',
-]);
+import { ASKAMA_LANGUAGES } from './languages';
 
 const KEYWORD_RE = /\b(if|else|elif|endif|for|endfor|in|match|when|endwhen|endmatch|block|endblock|extends|include|import|macro|endmacro|call|endcall|filter|endfilter|let|set|mut|decl|declare|endlet|continue|break|raw|endraw)\b/g;
 const FILTER_CALL_RE = /\|\s*\w+/g;

@@ -2,7 +2,7 @@
   "name": "wx-vsce-askama-templates",
   "displayName": "Askama Templates",
   "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -134,6 +134,24 @@
           ".json.jinja2"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-md",
+        "aliases": [
+          "Askama Markdown",
+          "askama-md"
+        ],
+        "extensions": [
+          ".md.askama",
+          ".md.j2",
+          ".md.jinja",
+          ".md.jinja2",
+          ".markdown.askama",
+          ".markdown.j2",
+          ".markdown.jinja",
+          ".markdown.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -182,6 +200,11 @@
         "path": "./syntaxes/askama-json.tmLanguage.json"
       },
       {
+        "language": "askama-md",
+        "scopeName": "text.html.markdown.askama",
+        "path": "./syntaxes/askama-md.tmLanguage.json"
+      },
+      {
         "scopeName": "askama.injection",
         "path": "./syntaxes/askama-injection.tmLanguage.json",
         "injectTo": [
@@ -191,7 +214,8 @@
           "source.ts.askama",
           "source.toml.askama",
           "source.css.askama",
-          "source.json.askama"
+          "source.json.askama",
+          "text.html.markdown.askama"
         ]
       }
     ],
@@ -226,6 +250,10 @@
       },
       {
         "language": "askama-json",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-md",
         "path": "./snippets/askama.json"
       }
     ],
