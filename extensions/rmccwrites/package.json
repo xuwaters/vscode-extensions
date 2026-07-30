@@ -1,0 +1,133 @@
+{
+  "name": "wx-vsce-rmccwrites",
+  "displayName": "Remove .cc-writes",
+  "description": "Recursively remove empty .cc-writes directories from the workspace, respecting .gitignore and taking the .claude folders they empty out with them",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "rmccwrites.clean",
+        "title": "Remove Empty .cc-writes Directories",
+        "category": "Remove .cc-writes",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "rmccwrites.preview",
+        "title": "Preview Empty .cc-writes Directories (Dry Run)",
+        "category": "Remove .cc-writes",
+        "icon": "$(search)"
+      },
+      {
+        "command": "rmccwrites.cleanFolder",
+        "title": "Remove Empty .cc-writes Directories Here",
+        "category": "Remove .cc-writes",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "rmccwrites.showLog",
+        "title": "Show Log",
+        "category": "Remove .cc-writes",
+        "icon": "$(output)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "rmccwrites.cleanFolder",
+          "when": "false"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "rmccwrites.cleanFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "7_modification@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Remove .cc-writes",
+      "properties": {
+        "rmccwrites.names": {
+          "type": "array",
+          "default": [
+            ".cc-writes"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Directory names removed when they are completely empty. Base names only — entries containing `/` are ignored. Nested matches are handled bottom-up, so an empty match inside another match removes both."
+        },
+        "rmccwrites.descend": {
+          "type": "array",
+          "default": [
+            ".claude"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Directory names entered even when a `.gitignore` file excludes them. `.claude` is typically ignored, yet holds the `.cc-writes` targets."
+        },
+        "rmccwrites.prune": {
+          "type": "array",
+          "default": [
+            ".claude"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "scope": "resource",
+          "markdownDescription": "Directory names removed once the scan leaves them empty, so removing `.claude/.cc-writes` takes `.claude` with it. Set to `[]` to keep such containers."
+        },
+        "rmccwrites.respectGitignore": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Skip directories excluded by a `.gitignore` file at or below the scanned folder. Target names and `#rmccwrites.descend#` names are always entered; any other ignored directory prunes everything below it. Turn this off to scan those too."
+        },
+        "rmccwrites.confirmBeforeRemoving": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "List what was found and ask for confirmation before anything is removed."
+        },
+        "rmccwrites.revealLog": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "Open the log panel automatically at the end of every run."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}
