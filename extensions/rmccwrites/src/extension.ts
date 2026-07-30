@@ -38,7 +38,7 @@ async function clean(roots: vscode.Uri[]): Promise<void> {
   report(await walk(roots, false, 'Removing empty directories…'), false);
 }
 
-/** Scan only, then offer to remove what was found. */
+/** Scan only, then list what was found and offer to remove it. */
 async function preview(roots: vscode.Uri[]): Promise<void> {
   if (roots.length === 0) return;
 
@@ -46,15 +46,52 @@ async function preview(roots: vscode.Uri[]): Promise<void> {
   if (scan.cancelled) return void vscode.window.showInformationMessage('Scan cancelled.');
   if (scan.uris.length === 0) return void report(scan, true);
 
-  const choice = await vscode.window.showInformationMessage(
-    `${directories(scan.uris.length)} can be removed.`,
-    'Remove Them',
-    'Show Log',
-  );
-  if (choice === 'Show Log') return void log.show(true);
-  if (choice !== 'Remove Them') return;
+  if (!(await review(scan.uris))) return;
 
   report(await walk(roots, false, 'Removing empty directories…'), false);
+}
+
+interface PickItem extends vscode.QuickPickItem {
+  action?: 'remove' | 'log';
+  uri?: vscode.Uri;
+}
+
+/**
+ * Show what the dry run found and resolve to whether it should be removed. A
+ * quick pick rather than a notification: the list names every directory and
+ * stays up until it is dismissed, so the result cannot be missed.
+ */
+function review(uris: vscode.Uri[]): Promise<boolean> {
+  const pick = vscode.window.createQuickPick<PickItem>();
+  pick.title = `Remove .cc-writes — ${directories(uris.length)} can be removed`;
+  pick.placeholder = 'Nothing has been removed yet. Pick an action, or a directory to reveal it.';
+  pick.ignoreFocusOut = true;
+  pick.matchOnDetail = true;
+  pick.items = [
+    { label: '$(trash) Remove Them', detail: `Remove all ${directories(uris.length)}`, action: 'remove' },
+    { label: '$(output) Show Log', detail: 'Open the full dry-run output', action: 'log' },
+    { label: 'Found', kind: vscode.QuickPickItemKind.Separator },
+    ...uris.map(uri => ({ label: `$(folder) ${vscode.workspace.asRelativePath(uri, true)}`, uri })),
+  ];
+
+  return new Promise<boolean>(resolve => {
+    let remove = false;
+    pick.onDidAccept(() => {
+      const item = pick.selectedItems[0];
+      if (!item) return;
+      remove = item.action === 'remove';
+      if (item.action === 'log') log.show(true);
+      // Revealing moves focus out of the quick pick, so the list closes either
+      // way; the log keeps the full listing.
+      if (item.uri) void vscode.commands.executeCommand('revealInExplorer', item.uri);
+      pick.hide();
+    });
+    pick.onDidHide(() => {
+      pick.dispose();
+      resolve(remove);
+    });
+    pick.show();
+  });
 }
 
 interface RunResult {
@@ -76,6 +113,8 @@ function walk(roots: vscode.Uri[], dryRun: boolean, title: string): Thenable<Run
     { location: vscode.ProgressLocation.Notification, title, cancellable: true },
     async (progress, token) => {
       const result: RunResult = { removed: 0, errors: 0, cancelled: false, uris: [], noTargets: true };
+      // Runs stack up in one channel, so each starts with the pass it belongs to.
+      log.info(`── ${title.replace(/…$/, '')} ──`);
       let found = 0;
       const reporter: Reporter = {
         say: text => {
@@ -136,11 +175,18 @@ function report(result: RunResult, dryRun: boolean): void {
   if (revealLog()) log.show(true);
 
   if (result.uris.length === 0 && result.errors === 0) {
-    vscode.window.showInformationMessage(
-      result.noTargets
-        ? 'No directory names are configured — set "rmccwrites.names".'
-        : 'No empty directories found.',
-    );
+    // The log holds the roots and the names they were matched against, which is
+    // the only way to tell "nothing matched" from "nothing was looked for".
+    void vscode.window
+      .showInformationMessage(
+        result.noTargets
+          ? 'No directory names are configured — set "rmccwrites.names".'
+          : 'No empty directories found.',
+        'Show Log',
+      )
+      .then(choice => {
+        if (choice === 'Show Log') log.show(true);
+      });
     return;
   }
 
