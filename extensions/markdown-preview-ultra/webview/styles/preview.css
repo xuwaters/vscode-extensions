@@ -230,23 +230,39 @@ body {
   margin: 0.25em 0;
 }
 
-/* ── TOC sidebar ───────────────────────────────────────────────────── */
-#toc-toggle {
+/* ── Floating toolbar ──────────────────────────────────────────────── */
+#preview-toolbar {
   position: fixed;
   top: 10px;
   right: 12px;
   z-index: 30;
+  display: flex;
+  gap: 6px;
+}
+
+#preview-toolbar button {
   border: 1px solid var(--vscode-panel-border, #444);
   border-radius: 4px;
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
   color: var(--vscode-editor-foreground);
   cursor: pointer;
   padding: 2px 8px;
+  min-width: 26px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
   opacity: 0.6;
 }
 
-#toc-toggle:hover { opacity: 1; }
+#preview-toolbar button:hover { opacity: 1; }
 
+/* Diverging from the configured theme is worth a hint. */
+#theme-toggle.overridden {
+  opacity: 0.85;
+  border-color: var(--vscode-textLink-foreground, #4493f8);
+}
+
+/* ── TOC sidebar ───────────────────────────────────────────────────── */
 #toc-sidebar {
   position: fixed;
   top: 0;

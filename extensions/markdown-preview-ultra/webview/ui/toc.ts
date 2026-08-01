@@ -2,8 +2,8 @@ import type { TocEntry } from '../../src/messages';
 
 /**
  * Collapsible TOC sidebar plus per-heading hover anchors. Dependency-free:
- * a fixed `<aside>` with a floating toggle button; the active heading is
- * tracked while scrolling.
+ * a fixed `<aside>` with a toggle button in the floating toolbar; the active
+ * heading is tracked while scrolling.
  */
 export class TocSidebar {
   private readonly aside: HTMLElement;
@@ -13,11 +13,13 @@ export class TocSidebar {
   private slugs: string[] = [];
 
   constructor(
+    toolbar: HTMLElement,
     private readonly onNavigate: (entry: { slug: string; line: number }) => void,
     private readonly onVisibilityChange: (visible: boolean) => void,
   ) {
     this.toggle = document.createElement('button');
     this.toggle.id = 'toc-toggle';
+    this.toggle.type = 'button';
     this.toggle.title = 'Toggle table of contents';
     this.toggle.textContent = '☰';
     this.toggle.addEventListener('click', () => this.setVisible(!this.visible));
@@ -31,7 +33,8 @@ export class TocSidebar {
     this.list.className = 'toc-list';
     this.aside.append(heading, this.list);
 
-    document.body.append(this.toggle, this.aside);
+    toolbar.append(this.toggle);
+    document.body.append(this.aside);
 
     document.addEventListener('scroll', () => this.highlightActive(), {
       passive: true,

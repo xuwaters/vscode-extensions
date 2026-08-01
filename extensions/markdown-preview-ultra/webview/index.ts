@@ -10,6 +10,7 @@ import 'katex/dist/katex.min.css';
 import type {
   HostToWebview,
   PreviewSettings,
+  PreviewTheme,
   UpdateMessage,
   WebviewToHost,
 } from '../src/messages';
@@ -27,6 +28,7 @@ import { renderMermaid, type ResolvedMermaidTheme } from './postprocess/mermaid'
 import { addCopyButtons, installCopyHandler } from './ui/copyCode';
 import { renderFrontmatter } from './ui/frontmatter';
 import { installLightbox } from './ui/lightbox';
+import { ThemeToggle, reconcileOverride } from './ui/themeToggle';
 import { TocSidebar, addHeadingAnchors } from './ui/toc';
 import { installZoom } from './ui/zoom';
 
@@ -34,6 +36,10 @@ interface PersistedState {
   uri?: string;
   tocVisible?: boolean;
   zoom?: number;
+  /** In-page light/dark switch; wins over the configured theme. */
+  themeOverride?: PreviewTheme;
+  /** Configured theme the override was made against — see `reconcileTheme`. */
+  themeOverrideBase?: PreviewTheme;
 }
 
 declare function acquireVsCodeApi(): {
@@ -101,9 +107,15 @@ content.addEventListener('load', invalidateScrollMap, true);
 
 // ── Theme ────────────────────────────────────────────────────────────
 
+/** The in-page switch wins over the configured theme until it is cleared. */
+function effectiveTheme(): PreviewTheme {
+  return state.themeOverride ?? settings?.theme ?? 'auto';
+}
+
 function themeKind(): 'light' | 'dark' {
-  if (settings?.theme === 'github-light') return 'light';
-  if (settings?.theme === 'github-dark') return 'dark';
+  const theme = effectiveTheme();
+  if (theme === 'github-light') return 'light';
+  if (theme === 'github-dark') return 'dark';
   const cls = document.body.classList;
   return cls.contains('vscode-light') ||
     cls.contains('vscode-high-contrast-light')
@@ -118,14 +130,39 @@ function resolvedMermaidTheme(): ResolvedMermaidTheme {
 }
 
 function applyThemeClasses(): void {
-  document.body.classList.toggle(
-    'theme-github-light',
-    settings?.theme === 'github-light',
+  const theme = effectiveTheme();
+  const cls = document.body.classList;
+  cls.toggle('theme-github-light', theme === 'github-light');
+  cls.toggle('theme-github-dark', theme === 'github-dark');
+  themeToggle.update(themeKind(), state.themeOverride !== undefined);
+}
+
+/** Flip the page between light and dark without touching the configuration. */
+function toggleTheme(): void {
+  const next = themeKind() === 'light' ? 'github-dark' : 'github-light';
+  const configured = settings?.theme;
+  // Landing back on the configured theme retires the override entirely.
+  saveState(
+    next === configured
+      ? { themeOverride: undefined, themeOverrideBase: undefined }
+      : { themeOverride: next, themeOverrideBase: configured },
   );
-  document.body.classList.toggle(
-    'theme-github-dark',
-    settings?.theme === 'github-dark',
+  applyThemeClasses();
+  rerenderAllMermaid();
+}
+
+function reconcileThemeOverride(configured: PreviewTheme): void {
+  const next = reconcileOverride(
+    { override: state.themeOverride, base: state.themeOverrideBase },
+    configured,
   );
+  if (
+    next.override === state.themeOverride &&
+    next.base === state.themeOverrideBase
+  ) {
+    return;
+  }
+  saveState({ themeOverride: next.override, themeOverrideBase: next.base });
 }
 
 // ── Document chrome (base href, custom styles) ───────────────────────
@@ -159,7 +196,15 @@ function ensureCustomStyles(urls: string[]): void {
 
 // ── UI chrome ────────────────────────────────────────────────────────
 
+/** Floating chip bar in the top-right corner: theme switch, TOC toggle. */
+const toolbar = document.createElement('div');
+toolbar.id = 'preview-toolbar';
+document.body.append(toolbar);
+
+const themeToggle = new ThemeToggle(toolbar, toggleTheme);
+
 const toc = new TocSidebar(
+  toolbar,
   (entry) => {
     const el = document.getElementById(entry.slug);
     if (el) {
@@ -178,12 +223,17 @@ installZoom(content, state.zoom ?? 1, (zoom) => {
   invalidateScrollMap();
 });
 
+// A restored override must land before the first paint; the host stamped the
+// *configured* theme onto <body> when it built the document.
+applyThemeClasses();
+
 // ── Updates ──────────────────────────────────────────────────────────
 
 function handleUpdate(msg: UpdateMessage): void {
   if (msg.seq <= lastSeq && !msg.reset) return;
   lastSeq = msg.seq;
   settings = msg.settings;
+  reconcileThemeOverride(settings.theme);
 
   ensureBase(msg.baseHref);
   ensureCustomStyles(msg.customStyles);
@@ -283,6 +333,9 @@ window.addEventListener('message', (event) => {
       if (settings?.scrollSync) scrollToLine(msg.line, msg.ratio);
       break;
     case 'theme':
+      // Only matters while following the editor, but the switch's icon tracks
+      // whatever the page actually shows.
+      applyThemeClasses();
       rerenderAllMermaid();
       break;
     case 'noEngine':
