@@ -578,10 +578,10 @@ vscode-extensions/
 │   ├── askama-templates/
 │   ├── base64-tools/
 │   ├── gitignore-generator/
-│   ├── markdown-live-preview/
+│   ├── markdown-preview-ultra/
 │   └── wgsl-shader/
 └── docs/rfc/
-    ├── 001-markdown-live-preview-editor.md
+    ├── 001-markdown-preview-ultra-editor.md
     └── 002-proto3-language-server.md   ← this doc
 ```
 

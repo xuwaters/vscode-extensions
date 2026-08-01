@@ -5,6 +5,10 @@ body {
   padding: 0;
 }
 
+:root {
+  --toc-width: 240px;
+}
+
 body {
   background: var(--vscode-editor-background);
   color: var(--vscode-editor-foreground);
@@ -248,7 +252,7 @@ body {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 240px;
+  width: var(--toc-width);
   overflow-y: auto;
   z-index: 20;
   padding: 40px 12px 24px;
@@ -261,7 +265,19 @@ body {
 
 #toc-sidebar.visible { transform: translateX(0); }
 
-body.toc-open .markdown-preview { margin-right: 240px; }
+/*
+ * Reserve the sidebar strip on the page box so the column keeps centring
+ * itself (`margin: 0 auto`) in whatever space is left — a plain
+ * `margin-right` on the column would cancel only its right `auto` and slide
+ * it toward the sidebar. Past 1380px (900px column plus a sidebar-wide
+ * gutter on each side) the sidebar already clears the column, so nothing
+ * moves at all when it opens.
+ */
+body.toc-open { padding-right: var(--toc-width); }
+
+@media (min-width: 1380px) {
+  body.toc-open { padding-right: 0; }
+}
 
 #toc-sidebar .toc-heading {
   font-size: 0.75em;

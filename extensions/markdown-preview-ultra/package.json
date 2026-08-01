@@ -1,8 +1,8 @@
 {
-  "name": "wx-vsce-markdown-live-preview",
-  "displayName": "Markdown Preview",
+  "name": "wx-vsce-markdown-preview-ultra",
+  "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -16,89 +16,89 @@
   "contributes": {
     "commands": [
       {
-        "command": "markdownLivePreview.showPreview",
+        "command": "markdownPreviewUltra.showPreview",
         "title": "Open Preview",
-        "category": "Markdown Preview",
+        "category": "Markdown Preview Ultra",
         "icon": "$(open-preview)"
       },
       {
-        "command": "markdownLivePreview.showPreviewToSide",
+        "command": "markdownPreviewUltra.showPreviewToSide",
         "title": "Open Preview to the Side",
-        "category": "Markdown Preview",
+        "category": "Markdown Preview Ultra",
         "icon": "$(open-preview)"
       },
       {
-        "command": "markdownLivePreview.toggleFocus",
+        "command": "markdownPreviewUltra.toggleFocus",
         "title": "Toggle Focus Between Editor and Preview",
-        "category": "Markdown Preview",
+        "category": "Markdown Preview Ultra",
         "icon": "$(eye)"
       },
       {
-        "command": "markdownLivePreview.togglePreviewLock",
+        "command": "markdownPreviewUltra.togglePreviewLock",
         "title": "Toggle Preview Lock (Follow Active Editor)",
-        "category": "Markdown Preview",
+        "category": "Markdown Preview Ultra",
         "icon": "$(lock)"
       },
       {
-        "command": "markdownLivePreview.cycleMode",
+        "command": "markdownPreviewUltra.cycleMode",
         "title": "Cycle View Mode (Edit / Split / Preview)",
-        "category": "Markdown Preview",
+        "category": "Markdown Preview Ultra",
         "icon": "$(layout)"
       },
       {
-        "command": "markdownLivePreview.switchMode",
+        "command": "markdownPreviewUltra.switchMode",
         "title": "Switch View Mode…",
-        "category": "Markdown Preview",
+        "category": "Markdown Preview Ultra",
         "icon": "$(layout)"
       }
     ],
     "menus": {
       "commandPalette": [
         {
-          "command": "markdownLivePreview.showPreview",
+          "command": "markdownPreviewUltra.showPreview",
           "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx"
         },
         {
-          "command": "markdownLivePreview.showPreviewToSide",
+          "command": "markdownPreviewUltra.showPreviewToSide",
           "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx"
         },
         {
-          "command": "markdownLivePreview.toggleFocus",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownLivePreview.previewVisible"
+          "command": "markdownPreviewUltra.toggleFocus",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
         },
         {
-          "command": "markdownLivePreview.togglePreviewLock",
-          "when": "markdownLivePreview.previewVisible"
+          "command": "markdownPreviewUltra.togglePreviewLock",
+          "when": "markdownPreviewUltra.previewVisible"
         },
         {
-          "command": "markdownLivePreview.cycleMode",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownLivePreview.previewVisible"
+          "command": "markdownPreviewUltra.cycleMode",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
         },
         {
-          "command": "markdownLivePreview.switchMode",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownLivePreview.previewVisible"
+          "command": "markdownPreviewUltra.switchMode",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
         }
       ],
       "editor/title": [
         {
-          "command": "markdownLivePreview.showPreviewToSide",
-          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx) && !markdownLivePreview.previewVisible",
+          "command": "markdownPreviewUltra.showPreviewToSide",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx) && !markdownPreviewUltra.previewVisible",
           "group": "navigation"
         },
         {
-          "command": "markdownLivePreview.toggleFocus",
-          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx) && markdownLivePreview.previewVisible",
+          "command": "markdownPreviewUltra.toggleFocus",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx) && markdownPreviewUltra.previewVisible",
           "group": "navigation"
         },
         {
-          "command": "markdownLivePreview.togglePreviewLock",
-          "when": "activeWebviewPanelId == markdownLivePreview.preview",
+          "command": "markdownPreviewUltra.togglePreviewLock",
+          "when": "activeWebviewPanelId == markdownPreviewUltra.preview",
           "group": "navigation"
         }
       ],
       "explorer/context": [
         {
-          "command": "markdownLivePreview.showPreview",
+          "command": "markdownPreviewUltra.showPreview",
           "when": "resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx",
           "group": "navigation"
         }
@@ -106,50 +106,50 @@
     },
     "keybindings": [
       {
-        "command": "markdownLivePreview.showPreviewToSide",
+        "command": "markdownPreviewUltra.showPreviewToSide",
         "key": "ctrl+k v",
         "mac": "cmd+k v",
         "when": "editorLangId == markdown || editorLangId == mdx"
       },
       {
-        "command": "markdownLivePreview.showPreview",
+        "command": "markdownPreviewUltra.showPreview",
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
         "when": "editorLangId == markdown || editorLangId == mdx"
       },
       {
-        "command": "markdownLivePreview.toggleFocus",
+        "command": "markdownPreviewUltra.toggleFocus",
         "key": "ctrl+k ctrl+v",
         "mac": "cmd+k cmd+v",
-        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownLivePreview.preview"
+        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview"
       },
       {
-        "command": "markdownLivePreview.togglePreviewLock",
+        "command": "markdownPreviewUltra.togglePreviewLock",
         "key": "ctrl+k ctrl+l",
         "mac": "cmd+k cmd+l",
-        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownLivePreview.preview"
+        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview"
       },
       {
-        "command": "markdownLivePreview.cycleMode",
+        "command": "markdownPreviewUltra.cycleMode",
         "key": "ctrl+k ctrl+m",
         "mac": "cmd+k cmd+m",
-        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownLivePreview.preview"
+        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview"
       }
     ],
     "configuration": {
-      "title": "Markdown Preview",
+      "title": "Markdown Preview Ultra",
       "properties": {
-        "markdownLivePreview.scrollSync": {
+        "markdownPreviewUltra.scrollSync": {
           "type": "boolean",
           "default": true,
           "description": "Two-way scroll sync between the editor and the preview."
         },
-        "markdownLivePreview.lockPreviewGroup": {
+        "markdownPreviewUltra.lockPreviewGroup": {
           "type": "boolean",
           "default": true,
           "description": "Lock the editor group the side preview opens in, so newly-opened files land in the main group instead of replacing the preview."
         },
-        "markdownLivePreview.defaultMode": {
+        "markdownPreviewUltra.defaultMode": {
           "type": "string",
           "enum": [
             "split",
@@ -158,37 +158,37 @@
           "default": "split",
           "description": "View mode used when opening a preview without an explicit placement."
         },
-        "markdownLivePreview.breaks": {
+        "markdownPreviewUltra.breaks": {
           "type": "boolean",
           "default": false,
           "description": "Render a single newline inside a paragraph as a line break."
         },
-        "markdownLivePreview.linkify": {
+        "markdownPreviewUltra.linkify": {
           "type": "boolean",
           "default": true,
           "description": "Automatically turn bare URLs into clickable links."
         },
-        "markdownLivePreview.typographer": {
+        "markdownPreviewUltra.typographer": {
           "type": "boolean",
           "default": false,
           "description": "Smart punctuation: curly quotes, dashes, and ellipses."
         },
-        "markdownLivePreview.html.enabled": {
+        "markdownPreviewUltra.html.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Render raw HTML in the document (always sanitized). When disabled, raw HTML is shown escaped."
         },
-        "markdownLivePreview.math.enabled": {
+        "markdownPreviewUltra.math.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Render LaTeX math expressions ($inline$ and $$display$$) via KaTeX."
         },
-        "markdownLivePreview.mermaid.enabled": {
+        "markdownPreviewUltra.mermaid.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Render ```mermaid fenced code blocks as diagrams."
         },
-        "markdownLivePreview.mermaid.theme": {
+        "markdownPreviewUltra.mermaid.theme": {
           "type": "string",
           "enum": [
             "auto",
@@ -200,17 +200,17 @@
           "default": "auto",
           "description": "Mermaid diagram theme. `auto` follows the preview theme."
         },
-        "markdownLivePreview.alerts.enabled": {
+        "markdownPreviewUltra.alerts.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Render GitHub-style alerts (`> [!NOTE]`, `> [!WARNING]`, …)."
         },
-        "markdownLivePreview.emoji.enabled": {
+        "markdownPreviewUltra.emoji.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Render `:shortcode:` emoji as Unicode."
         },
-        "markdownLivePreview.frontmatter.display": {
+        "markdownPreviewUltra.frontmatter.display": {
           "type": "string",
           "enum": [
             "card",
@@ -219,7 +219,7 @@
           "default": "card",
           "description": "How to show leading YAML frontmatter."
         },
-        "markdownLivePreview.theme": {
+        "markdownPreviewUltra.theme": {
           "type": "string",
           "enum": [
             "auto",
@@ -229,7 +229,7 @@
           "default": "auto",
           "description": "Preview theme. `auto` follows the VSCode color theme."
         },
-        "markdownLivePreview.customCss": {
+        "markdownPreviewUltra.customCss": {
           "type": "array",
           "items": {
             "type": "string"
@@ -237,17 +237,17 @@
           "default": [],
           "description": "Workspace-relative CSS files appended to the preview, in order."
         },
-        "markdownLivePreview.toc.visible": {
+        "markdownPreviewUltra.toc.visible": {
           "type": "boolean",
           "default": false,
           "description": "Show the table-of-contents sidebar by default."
         },
-        "markdownLivePreview.taskLists.toggleFromPreview": {
+        "markdownPreviewUltra.taskLists.toggleFromPreview": {
           "type": "boolean",
           "default": false,
           "description": "Allow clicking task-list checkboxes in the preview to toggle `[ ]`/`[x]` in the source file. This is the extension's only write path; off by default."
         },
-        "markdownLivePreview.wikiLinks.enabled": {
+        "markdownPreviewUltra.wikiLinks.enabled": {
           "type": "boolean",
           "default": false,
           "description": "Render `[[wiki links]]` as relative links (rendering only, no resolution)."
@@ -257,7 +257,7 @@
   },
   "scripts": {
     "build": "tsdown",
-    "build:wasm": "cd ../../crates/markdown-engine && wasm-pack build --target nodejs --out-dir ../../extensions/markdown-live-preview/wasm --out-name markdown_engine",
+    "build:wasm": "cd ../../crates/markdown-engine && wasm-pack build --target nodejs --out-dir ../../extensions/markdown-preview-ultra/wasm --out-name markdown_engine",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",
     "watch": "tsdown --watch",

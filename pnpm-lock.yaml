@@ -255,7 +255,7 @@ importers:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
 
-  extensions/markdown-live-preview:
+  extensions/markdown-preview-ultra:
     dependencies:
       highlight.js:
         specifier: ^11.9.0

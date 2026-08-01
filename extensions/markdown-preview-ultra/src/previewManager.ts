@@ -37,8 +37,8 @@ interface PanelState {
 }
 
 /** Context keys that drive the editor-title and preview-toolbar buttons. */
-const CTX_VISIBLE = 'markdownLivePreview.previewVisible';
-const CTX_LOCKED = 'markdownLivePreview.previewLocked';
+const CTX_VISIBLE = 'markdownPreviewUltra.previewVisible';
+const CTX_LOCKED = 'markdownPreviewUltra.previewLocked';
 
 const DEBOUNCE_MS = 150;
 
@@ -55,7 +55,7 @@ const TASK_LINE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[[ xX]\]/;
  * the main group instead of clobbering the preview.
  */
 export class PreviewManager implements vscode.Disposable {
-  public static readonly viewType = 'markdownLivePreview.preview';
+  public static readonly viewType = 'markdownPreviewUltra.preview';
 
   private preview: Preview | undefined;
   private readonly engine: EngineBridge;
@@ -74,7 +74,7 @@ export class PreviewManager implements vscode.Disposable {
         this.onDocumentChanged(e.document),
       ),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('markdownLivePreview')) {
+        if (e.affectsConfiguration('markdownPreviewUltra')) {
           this.refresh();
         }
       }),
@@ -168,7 +168,7 @@ export class PreviewManager implements vscode.Disposable {
     const editor = vscode.window.activeTextEditor;
     if (canPreview(editor?.document)) {
       const mode = vscode.workspace
-        .getConfiguration('markdownLivePreview')
+        .getConfiguration('markdownPreviewUltra')
         .get<string>('defaultMode', 'split');
       this.showPreview(
         editor.document,
@@ -213,7 +213,7 @@ export class PreviewManager implements vscode.Disposable {
     const lockGroup =
       toSide &&
       vscode.workspace
-        .getConfiguration('markdownLivePreview')
+        .getConfiguration('markdownPreviewUltra')
         .get<boolean>('lockPreviewGroup', true);
 
     const panel = vscode.window.createWebviewPanel(
@@ -387,7 +387,7 @@ export class PreviewManager implements vscode.Disposable {
         break;
       case 'error':
         console.error(
-          `markdown-live-preview webview error [${msg.context}]: ${msg.message}`,
+          `markdown-preview-ultra webview error [${msg.context}]: ${msg.message}`,
         );
         // Escape hatch: rebuild from a clean baseline.
         this.forceReset(preview);
@@ -517,7 +517,7 @@ export class PreviewManager implements vscode.Disposable {
     preview: Preview,
     msg: ToggleTaskMessage,
   ): Promise<void> {
-    const cfg = vscode.workspace.getConfiguration('markdownLivePreview');
+    const cfg = vscode.workspace.getConfiguration('markdownPreviewUltra');
     if (!cfg.get<boolean>('taskLists.toggleFromPreview', false)) return;
     const document = preview.document;
     if (msg.line >= document.lineCount) return;
@@ -562,7 +562,7 @@ export class PreviewManager implements vscode.Disposable {
   // ── Settings ───────────────────────────────────────────────────────
 
   private readEngineOptions(): EngineOptions {
-    const cfg = vscode.workspace.getConfiguration('markdownLivePreview');
+    const cfg = vscode.workspace.getConfiguration('markdownPreviewUltra');
     return {
       breaks: cfg.get<boolean>('breaks', false),
       linkify: cfg.get<boolean>('linkify', true),
@@ -577,7 +577,7 @@ export class PreviewManager implements vscode.Disposable {
   }
 
   private readSettings(): PreviewSettings {
-    const cfg = vscode.workspace.getConfiguration('markdownLivePreview');
+    const cfg = vscode.workspace.getConfiguration('markdownPreviewUltra');
     return {
       scrollSync: cfg.get<boolean>('scrollSync', true),
       math: cfg.get<boolean>('math.enabled', true),
@@ -612,7 +612,7 @@ export class PreviewManager implements vscode.Disposable {
     document: vscode.TextDocument,
   ): string[] {
     const files = vscode.workspace
-      .getConfiguration('markdownLivePreview')
+      .getConfiguration('markdownPreviewUltra')
       .get<string[]>('customCss', []);
     if (files.length === 0) return [];
     const root =
@@ -689,7 +689,7 @@ export class PreviewManager implements vscode.Disposable {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <link rel="stylesheet" href="${styleUri}">
-  <title>Markdown Preview</title>
+  <title>Markdown Preview Ultra</title>
 </head>
 <body>
   <div id="frontmatter"></div>

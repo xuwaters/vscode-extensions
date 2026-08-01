@@ -267,7 +267,7 @@ function showNoEngine(): void {
     <h2>Preview engine not built</h2>
     <p>The WASM rendering engine is missing. Run
     <code>pnpm run build:wasm</code> in
-    <code>extensions/markdown-live-preview</code>, then reload the window.</p>
+    <code>extensions/markdown-preview-ultra</code>, then reload the window.</p>
   </div>`;
 }
 

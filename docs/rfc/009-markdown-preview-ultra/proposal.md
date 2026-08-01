@@ -2,12 +2,12 @@
 
 **Status**: Implemented (Phases 1–3; Phase 4 task-checkbox toggle shipped as opt-in)
 **Date**: 2026-08-01
-**Extension name**: `wx-vsce-markdown-live-preview`
+**Extension name**: `wx-vsce-markdown-preview-ultra`
 **Rust crate**: `crates/markdown-engine` (new)
-**Supersedes**: [RFC 001](../_archive/001-markdown-live-preview-editor.md) — the Obsidian-style *editable* live preview. This RFC drops in-place editing entirely; the preview is a read-only renderer.
+**Supersedes**: [RFC 001](../_archive/001-markdown-preview-ultra-editor.md) — the Obsidian-style *editable* live preview. This RFC drops in-place editing entirely; the preview is a read-only renderer.
 **Reference**: `temp/vscode-markdown-preview-enhanced` (Markdown Preview Enhanced 0.8.30, backed by `crossnote@0.9.31`)
 **Affected components**:
-  - `extensions/markdown-live-preview` (host + webview, rewrite)
+  - `extensions/markdown-preview-ultra` (host + webview, rewrite)
   - `crates/markdown-engine` (new)
 
 ---
@@ -16,7 +16,7 @@
 
 The current extension (v0.3.1, ~1,050 LOC) works, but it is a first draft with structural limits:
 
-1. **Everything renders in the webview.** The host ships the full document text on every debounced change and the webview rebuilds the entire DOM via `innerHTML` ([index.ts:49](extensions/markdown-live-preview/webview/index.ts#L49)). Every keystroke re-parses the whole document in the UI thread, discards all rendered state (mermaid SVGs survive only via a string cache, images may re-fetch, KaTeX re-typesets), and causes visible flicker plus scroll jitter on large documents.
+1. **Everything renders in the webview.** The host ships the full document text on every debounced change and the webview rebuilds the entire DOM via `innerHTML` ([index.ts:49](extensions/markdown-preview-ultra/webview/index.ts#L49)). Every keystroke re-parses the whole document in the UI thread, discards all rendered state (mermaid SVGs survive only via a string cache, images may re-fetch, KaTeX re-typesets), and causes visible flicker plus scroll jitter on large documents.
 2. **Scroll sync is one-way.** Editor → preview works via `data-line` anchors; scrolling the preview does nothing to the editor, and there is no way to jump from a rendered block back to its source line.
 3. **The feature set is a fraction of what a daily-driver preview needs.** Compared to Markdown Preview Enhanced (MPE) we lack: a TOC, heading anchors, GitHub-style alerts/admonitions, emoji shortcodes, preview themes beyond "inherit VSCode colors", copy-code buttons, an image lightbox, zoom, and two-way navigation.
 4. **The parsing stack is a pile of JS plugins.** markdown-it + five plugins + js-yaml, each with its own quirks, all bundled into the webview. There is no single place where "the document model" lives, which is exactly what made RFC 001's incremental-rendering ambitions hard to land.
@@ -31,7 +31,7 @@ This repo already has the right pattern for that: nine extensions ship a Rust cr
 
 1. **Preview only.** The extension never edits the markdown document. (One narrowly-scoped, opt-in exception is discussed in §7.5: clicking a task-list checkbox.)
 2. **MPE-grade rendering** for the features that matter day-to-day: KaTeX math, mermaid diagrams, syntax-highlighted code fences, GitHub-style alerts, emoji, footnotes, task lists, tables, front matter, TOC, heading anchors, dark/light theming.
-3. **Rust engine as a WASM module** in `crates/markdown-engine`, following the repo's established build pipeline (`wasm-pack --target nodejs` → `extensions/markdown-live-preview/wasm/`, runtime `require` from the host).
+3. **Rust engine as a WASM module** in `crates/markdown-engine`, following the repo's established build pipeline (`wasm-pack --target nodejs` → `extensions/markdown-preview-ultra/wasm/`, runtime `require` from the host).
 4. **Incremental updates.** Keystroke-to-paint should touch only the blocks that changed. No full-DOM replacement, no flicker, no lost diagram/image state.
 5. **Three view modes with frictionless switching**: Edit (editor only), Split (editor + preview side-by-side), Preview (preview occupies the editor's column). One command cycles them; a status-bar item shows and switches the mode.
 6. **Two-way scroll sync** plus click-to-jump navigation in both directions.
@@ -72,7 +72,7 @@ This repo already has the right pattern for that: nine extensions ship a Rust cr
 | `@import` / `![[transclusion]]` | Future (§12) | Needs file-graph watching; keep the engine hook in mind, don't build now |
 | Wiki-link syntax rendering | Optional, default off (§12) | comrak has it; resolution stays trivial (relative path) |
 | Code chunks, export, presentation, backlinks, graph, image upload, `#tag` | Drop | Out of scope per §2 |
-| Single-preview-follows-editor + lock | **Keep** | Already implemented and good ([previewManager.ts:41](extensions/markdown-live-preview/src/previewManager.ts#L41)) |
+| Single-preview-follows-editor + lock | **Keep** | Already implemented and good ([previewManager.ts:41](extensions/markdown-preview-ultra/src/previewManager.ts#L41)) |
 | Multiple previews / "Previews Only" editor association | Drop | MPE's global `editorAssociations` mutation is exactly the kind of side effect we avoid |
 
 ## 4. High-Level Architecture
@@ -132,7 +132,7 @@ After parsing, one AST walk performs:
 1. **Mermaid fences** → replaced with an engine-generated container:
    `<div class="mermaid-container" data-sourcepos="…" data-mermaid-source="<urlencoded>">`. The webview owns actual SVG rendering (§7.2).
 2. **Math spans** — comrak's math extension already emits `<span data-math-style="inline|display">` holding raw TeX; nothing to do beyond keeping the attribute through sanitization.
-3. **Relative URL rewriting** — image `src` and link `href` classification (external / anchor / relative). Relative image sources are joined against the `baseHref` render option (the webview-resource URI of the document's directory) exactly as [markdown.ts:146](extensions/markdown-live-preview/webview/markdown.ts#L146) does in JS today. Relative link hrefs are left as-is and handled by the click→host `openLink` path.
+3. **Relative URL rewriting** — image `src` and link `href` classification (external / anchor / relative). Relative image sources are joined against the `baseHref` render option (the webview-resource URI of the document's directory) exactly as [markdown.ts:146](extensions/markdown-preview-ultra/webview/markdown.ts#L146) does in JS today. Relative link hrefs are left as-is and handled by the click→host `openLink` path.
 4. **`[TOC]` marker** — a paragraph consisting solely of `[TOC]` becomes `<nav class="inline-toc">` rendered from the heading tree.
 
 ### 5.3 Per-block rendering and diffing
@@ -166,7 +166,7 @@ A typical keystroke produces `keep / replace(1) / keep` — one block crosses th
 
 Raw HTML from the *document* is sanitized in Rust with [ammonia](https://crates.io/crates/ammonia) during the AST walk — `HtmlBlock` / `HtmlInline` node contents pass through an allowlist (structural tags, `details/summary`, `kbd`, media tags with `https:`/`data:`/webview-resource sources; no scripts, no event handlers, no inline styles beyond a safe subset). Engine-*generated* HTML (mermaid containers, math spans, alert boxes) is trusted and bypasses the sanitizer, which is why sanitization must run before, not after, block rendering.
 
-Defense in depth, in order: Rust sanitizer → webview CSP (`default-src 'none'`, nonce'd scripts — kept from the current implementation, [previewManager.ts:408](extensions/markdown-live-preview/src/previewManager.ts#L408)) → typed message validation (§6.3). MPE's CVE history (webview → host command dispatch with unvalidated `any[]` args; `eval` in diagram parsers) is the cautionary tale for why the webview is treated as untrusted even though we authored it.
+Defense in depth, in order: Rust sanitizer → webview CSP (`default-src 'none'`, nonce'd scripts — kept from the current implementation, [previewManager.ts:408](extensions/markdown-preview-ultra/src/previewManager.ts#L408)) → typed message validation (§6.3). MPE's CVE history (webview → host command dispatch with unvalidated `any[]` args; `eval` in diagram parsers) is the cautionary tale for why the webview is treated as untrusted even though we authored it.
 
 If ammonia's html5ever dependency proves too heavy for the WASM artifact, the fallback is comrak's built-in `escape`/tagfilter modes plus DOMPurify in the webview — noted as a risk (§14), not expected.
 
@@ -193,7 +193,7 @@ The host keeps one `Session` per previewed document (in practice one or two — 
 ### 5.6 TOC and front matter
 
 - Headings are collected during the transform walk into a tree with `level`, rendered `text`, GitHub-compatible `slug` (comrak's header-ID generator, so anchors match GitHub), and `line`. The same tree feeds the sidebar TOC, the inline `[TOC]` block, and heading-anchor links.
-- Front matter is extracted by comrak, parsed as YAML in Rust (`serde_yaml`), and returned as structured JSON. The webview renders the existing styled card ([frontmatter.css](extensions/markdown-live-preview/webview/styles/frontmatter.css)); `js-yaml` drops out of the webview bundle.
+- Front matter is extracted by comrak, parsed as YAML in Rust (`serde_yaml`), and returned as structured JSON. The webview renders the existing styled card ([frontmatter.css](extensions/markdown-preview-ultra/webview/styles/frontmatter.css)); `js-yaml` drops out of the webview bundle.
 
 ### 5.7 Crate layout and build
 
@@ -212,13 +212,13 @@ crates/markdown-engine/
 Build follows the workspace convention verbatim:
 
 ```jsonc
-// extensions/markdown-live-preview/package.json
-"build:wasm": "cd ../../crates/markdown-engine && wasm-pack build --target nodejs --out-dir ../../extensions/markdown-live-preview/wasm --out-name markdown_engine",
+// extensions/markdown-preview-ultra/package.json
+"build:wasm": "cd ../../crates/markdown-engine && wasm-pack build --target nodejs --out-dir ../../extensions/markdown-preview-ultra/wasm --out-name markdown_engine",
 "package":   "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
 "vscode:prepublish": "pnpm run build:wasm && tsdown --minify"
 ```
 
-Artifacts land in `extensions/markdown-live-preview/wasm/` (already covered by the root `.gitignore`'s `extensions/*/wasm/`), ship in the VSIX, and are `require`d at first preview open — not at activation — so activation cost stays near zero.
+Artifacts land in `extensions/markdown-preview-ultra/wasm/` (already covered by the root `.gitignore`'s `extensions/*/wasm/`), ship in the VSIX, and are `require`d at first preview open — not at activation — so activation cost stays near zero.
 
 ## 6. Extension Host
 
@@ -234,11 +234,11 @@ Three modes, one state machine, per the user-facing goal "edit / preview / side-
 
 New surface on top of the existing commands (which all stay):
 
-- **`markdownLivePreview.cycleMode`** — Edit → Split → Preview → Edit. Proposed keybinding `ctrl+k ctrl+m` / `cmd+k cmd+m`, joining the existing `ctrl+k ctrl+v` (focus toggle) and `ctrl+k ctrl+l` (lock) family. (Conflict check is an open question, §12.)
-- **`markdownLivePreview.switchMode`** — QuickPick of the three modes.
-- **Status-bar item** (visible while a markdown editor or the preview is active): `$(eye) Split` etc.; click opens the QuickPick. Backed by a `markdownLivePreview.mode` context key for menus.
+- **`markdownPreviewUltra.cycleMode`** — Edit → Split → Preview → Edit. Proposed keybinding `ctrl+k ctrl+m` / `cmd+k cmd+m`, joining the existing `ctrl+k ctrl+v` (focus toggle) and `ctrl+k ctrl+l` (lock) family. (Conflict check is an open question, §12.)
+- **`markdownPreviewUltra.switchMode`** — QuickPick of the three modes.
+- **Status-bar item** (visible while a markdown editor or the preview is active): `$(eye) Split` etc.; click opens the QuickPick. Backed by a `markdownPreviewUltra.mode` context key for menus.
 
-Mode transitions reuse the existing panel: Split→Preview moves the panel into the source column (`panel.reveal(sourceColumn)`); Preview→Edit hides the panel and focuses the editor; Edit→Split recreates/reveals beside with the group-lock behavior already implemented ([previewManager.ts:202](extensions/markdown-live-preview/src/previewManager.ts#L202)). Follow-active-editor and preview-lock semantics are unchanged.
+Mode transitions reuse the existing panel: Split→Preview moves the panel into the source column (`panel.reveal(sourceColumn)`); Preview→Edit hides the panel and focuses the editor; Edit→Split recreates/reveals beside with the group-lock behavior already implemented ([previewManager.ts:202](extensions/markdown-preview-ultra/src/previewManager.ts#L202)). Follow-active-editor and preview-lock semantics are unchanged.
 
 Two lifecycle upgrades:
 
@@ -257,7 +257,7 @@ Click-to-jump: **double-click any block** in the preview → `jumpToLine { line 
 
 ### 6.3 Message protocol
 
-Typed discriminated unions in `src/messages.ts`, imported by both sides (existing convention, [messages.ts](extensions/markdown-live-preview/src/messages.ts)), extended:
+Typed discriminated unions in `src/messages.ts`, imported by both sides (existing convention, [messages.ts](extensions/markdown-preview-ultra/src/messages.ts)), extended:
 
 ```typescript
 type HostToWebview =
@@ -280,7 +280,7 @@ Host-side handling validates the shape (a small hand-rolled guard per variant �
 
 ### 6.4 Configuration
 
-Curated surface (existing seven settings plus ten new, all under `markdownLivePreview.`):
+Curated surface (existing seven settings plus ten new, all under `markdownPreviewUltra.`):
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -311,9 +311,9 @@ The preview body is a flat list of top-level block elements. Applying a patch sc
 
 ### 7.2 Post-processors (changed blocks only)
 
-- **KaTeX**: `querySelectorAll('[data-math-style]')` within changed blocks; render with `throwOnError: false`; cache keyed by `style::tex` so unchanged formulas inside a replaced block still skip typesetting. KaTeX CSS + fonts keep the existing `copyKatexFonts` tsdown plugin ([tsdown.config.mts:16](extensions/markdown-live-preview/tsdown.config.mts#L16)).
-- **Mermaid**: keep the current lazy-import + SVG cache design ([mermaid.ts](extensions/markdown-live-preview/webview/mermaid.ts)) — it is already the right shape; only the container selector changes. Add a per-diagram render timeout with an inline error card (MPE uses 30 s) so one pathological diagram can't wedge the preview.
-- **highlight.js**: `common` bundle as today ([highlight.ts](extensions/markdown-live-preview/webview/highlight.ts)); applied per changed fence. Highlighting engine alternatives are §12.
+- **KaTeX**: `querySelectorAll('[data-math-style]')` within changed blocks; render with `throwOnError: false`; cache keyed by `style::tex` so unchanged formulas inside a replaced block still skip typesetting. KaTeX CSS + fonts keep the existing `copyKatexFonts` tsdown plugin ([tsdown.config.mts:16](extensions/markdown-preview-ultra/tsdown.config.mts#L16)).
+- **Mermaid**: keep the current lazy-import + SVG cache design ([mermaid.ts](extensions/markdown-preview-ultra/webview/mermaid.ts)) — it is already the right shape; only the container selector changes. Add a per-diagram render timeout with an inline error card (MPE uses 30 s) so one pathological diagram can't wedge the preview.
+- **highlight.js**: `common` bundle as today ([highlight.ts](extensions/markdown-preview-ultra/webview/highlight.ts)); applied per changed fence. Highlighting engine alternatives are §12.
 
 ### 7.3 UI chrome
 
@@ -339,7 +339,7 @@ Clicking a rendered checkbox is the single most-missed interaction in a read-onl
 ## 8. File Structure
 
 ```
-extensions/markdown-live-preview/
+extensions/markdown-preview-ultra/
   package.json              # commands, keybindings, settings per §6
   tsdown.config.mts         # host (cjs/node) + webview (esm/browser) entries, unchanged shape
   src/
@@ -386,7 +386,7 @@ Debounce drops from 200 ms to ~150 ms (tunable) since renders are cheaper and pa
 2. **CSP**: keep the current strict policy — `default-src 'none'`, nonce'd module scripts, images restricted to `webview.cspSource https: data:`. No CDN script loads (MPE loads ZenUML/MathJax from jsDelivr; we load nothing remote).
 3. **Typed, validated messages** (§6.3): every webview→host message shape-checked; the only state-mutating message (`toggleTask`) is re-validated against document content and gated by a default-off setting.
 4. **No execution surface**: no code chunks, no external binaries, no `config.js`/`parser.js`-style user scripts, no shell-outs.
-5. **Link handling** stays host-side (`openLink`) with the existing scheme allowlist (`https?|mailto`) and workspace-relative resolution ([previewManager.ts:313](extensions/markdown-live-preview/src/previewManager.ts#L313)).
+5. **Link handling** stays host-side (`openLink`) with the existing scheme allowlist (`https?|mailto`) and workspace-relative resolution ([previewManager.ts:313](extensions/markdown-preview-ultra/src/previewManager.ts#L313)).
 
 ## 11. Testing
 
@@ -438,6 +438,6 @@ Presentation mode, export of any kind, notebook features — future RFCs if ever
 
 ## 15. Summary
 
-Rewrite `markdown-live-preview` as a thin VSCode host + thin webview around a new `crates/markdown-engine` WASM module. The engine (comrak-based) owns parsing, GFM + alerts + emoji + math-span + mermaid-fence transformation, Rust-side HTML sanitization, GitHub-compatible TOC extraction, and block-level diffing that turns every keystroke into a minimal DOM patch. The webview keeps only what must run in a browser — KaTeX, mermaid, highlight.js — plus small self-written chrome: TOC sidebar, copy-code, lightbox, zoom. The host gains three cleanly-switchable view modes (Edit / Split / Preview) with a status-bar switcher, true two-way scroll sync, and click-to-source navigation.
+Rewrite `markdown-preview-ultra` as a thin VSCode host + thin webview around a new `crates/markdown-engine` WASM module. The engine (comrak-based) owns parsing, GFM + alerts + emoji + math-span + mermaid-fence transformation, Rust-side HTML sanitization, GitHub-compatible TOC extraction, and block-level diffing that turns every keystroke into a minimal DOM patch. The webview keeps only what must run in a browser — KaTeX, mermaid, highlight.js — plus small self-written chrome: TOC sidebar, copy-code, lightbox, zoom. The host gains three cleanly-switchable view modes (Edit / Split / Preview) with a status-bar switcher, true two-way scroll sync, and click-to-source navigation.
 
 Relative to MPE this drops export, code execution, presentations, notebooks, and external diagram services — and with them ~85 dependencies, a 4.2 MB React/Monaco webview bundle, and an attack surface that has needed repeated CVE patching — while adopting its genuinely valuable preview features on top of this repo's standard Rust/WASM extension architecture.

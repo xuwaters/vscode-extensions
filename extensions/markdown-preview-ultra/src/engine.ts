@@ -60,7 +60,7 @@ export class EngineBridge {
     const entry = path.join(this.extensionPath, 'wasm', 'markdown_engine.js');
     if (!fs.existsSync(entry)) {
       console.warn(
-        'markdown-engine WASM bundle not found. Run `pnpm run build:wasm` in extensions/markdown-live-preview.',
+        'markdown-engine WASM bundle not found. Run `pnpm run build:wasm` in extensions/markdown-preview-ultra.',
       );
       this.module = null;
       return null;

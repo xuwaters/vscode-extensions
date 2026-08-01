@@ -2,7 +2,7 @@
 
 **Status**: Draft  
 **Date**: 2026-04-15  
-**Extension name**: `wx-vsce-markdown-live-preview`
+**Extension name**: `wx-vsce-markdown-preview-ultra`
 
 ---
 
@@ -83,7 +83,7 @@ Responsibilities:
 ```typescript
 // Registration in extension.ts
 vscode.window.registerCustomEditorProvider(
-  'markdownLivePreview.editor',
+  'markdownPreviewUltra.editor',
   new LivePreviewEditorProvider(context),
   {
     webviewOptions: { retainContextWhenHidden: true },
@@ -92,8 +92,8 @@ vscode.window.registerCustomEditorProvider(
 );
 
 // Mode cycling command (Source → Live Preview → Read → Source)
-vscode.commands.registerCommand('markdownLivePreview.cycleMode', () => { ... });
-vscode.commands.registerCommand('markdownLivePreview.setMode', (mode: EditorMode) => { ... });
+vscode.commands.registerCommand('markdownPreviewUltra.cycleMode', () => { ... });
+vscode.commands.registerCommand('markdownPreviewUltra.setMode', (mode: EditorMode) => { ... });
 ```
 
 #### Message Protocol (Host ↔ Webview)
@@ -562,16 +562,16 @@ The webview must match VSCode's current color theme. We achieve this by:
 ### 5.1 Opening a File
 
 1. User right-clicks a `.md` / `.mdx` file → "Open With..." → "Markdown Live Preview".
-2. Or: User runs command `markdownLivePreview.open` from the command palette.
+2. Or: User runs command `markdownPreviewUltra.open` from the command palette.
 3. The `CustomTextEditorProvider` creates a webview, sends `doc:init` with the configured default mode.
 4. The webview parses the document, builds the block map, and renders using the active mode's renderer.
-5. Default mode is configurable (`markdownLivePreview.defaultMode`), defaults to `live-preview`.
+5. Default mode is configurable (`markdownPreviewUltra.defaultMode`), defaults to `live-preview`.
 
 ### 5.2 Switching Modes
 
 Users can switch modes via:
 - **Command palette**: "Markdown Live Preview: Switch to Source/Read/Live Preview Mode"
-- **Cycle command**: `markdownLivePreview.cycleMode` (Source → Live Preview → Read → Source)
+- **Cycle command**: `markdownPreviewUltra.cycleMode` (Source → Live Preview → Read → Source)
 - **Status bar button**: Shows the current mode (e.g., "MD: Live Preview"), click to cycle.
 - **Keyboard shortcut**: `Ctrl+Shift+M` / `Cmd+Shift+M` (configurable).
 
@@ -635,7 +635,7 @@ If another extension or process modifies the file:
 ## 6. File Structure
 
 ```
-extensions/markdown-live-preview/
+extensions/markdown-preview-ultra/
 ├── package.json
 ├── tsconfig.json
 ├── tsdown.config.mts
@@ -718,7 +718,7 @@ export default defineConfig([
 
 ```jsonc
 {
-  "name": "wx-vsce-markdown-live-preview",
+  "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Live Preview",
   "description": "Obsidian-style live preview editor for Markdown files with source, read, and live preview modes",
   "version": "0.1.0",
@@ -731,7 +731,7 @@ export default defineConfig([
   "contributes": {
     "customEditors": [
       {
-        "viewType": "markdownLivePreview.editor",
+        "viewType": "markdownPreviewUltra.editor",
         "displayName": "Markdown Live Preview",
         "selector": [
           { "filenamePattern": "*.md" },
@@ -743,43 +743,43 @@ export default defineConfig([
     ],
     "commands": [
       {
-        "command": "markdownLivePreview.open",
+        "command": "markdownPreviewUltra.open",
         "title": "Open in Live Preview",
         "category": "Markdown Live Preview"
       },
       {
-        "command": "markdownLivePreview.cycleMode",
+        "command": "markdownPreviewUltra.cycleMode",
         "title": "Cycle Editor Mode (Source → Live Preview → Read)",
         "category": "Markdown Live Preview"
       },
       {
-        "command": "markdownLivePreview.setModeSource",
+        "command": "markdownPreviewUltra.setModeSource",
         "title": "Switch to Source Mode",
         "category": "Markdown Live Preview"
       },
       {
-        "command": "markdownLivePreview.setModeRead",
+        "command": "markdownPreviewUltra.setModeRead",
         "title": "Switch to Read Mode",
         "category": "Markdown Live Preview"
       },
       {
-        "command": "markdownLivePreview.setModeLivePreview",
+        "command": "markdownPreviewUltra.setModeLivePreview",
         "title": "Switch to Live Preview Mode",
         "category": "Markdown Live Preview"
       }
     ],
     "keybindings": [
       {
-        "command": "markdownLivePreview.cycleMode",
+        "command": "markdownPreviewUltra.cycleMode",
         "key": "ctrl+shift+m",
         "mac": "cmd+shift+m",
-        "when": "activeCustomEditorId == 'markdownLivePreview.editor'"
+        "when": "activeCustomEditorId == 'markdownPreviewUltra.editor'"
       }
     ],
     "configuration": {
       "title": "Markdown Live Preview",
       "properties": {
-        "markdownLivePreview.defaultMode": {
+        "markdownPreviewUltra.defaultMode": {
           "type": "string",
           "default": "live-preview",
           "enum": ["source", "read", "live-preview"],
@@ -790,23 +790,23 @@ export default defineConfig([
           ],
           "description": "Default mode when opening a markdown file"
         },
-        "markdownLivePreview.codeBlockTheme": {
+        "markdownPreviewUltra.codeBlockTheme": {
           "type": "string",
           "default": "auto",
           "enum": ["auto", "github", "monokai"],
           "description": "Syntax highlighting theme for code blocks"
         },
-        "markdownLivePreview.mermaid.enabled": {
+        "markdownPreviewUltra.mermaid.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Render mermaid diagrams in preview and read modes"
         },
-        "markdownLivePreview.math.enabled": {
+        "markdownPreviewUltra.math.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Render LaTeX math expressions ($inline$ and $$display$$) via KaTeX"
         },
-        "markdownLivePreview.frontmatter.enabled": {
+        "markdownPreviewUltra.frontmatter.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Render YAML frontmatter as a styled metadata card"
@@ -894,15 +894,15 @@ Version numbers from `TextDocument.version` are used to detect staleness.
 
 1. **Block granularity** (not line granularity): In Live Preview mode the editing unit is a _block_ -- the entire paragraph, heading, code fence, list, table, etc. enters edit mode when clicked. This avoids splitting multi-line constructs (tables, fenced code blocks, nested lists) at awkward line boundaries and matches the natural unit of markdown structure.
 
-2. **Frontmatter**: Rendered as a styled metadata card (key-value `<dl>` table) in preview/read modes. Raw YAML with `---` delimiters shown in edit mode. Controlled by `markdownLivePreview.frontmatter.enabled`.
+2. **Frontmatter**: Rendered as a styled metadata card (key-value `<dl>` table) in preview/read modes. Raw YAML with `---` delimiters shown in edit mode. Controlled by `markdownPreviewUltra.frontmatter.enabled`.
 
-3. **Mermaid diagrams**: Supported from the start. Fenced code blocks with `mermaid` language tag render as SVGs. Controlled by `markdownLivePreview.mermaid.enabled`. Mermaid library is lazy-loaded on first use.
+3. **Mermaid diagrams**: Supported from the start. Fenced code blocks with `mermaid` language tag render as SVGs. Controlled by `markdownPreviewUltra.mermaid.enabled`. Mermaid library is lazy-loaded on first use.
 
 4. **MDX support**: `.mdx` files are supported. Import/export statements and JSX components (`<UpperCase>`) are detected and rendered as styled placeholder cards. Markdown children within MDX components are parsed and rendered normally.
 
 5. **Three editor modes**: Source (full CodeMirror), Read (full HTML, no editing), and Live Preview (hybrid). Switchable via command, keybinding, or status bar.
 
-6. **Math / LaTeX**: Supported from the start via KaTeX. Inline math (`$...$`) and display math (`$$...$$`) are rendered in preview/read modes. Uses `markdown-it-texmath` for parsing and KaTeX for rendering. Controlled by `markdownLivePreview.math.enabled`.
+6. **Math / LaTeX**: Supported from the start via KaTeX. Inline math (`$...$`) and display math (`$$...$$`) are rendered in preview/read modes. Uses `markdown-it-texmath` for parsing and KaTeX for rendering. Controlled by `markdownPreviewUltra.math.enabled`.
 
 ## 14. Open Questions
 

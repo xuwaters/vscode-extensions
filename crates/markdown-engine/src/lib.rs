@@ -1,4 +1,4 @@
-//! Markdown rendering engine for the markdown-live-preview VSCode extension.
+//! Markdown rendering engine for the markdown-preview-ultra VSCode extension.
 //!
 //! Pipeline per render: parse (comrak, sourcepos) → sanitize document-supplied
 //! HTML (ammonia) → transform (`[TOC]` markers) → per-top-level-block HTML

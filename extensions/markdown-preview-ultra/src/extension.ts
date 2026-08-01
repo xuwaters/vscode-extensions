@@ -19,23 +19,23 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('markdownLivePreview.showPreview', () =>
+    vscode.commands.registerCommand('markdownPreviewUltra.showPreview', () =>
       open(vscode.ViewColumn.Active),
     ),
-    vscode.commands.registerCommand('markdownLivePreview.showPreviewToSide', () =>
+    vscode.commands.registerCommand('markdownPreviewUltra.showPreviewToSide', () =>
       open(vscode.ViewColumn.Beside),
     ),
-    vscode.commands.registerCommand('markdownLivePreview.toggleFocus', () =>
+    vscode.commands.registerCommand('markdownPreviewUltra.toggleFocus', () =>
       manager.toggleFocus(),
     ),
     vscode.commands.registerCommand(
-      'markdownLivePreview.togglePreviewLock',
+      'markdownPreviewUltra.togglePreviewLock',
       () => manager.togglePreviewLock(),
     ),
-    vscode.commands.registerCommand('markdownLivePreview.cycleMode', () =>
+    vscode.commands.registerCommand('markdownPreviewUltra.cycleMode', () =>
       modes.cycleMode(),
     ),
-    vscode.commands.registerCommand('markdownLivePreview.switchMode', () =>
+    vscode.commands.registerCommand('markdownPreviewUltra.switchMode', () =>
       modes.switchMode(),
     ),
     vscode.window.registerWebviewPanelSerializer(PreviewManager.viewType, {

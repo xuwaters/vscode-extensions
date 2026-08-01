@@ -24,7 +24,7 @@ const MODE_LABEL: Record<PreviewMode, string> = {
   preview: '$(eye) Preview',
 };
 
-const CTX_MODE = 'markdownLivePreview.mode';
+const CTX_MODE = 'markdownPreviewUltra.mode';
 
 /**
  * Owns the view-mode state machine and its status-bar switcher. Transitions
@@ -37,12 +37,12 @@ export class ModeManager implements vscode.Disposable {
 
   constructor(private readonly manager: PreviewManager) {
     this.statusBar = vscode.window.createStatusBarItem(
-      'markdownLivePreview.mode',
+      'markdownPreviewUltra.mode',
       vscode.StatusBarAlignment.Right,
       100,
     );
-    this.statusBar.name = 'Markdown Preview Mode';
-    this.statusBar.command = 'markdownLivePreview.switchMode';
+    this.statusBar.name = 'Markdown Preview Ultra Mode';
+    this.statusBar.command = 'markdownPreviewUltra.switchMode';
     this.disposables.push(
       this.statusBar,
       manager.onDidChangeState(() => this.refresh()),

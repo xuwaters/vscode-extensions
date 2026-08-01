@@ -2,7 +2,7 @@
 name = "markdown-engine"
 version = "0.1.0"
 edition = { workspace = true }
-description = "Markdown rendering engine — comrak parse, transform, sanitize, TOC, block diff — compilable to WASM for VSCode markdown-live-preview"
+description = "Markdown rendering engine — comrak parse, transform, sanitize, TOC, block diff — compilable to WASM for VSCode markdown-preview-ultra"
 license = "MIT"
 
 [lib]
