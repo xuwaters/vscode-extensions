@@ -590,7 +590,7 @@ export class PreviewManager implements vscode.Disposable {
         'frontmatter.display',
         'card',
       ),
-      theme: cfg.get<PreviewSettings['theme']>('theme', 'auto'),
+      theme: cfg.get<PreviewSettings['theme']>('theme', 'github-light'),
       tocVisible: cfg.get<boolean>('toc.visible', false),
       taskToggle: cfg.get<boolean>('taskLists.toggleFromPreview', false),
     };
@@ -673,6 +673,10 @@ export class PreviewManager implements vscode.Disposable {
         'style.css',
       ),
     );
+    // Stamp a fixed theme onto <body> up front so the preview doesn't flash the
+    // editor's colors before the first settings message reaches the webview.
+    const theme = this.readSettings().theme;
+    const bodyClass = theme === 'auto' ? '' : ` class="theme-${theme}"`;
     const nonce = getNonce();
     const csp = [
       `default-src 'none'`,
@@ -691,7 +695,7 @@ export class PreviewManager implements vscode.Disposable {
   <link rel="stylesheet" href="${styleUri}">
   <title>Markdown Preview Ultra</title>
 </head>
-<body>
+<body${bodyClass}>
   <div id="frontmatter"></div>
   <div id="content" class="markdown-preview"></div>
   <script nonce="${nonce}" type="module" src="${scriptUri}"></script>
