@@ -1,6 +1,6 @@
 # RFC 009: Markdown Live Preview, Rewritten on a Rust/WASM Engine
 
-**Status**: Draft
+**Status**: Implemented (Phases 1–3; Phase 4 task-checkbox toggle shipped as opt-in)
 **Date**: 2026-08-01
 **Extension name**: `wx-vsce-markdown-live-preview`
 **Rust crate**: `crates/markdown-engine` (new)

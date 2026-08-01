@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
+import { ModeManager } from './modes';
 import { PreviewManager, canPreview } from './previewManager';
 
 export function activate(context: vscode.ExtensionContext): void {
   const manager = new PreviewManager(context);
-  context.subscriptions.push(manager);
+  const modes = new ModeManager(manager);
+  context.subscriptions.push(manager, modes);
 
   const open = (column: vscode.ViewColumn) => {
     const editor = vscode.window.activeTextEditor;
@@ -30,6 +32,16 @@ export function activate(context: vscode.ExtensionContext): void {
       'markdownLivePreview.togglePreviewLock',
       () => manager.togglePreviewLock(),
     ),
+    vscode.commands.registerCommand('markdownLivePreview.cycleMode', () =>
+      modes.cycleMode(),
+    ),
+    vscode.commands.registerCommand('markdownLivePreview.switchMode', () =>
+      modes.switchMode(),
+    ),
+    vscode.window.registerWebviewPanelSerializer(PreviewManager.viewType, {
+      deserializeWebviewPanel: (panel, state) =>
+        manager.restorePanel(panel, state as { uri?: string } | undefined),
+    }),
   );
 }
 

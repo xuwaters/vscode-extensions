@@ -1,0 +1,28 @@
+[package]
+name = "markdown-engine"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Markdown rendering engine — comrak parse, transform, sanitize, TOC, block diff — compilable to WASM for VSCode markdown-live-preview"
+license = "MIT"
+
+[lib]
+crate-type = [ "cdylib", "rlib" ]
+
+[dependencies]
+comrak = { version = "0.54", default-features = false, features = [ "shortcodes" ] }
+ammonia = "4"
+similar = "2"
+rustc-hash = "2"
+
+wasm-bindgen = "0.2"
+serde = { version = "1", features = [ "derive" ] }
+serde_json = "1"
+serde_yaml = "0.9"
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+insta = "1"
+pretty_assertions = "1"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

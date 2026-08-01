@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-markdown-live-preview",
   "displayName": "Markdown Preview",
-  "description": "Live Markdown preview with math (KaTeX), mermaid diagrams, syntax highlighting, and editor scroll sync",
-  "version": "0.3.1",
+  "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
+  "version": "0.4.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -38,6 +38,18 @@
         "title": "Toggle Preview Lock (Follow Active Editor)",
         "category": "Markdown Preview",
         "icon": "$(lock)"
+      },
+      {
+        "command": "markdownLivePreview.cycleMode",
+        "title": "Cycle View Mode (Edit / Split / Preview)",
+        "category": "Markdown Preview",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "markdownLivePreview.switchMode",
+        "title": "Switch View Mode…",
+        "category": "Markdown Preview",
+        "icon": "$(layout)"
       }
     ],
     "menus": {
@@ -57,6 +69,14 @@
         {
           "command": "markdownLivePreview.togglePreviewLock",
           "when": "markdownLivePreview.previewVisible"
+        },
+        {
+          "command": "markdownLivePreview.cycleMode",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownLivePreview.previewVisible"
+        },
+        {
+          "command": "markdownLivePreview.switchMode",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownLivePreview.previewVisible"
         }
       ],
       "editor/title": [
@@ -108,6 +128,12 @@
         "key": "ctrl+k ctrl+l",
         "mac": "cmd+k cmd+l",
         "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownLivePreview.preview"
+      },
+      {
+        "command": "markdownLivePreview.cycleMode",
+        "key": "ctrl+k ctrl+m",
+        "mac": "cmd+k cmd+m",
+        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownLivePreview.preview"
       }
     ],
     "configuration": {
@@ -116,12 +142,21 @@
         "markdownLivePreview.scrollSync": {
           "type": "boolean",
           "default": true,
-          "description": "Keep the preview scrolled to the editor's top visible line."
+          "description": "Two-way scroll sync between the editor and the preview."
         },
         "markdownLivePreview.lockPreviewGroup": {
           "type": "boolean",
           "default": true,
           "description": "Lock the editor group the side preview opens in, so newly-opened files land in the main group instead of replacing the preview."
+        },
+        "markdownLivePreview.defaultMode": {
+          "type": "string",
+          "enum": [
+            "split",
+            "preview"
+          ],
+          "default": "split",
+          "description": "View mode used when opening a preview without an explicit placement."
         },
         "markdownLivePreview.breaks": {
           "type": "boolean",
@@ -133,6 +168,16 @@
           "default": true,
           "description": "Automatically turn bare URLs into clickable links."
         },
+        "markdownLivePreview.typographer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Smart punctuation: curly quotes, dashes, and ellipses."
+        },
+        "markdownLivePreview.html.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render raw HTML in the document (always sanitized). When disabled, raw HTML is shown escaped."
+        },
         "markdownLivePreview.math.enabled": {
           "type": "boolean",
           "default": true,
@@ -143,43 +188,96 @@
           "default": true,
           "description": "Render ```mermaid fenced code blocks as diagrams."
         },
-        "markdownLivePreview.frontmatter.enabled": {
+        "markdownLivePreview.mermaid.theme": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "default",
+            "dark",
+            "forest",
+            "neutral"
+          ],
+          "default": "auto",
+          "description": "Mermaid diagram theme. `auto` follows the preview theme."
+        },
+        "markdownLivePreview.alerts.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Render leading YAML frontmatter as a styled metadata card."
+          "description": "Render GitHub-style alerts (`> [!NOTE]`, `> [!WARNING]`, …)."
+        },
+        "markdownLivePreview.emoji.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render `:shortcode:` emoji as Unicode."
+        },
+        "markdownLivePreview.frontmatter.display": {
+          "type": "string",
+          "enum": [
+            "card",
+            "hidden"
+          ],
+          "default": "card",
+          "description": "How to show leading YAML frontmatter."
+        },
+        "markdownLivePreview.theme": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "github-light",
+            "github-dark"
+          ],
+          "default": "auto",
+          "description": "Preview theme. `auto` follows the VSCode color theme."
+        },
+        "markdownLivePreview.customCss": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Workspace-relative CSS files appended to the preview, in order."
+        },
+        "markdownLivePreview.toc.visible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the table-of-contents sidebar by default."
+        },
+        "markdownLivePreview.taskLists.toggleFromPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow clicking task-list checkboxes in the preview to toggle `[ ]`/`[x]` in the source file. This is the extension's only write path; off by default."
+        },
+        "markdownLivePreview.wikiLinks.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Render `[[wiki links]]` as relative links (rendering only, no resolution)."
         }
       }
     }
   },
   "scripts": {
     "build": "tsdown",
-    "clean": "rm -rf dist",
+    "build:wasm": "cd ../../crates/markdown-engine && wasm-pack build --target nodejs --out-dir ../../extensions/markdown-live-preview/wasm --out-name markdown_engine",
+    "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",
     "watch": "tsdown --watch",
-    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
-    "vscode:prepublish": "tsdown --minify",
+    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "pnpm run build:wasm && tsdown --minify",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "highlight.js": "^11.9.0",
-    "js-yaml": "^4.1.0",
     "katex": "^0.16.0",
-    "markdown-it": "^14.0.0",
-    "markdown-it-footnote": "^4.0.0",
-    "markdown-it-front-matter": "^0.2.0",
-    "markdown-it-task-lists": "^2.1.0",
-    "markdown-it-texmath": "^1.0.0",
     "mermaid": "^11.0.0"
   },
   "devDependencies": {
     "@tsdown/css": "^0.21.4",
-    "@types/js-yaml": "^4.0.0",
     "@types/katex": "^0.16.0",
-    "@types/markdown-it": "^14.0.0",
     "@types/node": "catalog:build",
     "@types/vscode": "^1.96.0",
     "@vscode/vsce": "catalog:build",
+    "happy-dom": "^15.11.7",
     "tsdown": "catalog:build",
     "typescript": "catalog:build",
     "vitest": "catalog:build"

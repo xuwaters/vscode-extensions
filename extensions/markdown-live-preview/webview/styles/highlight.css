@@ -53,44 +53,44 @@
 .hljs-strong { font-weight: 600; }
 
 /* ── Light overrides ───────────────────────────────────────────────── */
-.vscode-light .hljs-comment,
-.vscode-light .hljs-quote { color: #6e7781; }
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-comment,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-quote { color: #6e7781; }
 
-.vscode-light .hljs-keyword,
-.vscode-light .hljs-selector-tag,
-.vscode-light .hljs-doctag,
-.vscode-light .hljs-section,
-.vscode-light .hljs-name { color: #cf222e; }
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-keyword,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-selector-tag,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-doctag,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-section,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-name { color: #cf222e; }
 
-.vscode-light .hljs-string,
-.vscode-light .hljs-regexp,
-.vscode-light .hljs-meta .hljs-string,
-.vscode-light .hljs-addition { color: #0a3069; }
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-string,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-regexp,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-meta .hljs-string,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-addition { color: #0a3069; }
 
-.vscode-light .hljs-number,
-.vscode-light .hljs-literal,
-.vscode-light .hljs-boolean { color: #0550ae; }
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-number,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-literal,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-boolean { color: #0550ae; }
 
-.vscode-light .hljs-title,
-.vscode-light .hljs-title.function_,
-.vscode-light .hljs-title.class_,
-.vscode-light .hljs-built_in,
-.vscode-light .hljs-type { color: #8250df; }
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-title,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-title.function_,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-title.class_,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-built_in,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-type { color: #8250df; }
 
-.vscode-light .hljs-attr,
-.vscode-light .hljs-attribute,
-.vscode-light .hljs-variable,
-.vscode-light .hljs-template-variable,
-.vscode-light .hljs-selector-attr,
-.vscode-light .hljs-selector-class,
-.vscode-light .hljs-selector-id { color: #0550ae; }
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-attr,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-attribute,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-variable,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-template-variable,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-selector-attr,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-selector-class,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-selector-id { color: #0550ae; }
 
-.vscode-light .hljs-symbol,
-.vscode-light .hljs-bullet,
-.vscode-light .hljs-link { color: #953800; }
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-symbol,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-bullet,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-link { color: #953800; }
 
-.vscode-light .hljs-tag,
-.vscode-light .hljs-meta,
-.vscode-light .hljs-params { color: #116329; }
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-tag,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-meta,
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-params { color: #116329; }
 
-.vscode-light .hljs-deletion { color: #82071e; }
+:is(.vscode-light:not(.theme-github-dark), .theme-github-light) .hljs-deletion { color: #82071e; }

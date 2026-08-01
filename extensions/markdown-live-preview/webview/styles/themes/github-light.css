@@ -1,0 +1,24 @@
+/*
+ * GitHub-light preview theme: overrides the VSCode variables our stylesheet
+ * is written against, so the whole preview (including code blocks and the
+ * frontmatter card) renders GitHub-faithfully regardless of editor theme.
+ */
+body.theme-github-light {
+  --vscode-editor-background: #ffffff;
+  --vscode-editor-foreground: #1f2328;
+  --vscode-foreground: #1f2328;
+  --vscode-descriptionForeground: #59636e;
+  --vscode-textLink-foreground: #0969da;
+  --vscode-textLink-activeForeground: #0969da;
+  --vscode-panel-border: #d1d9e0;
+  --vscode-textCodeBlock-background: #f6f8fa;
+  --vscode-textBlockQuote-background: #f6f8fa;
+  --vscode-textBlockQuote-border: #d1d9e0;
+  --vscode-editorWidget-background: #f6f8fa;
+  --vscode-editor-selectionBackground: #ddf4ff;
+  --vscode-errorForeground: #cf222e;
+  --vscode-symbolIcon-propertyForeground: #0550ae;
+  --vscode-markdown-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Noto Sans", Helvetica, Arial, sans-serif;
+  --vscode-markdown-font-size: 16px;
+}
