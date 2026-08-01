@@ -32,6 +32,12 @@ export function activate(context: vscode.ExtensionContext): void {
       'markdownPreviewUltra.togglePreviewLock',
       () => manager.togglePreviewLock(),
     ),
+    vscode.commands.registerCommand('markdownPreviewUltra.navigateBack', () =>
+      manager.navigate('back'),
+    ),
+    vscode.commands.registerCommand('markdownPreviewUltra.navigateForward', () =>
+      manager.navigate('forward'),
+    ),
     vscode.commands.registerCommand('markdownPreviewUltra.cycleMode', () =>
       modes.cycleMode(),
     ),

@@ -9,7 +9,7 @@ import {
   type WebviewToHost,
 } from './messages';
 import { SyncGuard } from './scrollSync';
-import { getNonce, isMarkdownDocument } from './util';
+import { getNonce, isMarkdownDocument, isMarkdownPath } from './util';
 
 /**
  * The single live preview panel. It follows the active markdown editor
@@ -29,6 +29,10 @@ interface Preview {
   session: EngineSession | null;
   /** Pending debounced re-render, if any. */
   debounce?: ReturnType<typeof setTimeout>;
+  /** Previously-previewed document URIs, oldest first (browser-style back). */
+  back: string[];
+  /** Documents stepped back from, nearest first. */
+  forward: string[];
 }
 
 /** Serialized webview state used by the panel serializer across reloads. */
@@ -41,6 +45,9 @@ const CTX_VISIBLE = 'markdownPreviewUltra.previewVisible';
 const CTX_LOCKED = 'markdownPreviewUltra.previewLocked';
 
 const DEBOUNCE_MS = 150;
+
+/** Depth of the preview's own link history. */
+const MAX_HISTORY = 50;
 
 /** Verifies a line is a task-list item before the one-character toggle edit. */
 const TASK_LINE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[[ xX]\]/;
@@ -181,6 +188,33 @@ export class PreviewManager implements vscode.Disposable {
     }
   }
 
+  /**
+   * Step the preview through its own link history. Following a markdown link
+   * replaces what the panel shows, so the preview needs a way back that does
+   * not depend on the editor's navigation stack.
+   */
+  public async navigate(direction: 'back' | 'forward'): Promise<void> {
+    const preview = this.preview;
+    if (!preview) return;
+    const from = direction === 'back' ? preview.back : preview.forward;
+    const to = direction === 'back' ? preview.forward : preview.back;
+    const uri = from.pop();
+    if (uri === undefined) return;
+    let document: vscode.TextDocument;
+    try {
+      document = await vscode.workspace.openTextDocument(
+        vscode.Uri.parse(uri, true),
+      );
+    } catch {
+      // The file moved or was deleted: the entry is spent, stay put.
+      this.update(preview);
+      return;
+    }
+    to.push(preview.document.uri.toString());
+    this.showSource(preview, document);
+    this.retarget(preview, document, false);
+  }
+
   /** Pin/unpin the preview to its current file (stop/resume following). */
   public togglePreviewLock(): void {
     const preview = this.preview;
@@ -257,6 +291,8 @@ export class PreviewManager implements vscode.Disposable {
       locked: false,
       resourceRoots: this.localResourceRoots(document),
       session: null,
+      back: [],
+      forward: [],
     };
 
     panel.webview.html = this.getHtml(panel.webview);
@@ -321,19 +357,36 @@ export class PreviewManager implements vscode.Disposable {
     await vscode.commands.executeCommand('workbench.action.focusPreviousGroup');
   }
 
-  /** Point an existing preview at a different document, re-rendering it. */
-  private retarget(preview: Preview, document: vscode.TextDocument): void {
+  /**
+   * Point an existing preview at a different document, re-rendering it.
+   * `record` appends the outgoing document to the back stack — history
+   * navigation itself passes `false` so stepping back is not itself history.
+   */
+  private retarget(
+    preview: Preview,
+    document: vscode.TextDocument,
+    record = true,
+  ): void {
     if (preview.document.uri.toString() === document.uri.toString()) {
       preview.document = document;
       this.update(preview);
       return;
     }
+    if (record) {
+      preview.back.push(preview.document.uri.toString());
+      if (preview.back.length > MAX_HISTORY) preview.back.shift();
+      preview.forward.length = 0;
+    }
     // Resource roots are fixed at creation; a file outside them would have its
     // images/links CSP-blocked, so recreate the panel in that case.
     if (!this.withinRoots(preview.resourceRoots, document)) {
       const wasLocked = preview.locked;
+      const { back, forward } = preview;
       preview.panel.dispose();
       this.preview = this.createPreview(document, vscode.ViewColumn.Beside);
+      // The panel is new; the reader's trail through the documents is not.
+      this.preview.back = back;
+      this.preview.forward = forward;
       if (wasLocked) this.setLocked(this.preview, true);
       return;
     }
@@ -379,8 +432,11 @@ export class PreviewManager implements vscode.Disposable {
       case 'jumpToLine':
         this.revealEditorLine(preview, msg.line, true);
         break;
+      case 'navigate':
+        void this.navigate(msg.direction);
+        break;
       case 'openLink':
-        void this.openLink(preview.document, msg.href);
+        void this.openLink(preview, msg.href);
         break;
       case 'toggleTask':
         void this.toggleTask(preview, msg);
@@ -455,6 +511,8 @@ export class PreviewManager implements vscode.Disposable {
       baseHref: this.baseHref(panel.webview, document),
       customStyles: this.customStyles(panel.webview, document),
       settings: this.readSettings(),
+      canGoBack: preview.back.length > 0,
+      canGoForward: preview.forward.length > 0,
     });
   }
 
@@ -484,6 +542,10 @@ export class PreviewManager implements vscode.Disposable {
     focus: boolean,
   ): void {
     if (!focus && !this.readSettings().scrollSync) return;
+    // Preview mode: the panel owns the source column, so there is nowhere to
+    // put the editor except over the page being read. A double-click there
+    // does nothing — reading is not a request to start editing.
+    if (focus && preview.panel.viewColumn === preview.sourceColumn) return;
     this.editorScrollGuard.suppress();
     const target = new vscode.Range(line, 0, line, 0);
     const editor = vscode.window.visibleTextEditors.find(
@@ -501,10 +563,10 @@ export class PreviewManager implements vscode.Disposable {
       return;
     }
     if (!focus) return;
-    // No editor visible (Preview mode): make room, then open the source.
-    if (preview.panel.viewColumn === preview.sourceColumn) {
-      preview.panel.reveal(vscode.ViewColumn.Beside, true);
-    }
+    // Split mode with the source as a background tab: bring it forward in its
+    // own column. Never move the panel — a jump to the source is navigation,
+    // not a mode switch, and silently rearranging the user's layout out from
+    // under a double-click is the wrong kind of helpful.
     void vscode.window.showTextDocument(preview.document, {
       viewColumn: preview.sourceColumn,
       preserveFocus: false,
@@ -534,29 +596,69 @@ export class PreviewManager implements vscode.Disposable {
     await vscode.workspace.applyEdit(edit);
   }
 
-  private async openLink(
-    document: vscode.TextDocument,
-    href: string,
-  ): Promise<void> {
+  private async openLink(preview: Preview, href: string): Promise<void> {
     try {
       if (/^(https?|mailto):/i.test(href)) {
         await vscode.env.openExternal(vscode.Uri.parse(href));
         return;
       }
-      // Resolve a workspace-relative or document-relative link and open it.
-      const base = vscode.Uri.joinPath(document.uri, '..');
-      const target = href.startsWith('/')
-        ? vscode.Uri.joinPath(
-            vscode.workspace.getWorkspaceFolder(document.uri)?.uri ?? base,
-            href.replace(/^\/+/, ''),
-          )
-        : vscode.Uri.joinPath(base, href);
-      await vscode.commands.executeCommand('vscode.open', target);
+      const target = this.resolveLink(preview.document, href);
+      // Markdown links browse *in the preview*: opening an editor in the
+      // active group would bury the panel the user is reading from. A pinned
+      // preview stays on its file, so its links go to the editor instead.
+      if (isMarkdownPath(target.fsPath) && !preview.locked) {
+        const document = await vscode.workspace.openTextDocument(target);
+        this.showSource(preview, document);
+        this.retarget(preview, document);
+        return;
+      }
+      await vscode.commands.executeCommand('vscode.open', target, {
+        viewColumn: preview.sourceColumn,
+      });
     } catch (err) {
       vscode.window.showErrorMessage(
         `Could not open link: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  /** Resolve a workspace-relative or document-relative link destination. */
+  private resolveLink(document: vscode.TextDocument, href: string): vscode.Uri {
+    // `other.md#section` names a file plus an anchor; only the file resolves.
+    // Link destinations are percent-encoded (`my%20notes.md`) but URI paths
+    // are held decoded, so undo that before joining.
+    const raw = href.replace(/[#?].*$/, '');
+    let file: string;
+    try {
+      file = decodeURIComponent(raw);
+    } catch {
+      file = raw;
+    }
+    const base = vscode.Uri.joinPath(document.uri, '..');
+    return file.startsWith('/')
+      ? vscode.Uri.joinPath(
+          vscode.workspace.getWorkspaceFolder(document.uri)?.uri ?? base,
+          file.replace(/^\/+/, ''),
+        )
+      : vscode.Uri.joinPath(base, file);
+  }
+
+  /**
+   * Point the source editor at `document` — but only if one is already on
+   * screen to point. In Preview mode the panel *is* the source column, and
+   * opening an editor there would hide the preview.
+   */
+  private showSource(preview: Preview, document: vscode.TextDocument): void {
+    const column = preview.sourceColumn;
+    if (preview.panel.viewColumn === column) return;
+    const inUse = vscode.window.visibleTextEditors.some(
+      (ed) => ed.viewColumn === column,
+    );
+    if (!inUse) return;
+    void vscode.window.showTextDocument(document, {
+      viewColumn: column,
+      preserveFocus: true,
+    });
   }
 
   // ── Settings ───────────────────────────────────────────────────────
@@ -592,6 +694,7 @@ export class PreviewManager implements vscode.Disposable {
       ),
       theme: cfg.get<PreviewSettings['theme']>('theme', 'github-light'),
       tocVisible: cfg.get<boolean>('toc.visible', false),
+      tocWidth: cfg.get<number>('toc.width', 240),
       taskToggle: cfg.get<boolean>('taskLists.toggleFromPreview', false),
     };
   }

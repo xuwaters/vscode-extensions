@@ -7,6 +7,7 @@ body {
 
 :root {
   --toc-width: 240px;
+  --content-width: 900px;
 }
 
 body {
@@ -18,7 +19,7 @@ body {
 }
 
 .markdown-preview {
-  max-width: 900px;
+  max-width: var(--content-width);
   margin: 0 auto;
   padding: 16px 24px 64px;
   box-sizing: border-box;
@@ -256,6 +257,16 @@ body {
 
 #preview-toolbar button:hover { opacity: 1; }
 
+#preview-toolbar .nav-button {
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+#preview-toolbar button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
 /* Diverging from the configured theme is worth a hint. */
 #theme-toggle.overridden {
   opacity: 0.85;
@@ -269,9 +280,8 @@ body {
   right: 0;
   bottom: 0;
   width: var(--toc-width);
-  overflow-y: auto;
   z-index: 20;
-  padding: 40px 12px 24px;
+  display: flex;
   box-sizing: border-box;
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
   border-left: 1px solid var(--vscode-panel-border, #444);
@@ -281,18 +291,62 @@ body {
 
 #toc-sidebar.visible { transform: translateX(0); }
 
+/* The width follows the pointer while dragging; only the slide-in animates. */
+#toc-sidebar .toc-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 40px 12px 24px;
+}
+
+/* Drag sash straddling the sidebar's left border. */
+#toc-sidebar .toc-sash {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+#toc-sidebar .toc-sash::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder, #3794ff));
+  opacity: 0;
+  transition: opacity 0.1s ease-in-out;
+}
+
+#toc-sidebar .toc-sash:hover::after,
+#toc-sidebar.resizing .toc-sash::after { opacity: 1; }
+
+/* Keep the pointer consistent and kill text selection during a drag. */
+body.toc-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 /*
  * Reserve the sidebar strip on the page box so the column keeps centring
  * itself (`margin: 0 auto`) in whatever space is left — a plain
  * `margin-right` on the column would cancel only its right `auto` and slide
- * it toward the sidebar. Past 1380px (900px column plus a sidebar-wide
- * gutter on each side) the sidebar already clears the column, so nothing
- * moves at all when it opens.
+ * it toward the sidebar. Only the overlap needs reserving: while the viewport
+ * is at least the column plus a sidebar-wide gutter on each side, the sidebar
+ * already clears the column and nothing moves when it opens. Past that, the
+ * column gives up exactly the overlap, and never more than the sidebar width.
  */
-body.toc-open { padding-right: var(--toc-width); }
-
-@media (min-width: 1380px) {
-  body.toc-open { padding-right: 0; }
+body.toc-open {
+  padding-right: clamp(
+    0px,
+    calc(var(--content-width) + 2 * var(--toc-width) - 100vw),
+    var(--toc-width)
+  );
 }
 
 #toc-sidebar .toc-heading {

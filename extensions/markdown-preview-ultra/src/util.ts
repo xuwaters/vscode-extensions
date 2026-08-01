@@ -17,3 +17,8 @@ export function isMarkdownDocument(document: vscode.TextDocument): boolean {
     MARKDOWN_EXTENSIONS.test(document.uri.fsPath)
   );
 }
+
+/** Whether a link target names a markdown file (no document needed). */
+export function isMarkdownPath(fsPath: string): boolean {
+  return MARKDOWN_EXTENSIONS.test(fsPath);
+}

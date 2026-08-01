@@ -41,6 +41,8 @@ export interface PreviewSettings {
   frontmatterDisplay: 'card' | 'hidden';
   theme: PreviewTheme;
   tocVisible: boolean;
+  /** Default sidebar width in px; a dragged width overrides it per preview. */
+  tocWidth: number;
   /** Task-checkbox toggling from the preview (default off). */
   taskToggle: boolean;
 }
@@ -64,6 +66,9 @@ export interface UpdateMessage {
   /** Webview URIs of user customCss files, applied in order. */
   customStyles: string[];
   settings: PreviewSettings;
+  /** Preview-local link history (drives the toolbar's ← / → buttons). */
+  canGoBack: boolean;
+  canGoForward: boolean;
 }
 
 /** Editor scrolled: align the preview so 0-based `line` sits at `ratio` of the viewport. */
@@ -109,6 +114,12 @@ export interface JumpToLineMessage {
   line: number;
 }
 
+/** Preview-local history navigation (the toolbar's ← / → buttons). */
+export interface NavigateMessage {
+  type: 'navigate';
+  direction: 'back' | 'forward';
+}
+
 /** A link inside the rendered preview was clicked. */
 export interface OpenLinkMessage {
   type: 'openLink';
@@ -133,6 +144,7 @@ export type WebviewToHost =
   | ReadyMessage
   | RevealLineMessage
   | JumpToLineMessage
+  | NavigateMessage
   | OpenLinkMessage
   | ToggleTaskMessage
   | ErrorMessage;
@@ -156,6 +168,8 @@ export function isWebviewToHost(msg: unknown): msg is WebviewToHost {
     case 'revealLine':
     case 'jumpToLine':
       return isFiniteNumber(m.line) && m.line >= 0;
+    case 'navigate':
+      return m.direction === 'back' || m.direction === 'forward';
     case 'openLink':
       return typeof m.href === 'string';
     case 'toggleTask':

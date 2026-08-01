@@ -28,6 +28,7 @@ import { renderMermaid, type ResolvedMermaidTheme } from './postprocess/mermaid'
 import { addCopyButtons, installCopyHandler } from './ui/copyCode';
 import { renderFrontmatter } from './ui/frontmatter';
 import { installLightbox } from './ui/lightbox';
+import { NavButtons } from './ui/nav';
 import { ThemeToggle, reconcileOverride } from './ui/themeToggle';
 import { TocSidebar, addHeadingAnchors } from './ui/toc';
 import { installZoom } from './ui/zoom';
@@ -35,6 +36,8 @@ import { installZoom } from './ui/zoom';
 interface PersistedState {
   uri?: string;
   tocVisible?: boolean;
+  /** Dragged sidebar width; wins over the configured default. */
+  tocWidth?: number;
   zoom?: number;
   /** In-page light/dark switch; wins over the configured theme. */
   themeOverride?: PreviewTheme;
@@ -196,10 +199,14 @@ function ensureCustomStyles(urls: string[]): void {
 
 // ── UI chrome ────────────────────────────────────────────────────────
 
-/** Floating chip bar in the top-right corner: theme switch, TOC toggle. */
+/** Floating chip bar in the top-right corner: history, theme, TOC toggle. */
 const toolbar = document.createElement('div');
 toolbar.id = 'preview-toolbar';
 document.body.append(toolbar);
+
+const nav = new NavButtons(toolbar, (direction) =>
+  vscode.postMessage({ type: 'navigate', direction }),
+);
 
 const themeToggle = new ThemeToggle(toolbar, toggleTheme);
 
@@ -214,7 +221,9 @@ const toc = new TocSidebar(
     vscode.postMessage({ type: 'revealLine', line: entry.line });
   },
   (visible) => saveState({ tocVisible: visible }),
+  (width) => saveState({ tocWidth: width }),
 );
+if (state.tocWidth !== undefined) toc.setWidth(state.tocWidth);
 
 installCopyHandler(content);
 installLightbox(content);
@@ -238,12 +247,17 @@ function handleUpdate(msg: UpdateMessage): void {
   ensureBase(msg.baseHref);
   ensureCustomStyles(msg.customStyles);
   applyThemeClasses();
+  nav.update(msg.canGoBack, msg.canGoForward);
+  const sameDocument = state.uri === msg.uri;
   saveState({ uri: msg.uri });
 
   let restoreLine: number | null = null;
   if (msg.reset) {
-    // Keep the reader's place across a full rebuild.
-    restoreLine = lineForOffset(getScrollMap(), window.scrollY + 8);
+    // Keep the reader's place across a full rebuild — but a *different*
+    // document (followed a link, went back) starts at its top.
+    restoreLine = sameDocument
+      ? lineForOffset(getScrollMap(), window.scrollY + 8)
+      : null;
     content.textContent = '';
   }
 
@@ -267,6 +281,7 @@ function handleUpdate(msg: UpdateMessage): void {
     settings.frontmatterDisplay,
   );
   toc.update(msg.toc);
+  toc.setWidth(state.tocWidth ?? settings.tocWidth);
   if (state.tocVisible === undefined) {
     toc.setVisible(settings.tocVisible, false);
   } else {
@@ -276,6 +291,9 @@ function handleUpdate(msg: UpdateMessage): void {
   if (restoreLine !== null) {
     const line = restoreLine;
     requestAnimationFrame(() => scrollToLine(line, 0));
+  } else if (msg.reset && !sameDocument) {
+    suppressScrollUntil = Date.now() + 150;
+    window.scrollTo({ top: 0 });
   }
 }
 
@@ -367,6 +385,10 @@ content.addEventListener('click', (event) => {
   if (!href) return;
 
   event.preventDefault();
+  // VSCode's own webview shell listens for link clicks on <body> and hands
+  // `anchor.href` — resolved against <base>, so a vscode-cdn.net URL — to the
+  // browser. `preventDefault` does not deter it; not reaching it does.
+  event.stopPropagation();
   if (anchor.classList.contains('heading-anchor')) {
     void navigator.clipboard.writeText(href);
   }

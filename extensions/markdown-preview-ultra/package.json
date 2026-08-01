@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.4.3",
+  "version": "0.4.5",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -40,6 +40,18 @@
         "icon": "$(lock)"
       },
       {
+        "command": "markdownPreviewUltra.navigateBack",
+        "title": "Go Back (Preview Link History)",
+        "category": "Markdown Preview Ultra",
+        "icon": "$(arrow-left)"
+      },
+      {
+        "command": "markdownPreviewUltra.navigateForward",
+        "title": "Go Forward (Preview Link History)",
+        "category": "Markdown Preview Ultra",
+        "icon": "$(arrow-right)"
+      },
+      {
         "command": "markdownPreviewUltra.cycleMode",
         "title": "Cycle View Mode (Edit / Split / Preview)",
         "category": "Markdown Preview Ultra",
@@ -68,6 +80,14 @@
         },
         {
           "command": "markdownPreviewUltra.togglePreviewLock",
+          "when": "markdownPreviewUltra.previewVisible"
+        },
+        {
+          "command": "markdownPreviewUltra.navigateBack",
+          "when": "markdownPreviewUltra.previewVisible"
+        },
+        {
+          "command": "markdownPreviewUltra.navigateForward",
           "when": "markdownPreviewUltra.previewVisible"
         },
         {
@@ -128,6 +148,18 @@
         "key": "ctrl+k ctrl+l",
         "mac": "cmd+k cmd+l",
         "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview"
+      },
+      {
+        "command": "markdownPreviewUltra.navigateBack",
+        "key": "alt+left",
+        "mac": "ctrl+alt+-",
+        "when": "activeWebviewPanelId == markdownPreviewUltra.preview"
+      },
+      {
+        "command": "markdownPreviewUltra.navigateForward",
+        "key": "alt+right",
+        "mac": "ctrl+alt+shift+-",
+        "when": "activeWebviewPanelId == markdownPreviewUltra.preview"
       },
       {
         "command": "markdownPreviewUltra.cycleMode",
@@ -241,6 +273,13 @@
           "type": "boolean",
           "default": false,
           "description": "Show the table-of-contents sidebar by default."
+        },
+        "markdownPreviewUltra.toc.width": {
+          "type": "number",
+          "default": 240,
+          "minimum": 140,
+          "maximum": 720,
+          "description": "Default width of the table-of-contents sidebar, in pixels. Drag its left edge in the preview to resize it (double-click the edge to reset)."
         },
         "markdownPreviewUltra.taskLists.toggleFromPreview": {
           "type": "boolean",

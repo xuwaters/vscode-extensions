@@ -6,6 +6,10 @@ describe('isWebviewToHost', () => {
     expect(isWebviewToHost({ type: 'ready' })).toBe(true);
     expect(isWebviewToHost({ type: 'revealLine', line: 3 })).toBe(true);
     expect(isWebviewToHost({ type: 'jumpToLine', line: 0 })).toBe(true);
+    expect(isWebviewToHost({ type: 'navigate', direction: 'back' })).toBe(true);
+    expect(isWebviewToHost({ type: 'navigate', direction: 'forward' })).toBe(
+      true,
+    );
     expect(isWebviewToHost({ type: 'openLink', href: 'https://x' })).toBe(true);
     expect(
       isWebviewToHost({ type: 'toggleTask', line: 4, checked: true }),
@@ -22,6 +26,10 @@ describe('isWebviewToHost', () => {
     expect(isWebviewToHost({ type: 'revealLine', line: 'x' })).toBe(false);
     expect(isWebviewToHost({ type: 'revealLine', line: -1 })).toBe(false);
     expect(isWebviewToHost({ type: 'revealLine', line: NaN })).toBe(false);
+    expect(isWebviewToHost({ type: 'navigate' })).toBe(false);
+    expect(isWebviewToHost({ type: 'navigate', direction: 'sideways' })).toBe(
+      false,
+    );
     expect(isWebviewToHost({ type: 'openLink' })).toBe(false);
     expect(isWebviewToHost({ type: 'toggleTask', line: 1 })).toBe(false);
     expect(isWebviewToHost({ type: 'error', message: 'm' })).toBe(false);
