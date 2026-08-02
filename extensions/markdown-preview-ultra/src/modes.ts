@@ -222,7 +222,11 @@ export class ModeManager implements vscode.Disposable {
     await openSource(uri, column, line === undefined ? undefined : { line });
     if (target === 'edit') return;
     const document = await vscode.workspace.openTextDocument(uri);
-    this.manager.showPreview(document, vscode.ViewColumn.Beside);
+    // Both halves of the split open on the passage that was being read. The
+    // panel is told the line rather than left to read it off the editor: the
+    // reveal above has not been laid out yet, so the editor's visible range
+    // still reports wherever it was parked before.
+    this.manager.showPreview(document, vscode.ViewColumn.Beside, line);
   }
 
   private noDocument(): void {

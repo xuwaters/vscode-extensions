@@ -3,7 +3,7 @@ import { applyTaskToggle, resolveLink } from './actions';
 import type { EngineSession } from './engine';
 import { isWebviewToHost, type WebviewToHost } from './messages';
 import { NO_HISTORY, PreviewRenderer } from './renderer';
-import { isMarkdownPath } from './util';
+import { isMarkdownPath, visibleEditorFor } from './util';
 
 const DEBOUNCE_MS = 150;
 
@@ -32,8 +32,8 @@ const REOPEN_ACTIVE_EDITOR_WITH = 'reopenActiveEditorWith';
  * VSCode owns these webviews, one per tab, and binds each to its document for
  * the tab's life. So unlike the following panel there is nothing to retarget:
  * no active-editor following, no pinning, and no link history — a link opens
- * its own tab. What this surface does have is a way back to the text editor:
- * the Edit/Split buttons and a double-click both hand off to it.
+ * its own tab. The way back to the text editor is a mode switch, which hands
+ * this tab over to it; nothing the reader does *inside* the page opens one.
  */
 export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = 'markdownPreviewUltra.editor';
@@ -149,6 +149,10 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
         const line = this.takeLine(document.uri);
         if (line !== undefined && this.renderer.readSettings().scrollSync) {
           this.renderer.post(panel.webview, { type: 'scroll', line, ratio: 0 });
+          // The page stands here now, so this is also where a switch back
+          // hands over — a reader who opens the preview and switches straight
+          // to Split has reported no position of their own to use instead.
+          this.parkLine(document.uri, line);
         }
         break;
       }
@@ -165,14 +169,19 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
         );
         break;
       }
-      case 'jumpToLine':
-        // Double-click on the page: this tab *is* the preview, so the source
-        // has nowhere to go but beside it.
-        await openSource(document, vscode.ViewColumn.Beside, {
-          line: msg.line,
-          select: true,
-        });
+      case 'jumpToLine': {
+        // Double-click on the page means "show me that bit of the source" —
+        // not "give me a source to show it in". With the file already split
+        // out beside us there is an editor to put on the line; with none, the
+        // reader is looking at a preview, and splitting the layout out from
+        // under a double-click is the wrong kind of helpful.
+        const editor = visibleEditorFor(document);
+        if (!editor) break;
+        const target = new vscode.Range(msg.line, 0, msg.line, 0);
+        editor.selection = new vscode.Selection(target.start, target.start);
+        editor.revealRange(target, vscode.TextEditorRevealType.AtTop);
         break;
+      }
       case 'navigate':
         // No history: the tab is bound to its document (buttons stay hidden).
         break;
@@ -214,16 +223,6 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       );
     }
   }
-}
-
-/** A visible text editor showing `document`, if one is on screen. */
-function visibleEditorFor(
-  document: vscode.TextDocument,
-): vscode.TextEditor | undefined {
-  const uri = document.uri.toString();
-  return vscode.window.visibleTextEditors.find(
-    (editor) => editor.document.uri.toString() === uri,
-  );
 }
 
 /** What a tab is showing, for the two kinds of tab this extension opens. */
@@ -304,24 +303,18 @@ function openWith(
 export async function openSource(
   uriOrDocument: vscode.Uri | vscode.TextDocument,
   column: vscode.ViewColumn,
-  reveal?: {
-    line: number;
-    /** Put the cursor there too — a jump to the source, not a mode switch. */
-    select?: boolean;
-  },
+  reveal?: { line: number },
 ): Promise<void> {
   const uri = 'uri' in uriOrDocument ? uriOrDocument.uri : uriOrDocument;
   await showWith(uri, column, TEXT_EDITOR);
-  if (!reveal) return;
+  if (reveal === undefined) return;
   const editor = vscode.window.visibleTextEditors.find(
     (ed) => ed.document.uri.toString() === uri.toString(),
   );
-  if (!editor) return;
-  const target = new vscode.Range(reveal.line, 0, reveal.line, 0);
-  if (reveal.select) {
-    editor.selection = new vscode.Selection(target.start, target.start);
-  }
-  editor.revealRange(target, vscode.TextEditorRevealType.AtTop);
+  editor?.revealRange(
+    new vscode.Range(reveal.line, 0, reveal.line, 0),
+    vscode.TextEditorRevealType.AtTop,
+  );
 }
 
 /**

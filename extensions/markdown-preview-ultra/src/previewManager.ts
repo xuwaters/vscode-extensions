@@ -5,7 +5,7 @@ import type { EngineSession } from './engine';
 import { isWebviewToHost, type WebviewToHost } from './messages';
 import type { PreviewRenderer } from './renderer';
 import { ParkedScroll, SyncGuard } from './scrollSync';
-import { isMarkdownDocument, isMarkdownPath } from './util';
+import { isMarkdownDocument, isMarkdownPath, visibleEditorFor } from './util';
 
 /**
  * The single live preview panel. It follows the active markdown editor
@@ -31,6 +31,13 @@ interface Preview {
   forward: string[];
   /** Whether the panel is the on-screen tab of its group (`panel.visible`). */
   visible: boolean;
+  /**
+   * Whether the page has announced itself and been rendered into. A panel is
+   * `visible` from the moment it is created, but until this flips there is
+   * nothing on the page to scroll — messages sent before it lands are dropped
+   * by a script that is not listening yet.
+   */
+  ready: boolean;
   /** Editor position waiting for the panel to come back on screen. */
   panelScroll: ParkedScroll;
   /** Preview position waiting for the source editor to come forward. */
@@ -151,20 +158,30 @@ export class PreviewManager implements vscode.Disposable {
 
   // ── Commands ───────────────────────────────────────────────────────
 
-  /** Open (or reveal + retarget) the preview for `document` in `viewColumn`. */
+  /**
+   * Open (or reveal + retarget) the preview for `document` in `viewColumn`.
+   *
+   * `atLine` is the passage the reader is on, for callers that know it better
+   * than the layout does: a mode switch has just moved the source editor, whose
+   * visible range does not catch up until VSCode has laid it out again.
+   */
   public showPreview(
     document: vscode.TextDocument,
     viewColumn: vscode.ViewColumn,
+    atLine?: number,
   ): void {
     const existing = this.preview;
     if (existing) {
       this.retarget(existing, document);
-      if (this.preview) {
-        this.preview.panel.reveal(this.preview.panel.viewColumn, true);
-      }
+      // `retarget` recreates the panel when the new file falls outside the
+      // granted resource roots, so re-read it rather than reusing `existing`.
+      const preview = this.preview;
+      if (!preview) return;
+      preview.panel.reveal(preview.panel.viewColumn, true);
+      if (atLine !== undefined) this.scrollPanelTo(preview, atLine);
       return;
     }
-    this.preview = this.createPreview(document, viewColumn);
+    this.preview = this.createPreview(document, viewColumn, atLine);
     this.stateEmitter.fire();
   }
 
@@ -254,6 +271,7 @@ export class PreviewManager implements vscode.Disposable {
   private createPreview(
     document: vscode.TextDocument,
     viewColumn: vscode.ViewColumn,
+    atLine?: number,
   ): Preview {
     const resourceRoots = this.renderer.localResourceRoots(document);
     const toSide = viewColumn === vscode.ViewColumn.Beside;
@@ -277,11 +295,13 @@ export class PreviewManager implements vscode.Disposable {
 
     if (lockGroup) void this.lockGroup();
 
-    // Initial scroll alignment to the active editor for this document.
-    const editor = vscode.window.visibleTextEditors.find(
-      (ed) => ed.document.uri.toString() === document.uri.toString(),
-    );
-    if (editor) this.syncScroll(editor);
+    // A preview opens on the passage being read, not at the top of the file:
+    // on the line the caller hands over, or failing that wherever the source
+    // editor is scrolled. The page has no content yet, so this parks — the
+    // `ready` handler applies it once the first render has gone out.
+    const line =
+      atLine ?? visibleEditorFor(document)?.visibleRanges[0]?.start.line;
+    if (line !== undefined) this.scrollPanelTo(preview, line);
 
     return preview;
   }
@@ -304,6 +324,7 @@ export class PreviewManager implements vscode.Disposable {
       back: [],
       forward: [],
       visible: panel.visible,
+      ready: false,
       panelScroll: new ParkedScroll(),
       editorScroll: new ParkedScroll(),
     };
@@ -487,7 +508,27 @@ export class PreviewManager implements vscode.Disposable {
     if (visible === preview.visible) return;
     preview.visible = visible;
     this.renderer.post(preview.panel.webview, { type: 'visibility', visible });
-    if (!visible) return;
+    // Before `ready` the page cannot act on either message; the line stays
+    // parked for the `ready` handler, which runs with the panel on screen.
+    if (visible && preview.ready) this.applyPanelScroll(preview);
+  }
+
+  /**
+   * Put the page on `line`, or park it for whenever the page can be scrolled:
+   * off screen it has no layout to measure against, and before `ready` it has
+   * no content and nothing listening.
+   */
+  private scrollPanelTo(preview: Preview, line: number): void {
+    if (!this.renderer.readSettings().scrollSync) return;
+    if (!preview.ready || !preview.panel.visible) {
+      preview.panelScroll.park(line);
+      return;
+    }
+    this.renderer.post(preview.panel.webview, { type: 'scroll', line, ratio: 0 });
+  }
+
+  /** Hand the page the position that was waiting for it, if any. */
+  private applyPanelScroll(preview: Preview): void {
     const line = preview.panelScroll.claim();
     if (line === undefined || !this.renderer.readSettings().scrollSync) return;
     this.renderer.post(preview.panel.webview, { type: 'scroll', line, ratio: 0 });
@@ -516,6 +557,7 @@ export class PreviewManager implements vscode.Disposable {
   private onWebviewMessage(preview: Preview, msg: WebviewToHost): void {
     switch (msg.type) {
       case 'ready':
+        preview.ready = true;
         // A restored panel can come up behind another tab; tell the page where
         // it stands before the first render so it knows not to measure.
         this.renderer.post(preview.panel.webview, {
@@ -523,6 +565,10 @@ export class PreviewManager implements vscode.Disposable {
           visible: preview.panel.visible,
         });
         this.update(preview);
+        // The patch above went out first, so the page has something to scroll
+        // through by the time it reads this. A panel that came up behind
+        // another tab leaves its line parked for `onViewStateChanged`.
+        if (preview.panel.visible) this.applyPanelScroll(preview);
         break;
       case 'revealLine':
         this.revealEditorLine(preview, msg.line, false);
@@ -598,21 +644,12 @@ export class PreviewManager implements vscode.Disposable {
       return;
     }
     if (this.editorScrollGuard.suppressed) return;
-    if (!this.renderer.readSettings().scrollSync) return;
     const range = editor.visibleRanges[0];
     if (!range) return;
-    if (!preview.panel.visible) {
-      // Off-screen panel: park the line instead of scrolling a page that has
-      // no layout to measure. Switching to the editor tab is itself a visible-
-      // range change, so this is the path a tabbed Edit/Preview pair takes.
-      preview.panelScroll.park(range.start.line);
-      return;
-    }
-    this.renderer.post(preview.panel.webview, {
-      type: 'scroll',
-      line: range.start.line,
-      ratio: 0,
-    });
+    // Off screen the line is parked rather than sent. Switching to the editor
+    // tab is itself a visible-range change, so that is the path a tabbed
+    // Edit/Preview pair takes.
+    this.scrollPanelTo(preview, range.start.line);
   }
 
   /** Preview-originated navigation → reveal (and optionally focus) editor. */
@@ -628,9 +665,7 @@ export class PreviewManager implements vscode.Disposable {
     if (focus && preview.panel.viewColumn === preview.sourceColumn) return;
     this.editorScrollGuard.suppress();
     const target = new vscode.Range(line, 0, line, 0);
-    const editor = vscode.window.visibleTextEditors.find(
-      (ed) => ed.document.uri.toString() === preview.document.uri.toString(),
-    );
+    const editor = visibleEditorFor(preview.document);
     if (editor) {
       editor.revealRange(target, vscode.TextEditorRevealType.AtTop);
       if (focus) {

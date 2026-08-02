@@ -18,6 +18,16 @@ export function isMarkdownDocument(document: vscode.TextDocument): boolean {
   );
 }
 
+/** A visible text editor showing `document`, if one is on screen. */
+export function visibleEditorFor(
+  document: vscode.TextDocument,
+): vscode.TextEditor | undefined {
+  const uri = document.uri.toString();
+  return vscode.window.visibleTextEditors.find(
+    (editor) => editor.document.uri.toString() === uri,
+  );
+}
+
 /** Whether a link target names a markdown file (no document needed). */
 export function isMarkdownPath(fsPath: string): boolean {
   return MARKDOWN_EXTENSIONS.test(fsPath);
