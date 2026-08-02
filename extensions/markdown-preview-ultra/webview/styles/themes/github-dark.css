@@ -10,6 +10,8 @@ body.theme-github-dark {
   --vscode-textLink-activeForeground: #4493f8;
   --vscode-panel-border: #3d444d;
   --vscode-textCodeBlock-background: #151b23;
+  --vscode-textPreformat-foreground: #f0f6fc;
+  --vscode-textPreformat-background: rgba(101, 108, 118, 0.2);
   --vscode-textBlockQuote-background: #151b23;
   --vscode-textBlockQuote-border: #3d444d;
   --vscode-editorWidget-background: #151b23;

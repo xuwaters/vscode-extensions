@@ -12,6 +12,11 @@ body.theme-github-light {
   --vscode-textLink-activeForeground: #0969da;
   --vscode-panel-border: #d1d9e0;
   --vscode-textCodeBlock-background: #f6f8fa;
+  /* VSCode injects `code { color: var(--vscode-textPreformat-foreground) }` into
+   * every webview, so without this inline code keeps the editor theme's accent
+   * (gold on Dark+) against our white page. GitHub uses plain body text. */
+  --vscode-textPreformat-foreground: #1f2328;
+  --vscode-textPreformat-background: rgba(129, 139, 152, 0.12);
   --vscode-textBlockQuote-background: #f6f8fa;
   --vscode-textBlockQuote-border: #d1d9e0;
   --vscode-editorWidget-background: #f6f8fa;

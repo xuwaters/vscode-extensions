@@ -71,6 +71,7 @@ body {
 /* Inline code */
 .markdown-preview code {
   background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15));
+  color: var(--vscode-textPreformat-foreground, inherit);
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.9em;
   padding: 0.1em 0.4em;
@@ -88,6 +89,9 @@ body {
 
 .markdown-preview pre code {
   background: none;
+  /* Fenced blocks are plain editor text; highlight.js tokens colour themselves.
+   * Without this, an un-highlighted block inherits the inline-code accent. */
+  color: var(--vscode-editor-foreground);
   padding: 0;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.9em;
