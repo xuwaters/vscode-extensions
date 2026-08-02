@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.4.7",
+  "version": "0.4.9",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -136,17 +136,17 @@
       "editor/title": [
         {
           "command": "markdownPreviewUltra.setModeEdit",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview) && markdownPreviewUltra.mode != edit",
           "group": "navigation@1"
         },
         {
           "command": "markdownPreviewUltra.setModeSplit",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview) && markdownPreviewUltra.mode != split",
           "group": "navigation@2"
         },
         {
           "command": "markdownPreviewUltra.setModePreview",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview) && markdownPreviewUltra.mode != preview",
           "group": "navigation@3"
         },
         {

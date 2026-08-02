@@ -26,6 +26,16 @@ const MODE_LABEL: Record<PreviewMode, string> = {
 
 const CTX_MODE = 'markdownPreviewUltra.mode';
 
+/** Column of an already-open editor for `document`, if one is on screen. */
+function visibleColumnOf(
+  document: vscode.TextDocument,
+): vscode.ViewColumn | undefined {
+  const uri = document.uri.toString();
+  return vscode.window.visibleTextEditors.find(
+    (editor) => editor.document.uri.toString() === uri,
+  )?.viewColumn;
+}
+
 /**
  * Owns the view-mode state machine and its status-bar switcher. Transitions
  * reuse the existing panel where possible (`panel.reveal` moves it between
@@ -87,9 +97,19 @@ export class ModeManager implements vscode.Disposable {
 
     switch (target) {
       case 'edit': {
+        // Capture the columns *before* disposing the panel — closing it clears
+        // the manager's record of where the source editor lives.
+        const existingColumn = document ? visibleColumnOf(document) : undefined;
+        const sourceColumn = this.manager.sourceColumn;
         this.manager.closePreview();
         if (document) {
+          // From split the source editor is already open beside the panel;
+          // reveal *that* one. Without an explicit column `showTextDocument`
+          // targets the active column — the panel's — and opens a second copy
+          // of the document alongside the original.
           await vscode.window.showTextDocument(document, {
+            viewColumn:
+              existingColumn ?? sourceColumn ?? vscode.ViewColumn.One,
             preserveFocus: false,
           });
         }
