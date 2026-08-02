@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.4.12",
+  "version": "0.4.13",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -14,10 +14,29 @@
   "activationEvents": [
     "onStartupFinished",
     "onLanguage:markdown",
-    "onWebviewPanel:markdownPreviewUltra.preview"
+    "onWebviewPanel:markdownPreviewUltra.preview",
+    "onCustomEditor:markdownPreviewUltra.editor"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "customEditors": [
+      {
+        "viewType": "markdownPreviewUltra.editor",
+        "displayName": "Markdown Preview Ultra",
+        "priority": "option",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          },
+          {
+            "filenamePattern": "*.markdown"
+          },
+          {
+            "filenamePattern": "*.mdx"
+          }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "markdownPreviewUltra.showPreview",
@@ -114,39 +133,39 @@
         },
         {
           "command": "markdownPreviewUltra.cycleMode",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
         },
         {
           "command": "markdownPreviewUltra.switchMode",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
         },
         {
           "command": "markdownPreviewUltra.setModeEdit",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
         },
         {
           "command": "markdownPreviewUltra.setModeSplit",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
         },
         {
           "command": "markdownPreviewUltra.setModePreview",
-          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
         }
       ],
       "editor/title": [
         {
           "command": "markdownPreviewUltra.setModeEdit",
-          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview) && markdownPreviewUltra.mode != edit",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && markdownPreviewUltra.mode != edit",
           "group": "navigation@1"
         },
         {
           "command": "markdownPreviewUltra.setModeSplit",
-          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview) && markdownPreviewUltra.mode != split",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && markdownPreviewUltra.mode != split",
           "group": "navigation@2"
         },
         {
           "command": "markdownPreviewUltra.setModePreview",
-          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview) && markdownPreviewUltra.mode != preview",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && markdownPreviewUltra.mode != preview",
           "group": "navigation@3"
         },
         {
@@ -209,7 +228,7 @@
         "command": "markdownPreviewUltra.cycleMode",
         "key": "ctrl+k ctrl+m",
         "mac": "cmd+k cmd+m",
-        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview"
+        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor"
       }
     ],
     "configuration": {

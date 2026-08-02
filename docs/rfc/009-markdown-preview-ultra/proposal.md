@@ -73,7 +73,8 @@ This repo already has the right pattern for that: nine extensions ship a Rust cr
 | Wiki-link syntax rendering | Optional, default off (§12) | comrak has it; resolution stays trivial (relative path) |
 | Code chunks, export, presentation, backlinks, graph, image upload, `#tag` | Drop | Out of scope per §2 |
 | Single-preview-follows-editor + lock | **Keep** | Already implemented and good ([previewManager.ts:41](extensions/markdown-preview-ultra/src/previewManager.ts#L41)) |
-| Multiple previews / "Previews Only" editor association | Drop | MPE's global `editorAssociations` mutation is exactly the kind of side effect we avoid |
+| Multiple previews | Drop | One following panel stays the model |
+| "Previews Only" editor association | **Adopt, opt-in** | A `markdownPreviewUltra.editor` custom editor at `priority: "option"`, so a `.md` can open straight into the preview with no flash of source. The user points `workbench.editorAssociations` at it; we never write that setting ourselves — MPE's global mutation is the side effect we avoid, not the association itself |
 
 ## 4. High-Level Architecture
 

@@ -1,16 +1,9 @@
 import * as vscode from 'vscode';
+import { activePreviewEditorUri, openSource } from './customEditor';
+import { resolveMode, type PreviewMode } from './modeState';
 import { PreviewManager, canPreview } from './previewManager';
 
-/**
- * The three view modes. The mode is *derived* from observable panel/editor
- * state (not shadow state), so it can never fight VSCode's own layout
- * persistence:
- *
- * - `edit`    — no preview panel.
- * - `preview` — the panel occupies the source editor's column.
- * - `split`   — the panel lives in another column.
- */
-export type PreviewMode = 'edit' | 'split' | 'preview';
+export type { PreviewMode };
 
 const CYCLE: Record<PreviewMode, PreviewMode> = {
   edit: 'split',
@@ -57,17 +50,21 @@ export class ModeManager implements vscode.Disposable {
       this.statusBar,
       manager.onDidChangeState(() => this.refresh()),
       vscode.window.onDidChangeActiveTextEditor(() => this.refresh()),
+      // A preview-editor tab is not a text editor, so activating one is only
+      // visible as a tab change.
+      vscode.window.tabGroups.onDidChangeTabs(() => this.refresh()),
+      vscode.window.tabGroups.onDidChangeTabGroups(() => this.refresh()),
     );
     this.refresh();
   }
 
   public currentMode(): PreviewMode {
-    if (!this.manager.hasPreview) return 'edit';
-    const panelColumn = this.manager.panelColumn;
-    const sourceColumn = this.manager.sourceColumn;
-    return panelColumn !== undefined && panelColumn === sourceColumn
-      ? 'preview'
-      : 'split';
+    return resolveMode({
+      previewEditorActive: activePreviewEditorUri() !== undefined,
+      hasPanel: this.manager.hasPreview,
+      panelColumn: this.manager.panelColumn,
+      sourceColumn: this.manager.sourceColumn,
+    });
   }
 
   public async cycleMode(): Promise<void> {
@@ -90,6 +87,12 @@ export class ModeManager implements vscode.Disposable {
   public async setMode(target: PreviewMode): Promise<void> {
     const current = this.currentMode();
     if (target === current) {
+      this.refresh();
+      return;
+    }
+    const previewEditor = activePreviewEditorUri();
+    if (previewEditor) {
+      await this.leavePreviewEditor(previewEditor, target);
       this.refresh();
       return;
     }
@@ -153,6 +156,28 @@ export class ModeManager implements vscode.Disposable {
     this.refresh();
   }
 
+  /**
+   * Hand a preview-editor tab back to the text editor. The tab belongs to
+   * VSCode and shows a single file for its life, so both remaining modes go
+   * through the source: Edit replaces the tab with it, Split does that and
+   * then opens the following panel beside it.
+   */
+  private async leavePreviewEditor(
+    uri: vscode.Uri,
+    target: PreviewMode,
+  ): Promise<void> {
+    if (target === 'preview') return;
+    const column =
+      vscode.window.tabGroups.activeTabGroup.viewColumn ??
+      vscode.ViewColumn.One;
+    // Reopening the same resource in the same group swaps the editor for it,
+    // so the preview tab is replaced rather than added to.
+    await openSource(uri, column);
+    if (target === 'edit') return;
+    const document = await vscode.workspace.openTextDocument(uri);
+    this.manager.showPreview(document, vscode.ViewColumn.Beside);
+  }
+
   private noDocument(): void {
     vscode.window.showInformationMessage(
       'Open a Markdown file to show its preview.',
@@ -167,7 +192,9 @@ export class ModeManager implements vscode.Disposable {
 
     const editor = vscode.window.activeTextEditor;
     const relevant =
-      this.manager.hasPreview || canPreview(editor?.document);
+      this.manager.hasPreview ||
+      canPreview(editor?.document) ||
+      activePreviewEditorUri() !== undefined;
     if (relevant) {
       this.statusBar.show();
     } else {

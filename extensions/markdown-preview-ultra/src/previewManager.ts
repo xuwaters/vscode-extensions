@@ -1,15 +1,11 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { EngineBridge, EngineSession, type EngineOptions } from './engine';
-import {
-  isWebviewToHost,
-  type HostToWebview,
-  type PreviewSettings,
-  type ToggleTaskMessage,
-  type WebviewToHost,
-} from './messages';
+import { applyTaskToggle, resolveLink } from './actions';
+import type { EngineSession } from './engine';
+import { isWebviewToHost, type WebviewToHost } from './messages';
+import type { PreviewRenderer } from './renderer';
 import { ParkedScroll, SyncGuard } from './scrollSync';
-import { getNonce, isMarkdownDocument, isMarkdownPath } from './util';
+import { isMarkdownDocument, isMarkdownPath } from './util';
 
 /**
  * The single live preview panel. It follows the active markdown editor
@@ -55,9 +51,6 @@ const DEBOUNCE_MS = 150;
 /** Depth of the preview's own link history. */
 const MAX_HISTORY = 50;
 
-/** Verifies a line is a task-list item before the one-character toggle edit. */
-const TASK_LINE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[[ xX]\]/;
-
 /**
  * Owns the markdown preview. Markdown → HTML happens host-side in the WASM
  * engine; the webview receives block-level patches and applies DOM surgery.
@@ -71,7 +64,6 @@ export class PreviewManager implements vscode.Disposable {
   public static readonly viewType = 'markdownPreviewUltra.preview';
 
   private preview: Preview | undefined;
-  private readonly engine: EngineBridge;
   private readonly disposables: vscode.Disposable[] = [];
   /** Ignore editor scroll events briefly after a preview-originated reveal. */
   private readonly editorScrollGuard = new SyncGuard();
@@ -79,8 +71,7 @@ export class PreviewManager implements vscode.Disposable {
   /** Fires when the preview opens, closes, or moves — modes/status bar. */
   public readonly onDidChangeState = this.stateEmitter.event;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
-    this.engine = new EngineBridge(context.extensionUri.fsPath);
+  constructor(private readonly renderer: PreviewRenderer) {
     this.disposables.push(
       this.stateEmitter,
       vscode.workspace.onDidChangeTextDocument((e) =>
@@ -92,13 +83,8 @@ export class PreviewManager implements vscode.Disposable {
         }
       }),
       vscode.window.onDidChangeActiveColorTheme((theme) => {
-        const kind =
-          theme.kind === vscode.ColorThemeKind.Light ||
-          theme.kind === vscode.ColorThemeKind.HighContrastLight
-            ? 'light'
-            : 'dark';
         if (this.preview) {
-          this.post(this.preview.panel.webview, { type: 'theme', kind });
+          this.renderer.postTheme(this.preview.panel.webview, theme);
         }
       }),
       vscode.window.onDidChangeTextEditorVisibleRanges((e) =>
@@ -269,7 +255,7 @@ export class PreviewManager implements vscode.Disposable {
     document: vscode.TextDocument,
     viewColumn: vscode.ViewColumn,
   ): Preview {
-    const resourceRoots = this.localResourceRoots(document);
+    const resourceRoots = this.renderer.localResourceRoots(document);
     const toSide = viewColumn === vscode.ViewColumn.Beside;
     const lockGroup = toSide && this.lockGroupEnabled();
 
@@ -307,7 +293,7 @@ export class PreviewManager implements vscode.Disposable {
   ): Preview {
     const sourceColumn =
       vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
-    const resourceRoots = this.localResourceRoots(document);
+    const resourceRoots = this.renderer.localResourceRoots(document);
     const preview: Preview = {
       panel,
       document,
@@ -329,7 +315,7 @@ export class PreviewManager implements vscode.Disposable {
       enableScripts: true,
       localResourceRoots: resourceRoots,
     };
-    panel.webview.html = this.getHtml(panel.webview);
+    panel.webview.html = this.renderer.html(panel.webview);
 
     const onMessage = panel.webview.onDidReceiveMessage((msg: unknown) => {
       if (isWebviewToHost(msg)) this.onWebviewMessage(preview, msg);
@@ -430,7 +416,7 @@ export class PreviewManager implements vscode.Disposable {
     }
     // Resource roots are fixed at creation; a file outside them would have its
     // images/links CSP-blocked, so recreate the panel in that case.
-    if (!this.withinRoots(preview.resourceRoots, document)) {
+    if (!this.renderer.withinRoots(preview.resourceRoots, document)) {
       const wasLocked = preview.locked;
       const { back, forward } = preview;
       preview.panel.dispose();
@@ -500,11 +486,11 @@ export class PreviewManager implements vscode.Disposable {
     const visible = preview.panel.visible;
     if (visible === preview.visible) return;
     preview.visible = visible;
-    this.post(preview.panel.webview, { type: 'visibility', visible });
+    this.renderer.post(preview.panel.webview, { type: 'visibility', visible });
     if (!visible) return;
     const line = preview.panelScroll.claim();
-    if (line === undefined || !this.readSettings().scrollSync) return;
-    this.post(preview.panel.webview, { type: 'scroll', line, ratio: 0 });
+    if (line === undefined || !this.renderer.readSettings().scrollSync) return;
+    this.renderer.post(preview.panel.webview, { type: 'scroll', line, ratio: 0 });
   }
 
   /**
@@ -516,7 +502,7 @@ export class PreviewManager implements vscode.Disposable {
     editor: vscode.TextEditor,
   ): void {
     const line = preview.editorScroll.claim();
-    if (line === undefined || !this.readSettings().scrollSync) return;
+    if (line === undefined || !this.renderer.readSettings().scrollSync) return;
     this.editorScrollGuard.suppress();
     editor.revealRange(
       new vscode.Range(line, 0, line, 0),
@@ -532,7 +518,7 @@ export class PreviewManager implements vscode.Disposable {
       case 'ready':
         // A restored panel can come up behind another tab; tell the page where
         // it stands before the first render so it knows not to measure.
-        this.post(preview.panel.webview, {
+        this.renderer.post(preview.panel.webview, {
           type: 'visibility',
           visible: preview.panel.visible,
         });
@@ -551,7 +537,7 @@ export class PreviewManager implements vscode.Disposable {
         void this.openLink(preview, msg.href);
         break;
       case 'toggleTask':
-        void this.toggleTask(preview, msg);
+        void applyTaskToggle(preview.document, msg);
         break;
       case 'error':
         console.error(
@@ -596,33 +582,8 @@ export class PreviewManager implements vscode.Disposable {
   private update(preview: Preview): void {
     const { document, panel } = preview;
     panel.title = this.title(document, preview.locked);
-
-    if (!preview.session) preview.session = this.engine.createSession();
-    if (!preview.session) {
-      this.post(panel.webview, { type: 'noEngine' });
-      return;
-    }
-
-    const result = preview.session.render(
-      document.getText(),
-      this.readEngineOptions(),
-    );
-    if (!result) {
-      this.post(panel.webview, { type: 'noEngine' });
-      return;
-    }
-
-    this.post(panel.webview, {
-      type: 'update',
-      seq: result.seq,
-      reset: result.reset,
-      patches: result.patches,
-      toc: result.toc,
-      frontmatter: result.frontmatter,
-      uri: document.uri.toString(),
-      baseHref: this.baseHref(panel.webview, document),
-      customStyles: this.customStyles(panel.webview, document),
-      settings: this.readSettings(),
+    preview.session ??= this.renderer.createSession();
+    this.renderer.update(panel.webview, document, preview.session, {
       canGoBack: preview.back.length > 0,
       canGoForward: preview.forward.length > 0,
     });
@@ -637,7 +598,7 @@ export class PreviewManager implements vscode.Disposable {
       return;
     }
     if (this.editorScrollGuard.suppressed) return;
-    if (!this.readSettings().scrollSync) return;
+    if (!this.renderer.readSettings().scrollSync) return;
     const range = editor.visibleRanges[0];
     if (!range) return;
     if (!preview.panel.visible) {
@@ -647,7 +608,7 @@ export class PreviewManager implements vscode.Disposable {
       preview.panelScroll.park(range.start.line);
       return;
     }
-    this.post(preview.panel.webview, {
+    this.renderer.post(preview.panel.webview, {
       type: 'scroll',
       line: range.start.line,
       ratio: 0,
@@ -660,7 +621,7 @@ export class PreviewManager implements vscode.Disposable {
     line: number,
     focus: boolean,
   ): void {
-    if (!focus && !this.readSettings().scrollSync) return;
+    if (!focus && !this.renderer.readSettings().scrollSync) return;
     // Preview mode: the panel owns the source column, so there is nowhere to
     // put the editor except over the page being read. A double-click there
     // does nothing — reading is not a request to start editing.
@@ -699,35 +660,13 @@ export class PreviewManager implements vscode.Disposable {
     });
   }
 
-  /** The one write path: flip `[ ]`/`[x]` after re-verifying the line. */
-  private async toggleTask(
-    preview: Preview,
-    msg: ToggleTaskMessage,
-  ): Promise<void> {
-    const cfg = vscode.workspace.getConfiguration('markdownPreviewUltra');
-    if (!cfg.get<boolean>('taskLists.toggleFromPreview', false)) return;
-    const document = preview.document;
-    if (msg.line >= document.lineCount) return;
-    const line = document.lineAt(msg.line);
-    const match = TASK_LINE.exec(line.text);
-    if (!match) return;
-    const checkboxChar = match[1].length + 1;
-    const edit = new vscode.WorkspaceEdit();
-    edit.replace(
-      document.uri,
-      new vscode.Range(msg.line, checkboxChar, msg.line, checkboxChar + 1),
-      msg.checked ? 'x' : ' ',
-    );
-    await vscode.workspace.applyEdit(edit);
-  }
-
   private async openLink(preview: Preview, href: string): Promise<void> {
     try {
       if (/^(https?|mailto):/i.test(href)) {
         await vscode.env.openExternal(vscode.Uri.parse(href));
         return;
       }
-      const target = this.resolveLink(preview.document, href);
+      const target = resolveLink(preview.document, href);
       // Markdown links browse *in the preview*: opening an editor in the
       // active group would bury the panel the user is reading from. A pinned
       // preview stays on its file, so its links go to the editor instead.
@@ -745,27 +684,6 @@ export class PreviewManager implements vscode.Disposable {
         `Could not open link: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-  }
-
-  /** Resolve a workspace-relative or document-relative link destination. */
-  private resolveLink(document: vscode.TextDocument, href: string): vscode.Uri {
-    // `other.md#section` names a file plus an anchor; only the file resolves.
-    // Link destinations are percent-encoded (`my%20notes.md`) but URI paths
-    // are held decoded, so undo that before joining.
-    const raw = href.replace(/[#?].*$/, '');
-    let file: string;
-    try {
-      file = decodeURIComponent(raw);
-    } catch {
-      file = raw;
-    }
-    const base = vscode.Uri.joinPath(document.uri, '..');
-    return file.startsWith('/')
-      ? vscode.Uri.joinPath(
-          vscode.workspace.getWorkspaceFolder(document.uri)?.uri ?? base,
-          file.replace(/^\/+/, ''),
-        )
-      : vscode.Uri.joinPath(base, file);
   }
 
   /**
@@ -786,151 +704,11 @@ export class PreviewManager implements vscode.Disposable {
     });
   }
 
-  // ── Settings ───────────────────────────────────────────────────────
-
-  private readEngineOptions(): EngineOptions {
-    const cfg = vscode.workspace.getConfiguration('markdownPreviewUltra');
-    return {
-      breaks: cfg.get<boolean>('breaks', false),
-      linkify: cfg.get<boolean>('linkify', true),
-      typographer: cfg.get<boolean>('typographer', false),
-      html: cfg.get<boolean>('html.enabled', true),
-      math: cfg.get<boolean>('math.enabled', true),
-      mermaid: cfg.get<boolean>('mermaid.enabled', true),
-      alerts: cfg.get<boolean>('alerts.enabled', true),
-      emoji: cfg.get<boolean>('emoji.enabled', true),
-      wikilinks: cfg.get<boolean>('wikiLinks.enabled', false),
-    };
-  }
-
-  private readSettings(): PreviewSettings {
-    const cfg = vscode.workspace.getConfiguration('markdownPreviewUltra');
-    return {
-      scrollSync: cfg.get<boolean>('scrollSync', true),
-      math: cfg.get<boolean>('math.enabled', true),
-      mermaid: cfg.get<boolean>('mermaid.enabled', true),
-      mermaidTheme: cfg.get<PreviewSettings['mermaidTheme']>(
-        'mermaid.theme',
-        'auto',
-      ),
-      frontmatterDisplay: cfg.get<PreviewSettings['frontmatterDisplay']>(
-        'frontmatter.display',
-        'card',
-      ),
-      theme: cfg.get<PreviewSettings['theme']>('theme', 'github-light'),
-      tocVisible: cfg.get<boolean>('toc.visible', false),
-      tocWidth: cfg.get<number>('toc.width', 240),
-      taskToggle: cfg.get<boolean>('taskLists.toggleFromPreview', false),
-    };
-  }
-
-  // ── Webview plumbing ───────────────────────────────────────────────
-
-  private baseHref(
-    webview: vscode.Webview,
-    document: vscode.TextDocument,
-  ): string {
-    const dir = vscode.Uri.joinPath(document.uri, '..');
-    return webview.asWebviewUri(dir).toString().replace(/\/?$/, '/');
-  }
-
-  /** Resolve `customCss` (workspace-relative paths) to webview URIs. */
-  private customStyles(
-    webview: vscode.Webview,
-    document: vscode.TextDocument,
-  ): string[] {
-    const files = vscode.workspace
-      .getConfiguration('markdownPreviewUltra')
-      .get<string[]>('customCss', []);
-    if (files.length === 0) return [];
-    const root =
-      vscode.workspace.getWorkspaceFolder(document.uri)?.uri ??
-      vscode.workspace.workspaceFolders?.[0]?.uri;
-    if (!root) return [];
-    return files.map((f) =>
-      webview.asWebviewUri(vscode.Uri.joinPath(root, f)).toString(),
-    );
-  }
-
-  private localResourceRoots(document: vscode.TextDocument): vscode.Uri[] {
-    const roots: vscode.Uri[] = [
-      vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
-      vscode.Uri.joinPath(document.uri, '..'),
-    ];
-    for (const folder of vscode.workspace.workspaceFolders ?? []) {
-      roots.push(folder.uri);
-    }
-    return roots;
-  }
-
-  /** Whether `document` lives under any granted resource root. */
-  private withinRoots(
-    roots: vscode.Uri[],
-    document: vscode.TextDocument,
-  ): boolean {
-    const file = document.uri.toString();
-    return roots.some((root) => {
-      const r = root.toString().replace(/\/?$/, '/');
-      return file === root.toString() || file.startsWith(r);
-    });
-  }
-
   private title(document: vscode.TextDocument, locked: boolean): string {
     const name = path.basename(document.uri.fsPath) || 'Untitled';
     // A pin, not a padlock: the group lock VSCode draws on the tab bar is a
     // different thing, and two padlocks side by side read as one feature.
     return `${locked ? '📌 ' : ''}Preview ${name}`;
-  }
-
-  private post(webview: vscode.Webview, message: HostToWebview): void {
-    void webview.postMessage(message);
-  }
-
-  private getHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this.context.extensionUri,
-        'dist',
-        'webview',
-        'index.js',
-      ),
-    );
-    const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this.context.extensionUri,
-        'dist',
-        'webview',
-        'style.css',
-      ),
-    );
-    // Stamp a fixed theme onto <body> up front so the preview doesn't flash the
-    // editor's colors before the first settings message reaches the webview.
-    const theme = this.readSettings().theme;
-    const bodyClass = theme === 'auto' ? '' : ` class="theme-${theme}"`;
-    const nonce = getNonce();
-    const csp = [
-      `default-src 'none'`,
-      `img-src ${webview.cspSource} https: data:`,
-      `font-src ${webview.cspSource}`,
-      `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `script-src 'nonce-${nonce}' ${webview.cspSource}`,
-    ].join('; ');
-
-    return /* html */ `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <link rel="stylesheet" href="${styleUri}">
-  <title>Markdown Preview Ultra</title>
-</head>
-<body${bodyClass}>
-  <div id="frontmatter"></div>
-  <div id="content" class="markdown-preview"></div>
-  <script nonce="${nonce}" type="module" src="${scriptUri}"></script>
-</body>
-</html>`;
   }
 }
 
