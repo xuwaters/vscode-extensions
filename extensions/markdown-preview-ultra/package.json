@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.4.5",
+  "version": "0.4.7",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -11,7 +11,11 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguage:markdown",
+    "onWebviewPanel:markdownPreviewUltra.preview"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -62,6 +66,24 @@
         "title": "Switch View Mode…",
         "category": "Markdown Preview Ultra",
         "icon": "$(layout)"
+      },
+      {
+        "command": "markdownPreviewUltra.setModeEdit",
+        "title": "Switch to Edit View",
+        "category": "Markdown Preview Ultra",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "markdownPreviewUltra.setModeSplit",
+        "title": "Switch to Split View",
+        "category": "Markdown Preview Ultra",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "markdownPreviewUltra.setModePreview",
+        "title": "Switch to Preview View",
+        "category": "Markdown Preview Ultra",
+        "icon": "$(preview)"
       }
     ],
     "menus": {
@@ -97,23 +119,45 @@
         {
           "command": "markdownPreviewUltra.switchMode",
           "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
+        },
+        {
+          "command": "markdownPreviewUltra.setModeEdit",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
+        },
+        {
+          "command": "markdownPreviewUltra.setModeSplit",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
+        },
+        {
+          "command": "markdownPreviewUltra.setModePreview",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible"
         }
       ],
       "editor/title": [
         {
-          "command": "markdownPreviewUltra.showPreviewToSide",
-          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx) && !markdownPreviewUltra.previewVisible",
-          "group": "navigation"
+          "command": "markdownPreviewUltra.setModeEdit",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview",
+          "group": "navigation@1"
+        },
+        {
+          "command": "markdownPreviewUltra.setModeSplit",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview",
+          "group": "navigation@2"
+        },
+        {
+          "command": "markdownPreviewUltra.setModePreview",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview",
+          "group": "navigation@3"
         },
         {
           "command": "markdownPreviewUltra.toggleFocus",
           "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx) && markdownPreviewUltra.previewVisible",
-          "group": "navigation"
+          "group": "navigation@4"
         },
         {
           "command": "markdownPreviewUltra.togglePreviewLock",
           "when": "activeWebviewPanelId == markdownPreviewUltra.preview",
-          "group": "navigation"
+          "group": "navigation@5"
         }
       ],
       "explorer/context": [

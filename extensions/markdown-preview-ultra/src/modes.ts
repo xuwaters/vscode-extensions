@@ -21,7 +21,7 @@ const CYCLE: Record<PreviewMode, PreviewMode> = {
 const MODE_LABEL: Record<PreviewMode, string> = {
   edit: '$(edit) Edit',
   split: '$(split-horizontal) Split',
-  preview: '$(eye) Preview',
+  preview: '$(preview) Preview',
 };
 
 const CTX_MODE = 'markdownPreviewUltra.mode';

@@ -284,17 +284,25 @@ export class PreviewManager implements vscode.Disposable {
   ): Preview {
     const sourceColumn =
       vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+    const resourceRoots = this.localResourceRoots(document);
     const preview: Preview = {
       panel,
       document,
       sourceColumn,
       locked: false,
-      resourceRoots: this.localResourceRoots(document),
+      resourceRoots,
       session: null,
       back: [],
       forward: [],
     };
 
+    // A deserialized panel carries the roots it was serialized with, which need
+    // not cover the document we are attaching. Restate them so the roots we
+    // record are the roots actually enforced.
+    panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: resourceRoots,
+    };
     panel.webview.html = this.getHtml(panel.webview);
 
     const onMessage = panel.webview.onDidReceiveMessage((msg: unknown) => {

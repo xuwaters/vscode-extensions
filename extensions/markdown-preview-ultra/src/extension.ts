@@ -3,6 +3,14 @@ import { ModeManager } from './modes';
 import { PreviewManager, canPreview } from './previewManager';
 
 export function activate(context: vscode.ExtensionContext): void {
+  // Suppresses the built-in Markdown preview buttons (editor title bar, explorer
+  // and tab context menus) so they don't duplicate ours.
+  void vscode.commands.executeCommand(
+    'setContext',
+    'hasCustomMarkdownPreview',
+    true,
+  );
+
   const manager = new PreviewManager(context);
   const modes = new ModeManager(manager);
   context.subscriptions.push(manager, modes);
@@ -43,6 +51,15 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('markdownPreviewUltra.switchMode', () =>
       modes.switchMode(),
+    ),
+    vscode.commands.registerCommand('markdownPreviewUltra.setModeEdit', () =>
+      modes.setMode('edit'),
+    ),
+    vscode.commands.registerCommand('markdownPreviewUltra.setModeSplit', () =>
+      modes.setMode('split'),
+    ),
+    vscode.commands.registerCommand('markdownPreviewUltra.setModePreview', () =>
+      modes.setMode('preview'),
     ),
     vscode.window.registerWebviewPanelSerializer(PreviewManager.viewType, {
       deserializeWebviewPanel: (panel, state) =>
