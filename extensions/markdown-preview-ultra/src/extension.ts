@@ -68,6 +68,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('markdownPreviewUltra.cycleMode', () =>
       modes.cycleMode(),
     ),
+    vscode.commands.registerCommand(
+      'markdownPreviewUltra.toggleEditPreview',
+      () => modes.toggleEditPreview(),
+    ),
     vscode.commands.registerCommand('markdownPreviewUltra.switchMode', () =>
       modes.switchMode(),
     ),

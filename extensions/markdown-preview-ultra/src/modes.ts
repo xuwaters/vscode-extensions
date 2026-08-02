@@ -6,7 +6,7 @@ import {
   openPreviewEditor,
   openSource,
 } from './customEditor';
-import { resolveMode, type PreviewMode } from './modeState';
+import { resolveMode, toggleEditPreview, type PreviewMode } from './modeState';
 import { PreviewManager, canPreview } from './previewManager';
 
 export type { PreviewMode };
@@ -89,6 +89,11 @@ export class ModeManager implements vscode.Disposable {
 
   public async cycleMode(): Promise<void> {
     await this.setMode(CYCLE[this.currentMode()]);
+  }
+
+  /** One key for both directions: Edit → Preview, Preview → Edit. */
+  public async toggleEditPreview(): Promise<void> {
+    await this.setMode(toggleEditPreview(this.currentMode()));
   }
 
   public async switchMode(): Promise<void> {

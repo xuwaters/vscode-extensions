@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.4.17",
+  "version": "0.4.18",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -81,6 +81,12 @@
         "icon": "$(layout)"
       },
       {
+        "command": "markdownPreviewUltra.toggleEditPreview",
+        "title": "Toggle Edit / Preview View",
+        "category": "Markdown Preview Ultra",
+        "icon": "$(preview)"
+      },
+      {
         "command": "markdownPreviewUltra.switchMode",
         "title": "Switch View Mode…",
         "category": "Markdown Preview Ultra",
@@ -133,6 +139,10 @@
         },
         {
           "command": "markdownPreviewUltra.cycleMode",
+          "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
+        },
+        {
+          "command": "markdownPreviewUltra.toggleEditPreview",
           "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
         },
         {
@@ -228,6 +238,12 @@
         "command": "markdownPreviewUltra.cycleMode",
         "key": "ctrl+k ctrl+m",
         "mac": "cmd+k cmd+m",
+        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor"
+      },
+      {
+        "command": "markdownPreviewUltra.toggleEditPreview",
+        "key": "ctrl+k ctrl+p",
+        "mac": "cmd+k cmd+p",
         "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor"
       }
     ],

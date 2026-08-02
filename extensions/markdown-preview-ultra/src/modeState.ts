@@ -22,6 +22,15 @@ export interface PreviewPlacement {
   sourceColumn?: number;
 }
 
+/**
+ * Where one key pressed twice lands: Edit ⇄ Preview. Split is a way of showing
+ * the source, so it toggles *away* from the editor like Edit does — the key
+ * always means "show me the other one".
+ */
+export function toggleEditPreview(current: PreviewMode): PreviewMode {
+  return current === 'preview' ? 'edit' : 'preview';
+}
+
 export function resolveMode(placement: PreviewPlacement): PreviewMode {
   // A preview-editor tab is the whole view — there is no source editor beside
   // it to be split from, so it reads as Preview regardless of any panel that

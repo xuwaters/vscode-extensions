@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveMode } from './modeState';
+import { resolveMode, toggleEditPreview } from './modeState';
 
 describe('resolveMode', () => {
   it('is edit with nothing open', () => {
@@ -55,5 +55,25 @@ describe('resolveMode', () => {
         sourceColumn: 1,
       }),
     ).toBe('preview');
+  });
+});
+
+describe('toggleEditPreview', () => {
+  it('shows the preview from the editor', () => {
+    expect(toggleEditPreview('edit')).toBe('preview');
+  });
+
+  it('shows the editor from the preview', () => {
+    expect(toggleEditPreview('preview')).toBe('edit');
+  });
+
+  it('leaves split for the preview, so the key still means "the other one"', () => {
+    expect(toggleEditPreview('split')).toBe('preview');
+  });
+
+  it('returns to where it started when pressed twice', () => {
+    for (const mode of ['edit', 'preview'] as const) {
+      expect(toggleEditPreview(toggleEditPreview(mode))).toBe(mode);
+    }
   });
 });
