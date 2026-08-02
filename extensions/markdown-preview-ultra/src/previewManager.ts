@@ -132,9 +132,23 @@ export class PreviewManager implements vscode.Disposable {
     return doc && isMarkdownDocument(doc) ? doc : undefined;
   }
 
-  /** Move the existing panel to `column` (used by mode transitions). */
-  public revealPanel(column: vscode.ViewColumn, preserveFocus = false): void {
-    this.preview?.panel.reveal(column, preserveFocus);
+  /**
+   * Move the existing panel to `column` (used by mode transitions). The lock
+   * belongs to the editor group, not to the panel: a panel moving out to the
+   * side lands in a group that has never been locked (the one it came from is
+   * left behind, and empties out), so the lock has to be re-established there.
+   */
+  public async revealPanel(
+    column: vscode.ViewColumn,
+    preserveFocus = false,
+  ): Promise<void> {
+    const preview = this.preview;
+    if (!preview) return;
+    const lock = column !== preview.sourceColumn && this.lockGroupEnabled();
+    // Locking acts on the *active* group, so when we intend to lock we must let
+    // the panel take focus first, then hand it back.
+    preview.panel.reveal(column, preserveFocus && !lock);
+    if (lock) await this.lockGroup(preserveFocus);
     this.stateEmitter.fire();
   }
 
@@ -232,7 +246,7 @@ export class PreviewManager implements vscode.Disposable {
   public togglePreviewLock(): void {
     const preview = this.preview;
     if (!preview) {
-      vscode.window.showInformationMessage('No preview is open to lock.');
+      vscode.window.showInformationMessage('No preview is open to pin.');
       return;
     }
     this.setLocked(preview, !preview.locked);
@@ -257,11 +271,7 @@ export class PreviewManager implements vscode.Disposable {
   ): Preview {
     const resourceRoots = this.localResourceRoots(document);
     const toSide = viewColumn === vscode.ViewColumn.Beside;
-    const lockGroup =
-      toSide &&
-      vscode.workspace
-        .getConfiguration('markdownPreviewUltra')
-        .get<boolean>('lockPreviewGroup', true);
+    const lockGroup = toSide && this.lockGroupEnabled();
 
     const panel = vscode.window.createWebviewPanel(
       PreviewManager.viewType,
@@ -374,12 +384,28 @@ export class PreviewManager implements vscode.Disposable {
     this.stateEmitter.fire();
   }
 
-  /** Lock the preview's group so explorer/quick-open files open elsewhere. */
-  private async lockGroup(): Promise<void> {
-    // The panel just took focus, so its group is active. Lock it (a no-op if it
-    // is already locked), then return focus to the source editor.
+  /** Whether a side preview should lock the group it lands in. */
+  private lockGroupEnabled(): boolean {
+    return vscode.workspace
+      .getConfiguration('markdownPreviewUltra')
+      .get<boolean>('lockPreviewGroup', true);
+  }
+
+  /**
+   * Lock the preview's group so explorer/quick-open files open elsewhere.
+   * The panel must already hold focus: the command acts on the active group.
+   * Callers that place the focus themselves afterwards pass `restoreFocus:
+   * false` — awaiting this before they move on is what keeps the lock from
+   * landing on whichever group they focus next.
+   */
+  private async lockGroup(restoreFocus = true): Promise<void> {
+    // Lock the active group — a no-op if it is already locked.
     await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
-    await vscode.commands.executeCommand('workbench.action.focusPreviousGroup');
+    if (restoreFocus) {
+      await vscode.commands.executeCommand(
+        'workbench.action.focusPreviousGroup',
+      );
+    }
   }
 
   /**
@@ -448,7 +474,21 @@ export class PreviewManager implements vscode.Disposable {
       return;
     }
     if (preview.locked) return;
+    // Preview mode: the file that just opened landed in the panel's own group
+    // and covered it. The panel owns that column, so retarget it to the new
+    // file and bring it back in front — the editor stays behind as an inactive
+    // tab. Only a *different* file does this: activating the previewed file's
+    // own editor is how the reader asks to see the source.
+    const inPanelColumn =
+      editor.viewColumn !== undefined &&
+      editor.viewColumn === preview.panel.viewColumn;
     this.retarget(preview, editor.document);
+    // `retarget` recreates the panel when the new file falls outside the
+    // granted resource roots, so re-read it rather than reusing `preview`.
+    const panel = this.preview?.panel;
+    if (inPanelColumn && panel && panel.viewColumn === editor.viewColumn) {
+      panel.reveal(panel.viewColumn, false);
+    }
   }
 
   /**
@@ -837,7 +877,9 @@ export class PreviewManager implements vscode.Disposable {
 
   private title(document: vscode.TextDocument, locked: boolean): string {
     const name = path.basename(document.uri.fsPath) || 'Untitled';
-    return `${locked ? '🔒 ' : ''}Preview ${name}`;
+    // A pin, not a padlock: the group lock VSCode draws on the tab bar is a
+    // different thing, and two padlocks side by side read as one feature.
+    return `${locked ? '📌 ' : ''}Preview ${name}`;
   }
 
   private post(webview: vscode.Webview, message: HostToWebview): void {

@@ -126,8 +126,10 @@ export class ModeManager implements vscode.Disposable {
       case 'split': {
         if (!document) return this.noDocument();
         if (this.manager.hasPreview) {
-          // Preview → Split: move the panel out of the source column.
-          this.manager.revealPanel(vscode.ViewColumn.Beside, false);
+          // Preview → Split: move the panel out of the source column, locking
+          // the group it lands in before taking focus off it — the lock is
+          // applied to whichever group is active when it runs.
+          await this.manager.revealPanel(vscode.ViewColumn.Beside, false);
           await vscode.window.showTextDocument(document, {
             viewColumn: this.manager.sourceColumn,
             preserveFocus: false,
@@ -141,7 +143,7 @@ export class ModeManager implements vscode.Disposable {
         if (!document) return this.noDocument();
         if (this.manager.hasPreview && this.manager.sourceColumn !== undefined) {
           // Split → Preview: move the panel into the source column.
-          this.manager.revealPanel(this.manager.sourceColumn, false);
+          await this.manager.revealPanel(this.manager.sourceColumn, false);
         } else {
           this.manager.showPreview(document, vscode.ViewColumn.Active);
         }

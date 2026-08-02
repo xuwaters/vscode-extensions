@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.4.11",
+  "version": "0.4.12",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -39,9 +39,9 @@
       },
       {
         "command": "markdownPreviewUltra.togglePreviewLock",
-        "title": "Toggle Preview Lock (Follow Active Editor)",
+        "title": "Toggle Preview Pin (Follow Active Editor)",
         "category": "Markdown Preview Ultra",
-        "icon": "$(lock)"
+        "icon": "$(pin)"
       },
       {
         "command": "markdownPreviewUltra.navigateBack",
