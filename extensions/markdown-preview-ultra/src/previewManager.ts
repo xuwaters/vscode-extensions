@@ -8,7 +8,7 @@ import {
   type ToggleTaskMessage,
   type WebviewToHost,
 } from './messages';
-import { SyncGuard } from './scrollSync';
+import { ParkedScroll, SyncGuard } from './scrollSync';
 import { getNonce, isMarkdownDocument, isMarkdownPath } from './util';
 
 /**
@@ -33,6 +33,12 @@ interface Preview {
   back: string[];
   /** Documents stepped back from, nearest first. */
   forward: string[];
+  /** Whether the panel is the on-screen tab of its group (`panel.visible`). */
+  visible: boolean;
+  /** Editor position waiting for the panel to come back on screen. */
+  panelScroll: ParkedScroll;
+  /** Preview position waiting for the source editor to come forward. */
+  editorScroll: ParkedScroll;
 }
 
 /** Serialized webview state used by the panel serializer across reloads. */
@@ -132,8 +138,15 @@ export class PreviewManager implements vscode.Disposable {
     this.stateEmitter.fire();
   }
 
-  public closePreview(): void {
+  /**
+   * Close the preview, handing back the line it was last read to. In Preview
+   * mode the source editor is a background tab that could not follow along, so
+   * the caller has to place it there itself once it is back on screen.
+   */
+  public closePreview(): number | undefined {
+    const line = this.preview?.editorScroll.claim();
     this.preview?.panel.dispose();
+    return line;
   }
 
   // ── Commands ───────────────────────────────────────────────────────
@@ -294,6 +307,9 @@ export class PreviewManager implements vscode.Disposable {
       session: null,
       back: [],
       forward: [],
+      visible: panel.visible,
+      panelScroll: new ParkedScroll(),
+      editorScroll: new ParkedScroll(),
     };
 
     // A deserialized panel carries the roots it was serialized with, which need
@@ -308,9 +324,10 @@ export class PreviewManager implements vscode.Disposable {
     const onMessage = panel.webview.onDidReceiveMessage((msg: unknown) => {
       if (isWebviewToHost(msg)) this.onWebviewMessage(preview, msg);
     });
-    const onViewState = panel.onDidChangeViewState(() =>
-      this.stateEmitter.fire(),
-    );
+    const onViewState = panel.onDidChangeViewState(() => {
+      this.onViewStateChanged(preview);
+      this.stateEmitter.fire();
+    });
 
     panel.onDidDispose(() => {
       if (preview.debounce) clearTimeout(preview.debounce);
@@ -401,9 +418,12 @@ export class PreviewManager implements vscode.Disposable {
     preview.document = document;
     preview.sourceColumn =
       vscode.window.activeTextEditor?.viewColumn ?? preview.sourceColumn;
-    // A new document needs a fresh diff baseline.
+    // A new document needs a fresh diff baseline, and lines parked against the
+    // old one point nowhere.
     preview.session?.dispose();
     preview.session = null;
+    preview.panelScroll.clear();
+    preview.editorScroll.clear();
     this.update(preview);
     const editor = vscode.window.activeTextEditor;
     if (editor && editor.document.uri.toString() === document.uri.toString()) {
@@ -421,17 +441,61 @@ export class PreviewManager implements vscode.Disposable {
 
   private onActiveEditorChanged(editor: vscode.TextEditor | undefined): void {
     const preview = this.preview;
-    if (!preview || preview.locked) return;
+    if (!preview) return;
     if (!editor || !isMarkdownDocument(editor.document)) return;
     if (preview.document.uri.toString() === editor.document.uri.toString()) {
+      this.claimEditorScroll(preview, editor);
       return;
     }
+    if (preview.locked) return;
     this.retarget(preview, editor.document);
+  }
+
+  /**
+   * The panel came on screen or left it. A hidden panel is a webview without
+   * layout — scrolling it lands against measurements that are all zero — so
+   * the editor's position is parked while it is away and applied on return.
+   */
+  private onViewStateChanged(preview: Preview): void {
+    const visible = preview.panel.visible;
+    if (visible === preview.visible) return;
+    preview.visible = visible;
+    this.post(preview.panel.webview, { type: 'visibility', visible });
+    if (!visible) return;
+    const line = preview.panelScroll.claim();
+    if (line === undefined || !this.readSettings().scrollSync) return;
+    this.post(preview.panel.webview, { type: 'scroll', line, ratio: 0 });
+  }
+
+  /**
+   * The source editor came forward: adopt wherever the preview was read to
+   * while the editor sat behind it as a background tab.
+   */
+  private claimEditorScroll(
+    preview: Preview,
+    editor: vscode.TextEditor,
+  ): void {
+    const line = preview.editorScroll.claim();
+    if (line === undefined || !this.readSettings().scrollSync) return;
+    this.editorScrollGuard.suppress();
+    editor.revealRange(
+      new vscode.Range(line, 0, line, 0),
+      vscode.TextEditorRevealType.AtTop,
+    );
+    // Both sides now sit on this line, so the reveal events this triggers must
+    // not park a position for the panel to jump to when it comes back.
+    preview.panelScroll.clear();
   }
 
   private onWebviewMessage(preview: Preview, msg: WebviewToHost): void {
     switch (msg.type) {
       case 'ready':
+        // A restored panel can come up behind another tab; tell the page where
+        // it stands before the first render so it knows not to measure.
+        this.post(preview.panel.webview, {
+          type: 'visibility',
+          visible: preview.panel.visible,
+        });
         this.update(preview);
         break;
       case 'revealLine':
@@ -536,6 +600,13 @@ export class PreviewManager implements vscode.Disposable {
     if (!this.readSettings().scrollSync) return;
     const range = editor.visibleRanges[0];
     if (!range) return;
+    if (!preview.panel.visible) {
+      // Off-screen panel: park the line instead of scrolling a page that has
+      // no layout to measure. Switching to the editor tab is itself a visible-
+      // range change, so this is the path a tabbed Edit/Preview pair takes.
+      preview.panelScroll.park(range.start.line);
+      return;
+    }
     this.post(preview.panel.webview, {
       type: 'scroll',
       line: range.start.line,
@@ -570,7 +641,13 @@ export class PreviewManager implements vscode.Disposable {
       }
       return;
     }
-    if (!focus) return;
+    if (!focus) {
+      // Preview mode: the source is a background tab, which has no
+      // `TextEditor` to reveal in. Park the line so the editor picks the
+      // reader's place up when it comes forward.
+      preview.editorScroll.park(line);
+      return;
+    }
     // Split mode with the source as a background tab: bring it forward in its
     // own column. Never move the panel — a jump to the source is navigation,
     // not a mode switch, and silently rearranging the user's layout out from

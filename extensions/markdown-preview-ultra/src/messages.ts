@@ -84,6 +84,16 @@ export interface ThemeMessage {
   kind: 'light' | 'dark';
 }
 
+/**
+ * The panel became the on-screen tab in its group, or stopped being it.
+ * `retainContextWhenHidden` keeps the webview's DOM alive while it is hidden
+ * but not its layout, so the page stops measuring offsets until it is back.
+ */
+export interface VisibilityMessage {
+  type: 'visibility';
+  visible: boolean;
+}
+
 /** The WASM engine is not built; show a friendly hint instead of content. */
 export interface NoEngineMessage {
   type: 'noEngine';
@@ -93,6 +103,7 @@ export type HostToWebview =
   | UpdateMessage
   | ScrollMessage
   | ThemeMessage
+  | VisibilityMessage
   | NoEngineMessage;
 
 // ── Webview → Host ───────────────────────────────────────────────────

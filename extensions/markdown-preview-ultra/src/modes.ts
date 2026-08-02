@@ -101,17 +101,25 @@ export class ModeManager implements vscode.Disposable {
         // the manager's record of where the source editor lives.
         const existingColumn = document ? visibleColumnOf(document) : undefined;
         const sourceColumn = this.manager.sourceColumn;
-        this.manager.closePreview();
+        const readTo = this.manager.closePreview();
         if (document) {
           // From split the source editor is already open beside the panel;
           // reveal *that* one. Without an explicit column `showTextDocument`
           // targets the active column — the panel's — and opens a second copy
           // of the document alongside the original.
-          await vscode.window.showTextDocument(document, {
+          const editor = await vscode.window.showTextDocument(document, {
             viewColumn:
               existingColumn ?? sourceColumn ?? vscode.ViewColumn.One,
             preserveFocus: false,
           });
+          // Leaving Preview mode should land on the passage being read, not
+          // wherever the editor was parked before the preview took the column.
+          if (readTo !== undefined) {
+            editor.revealRange(
+              new vscode.Range(readTo, 0, readTo, 0),
+              vscode.TextEditorRevealType.AtTop,
+            );
+          }
         }
         break;
       }

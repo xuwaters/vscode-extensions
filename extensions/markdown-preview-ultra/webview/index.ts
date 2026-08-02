@@ -72,27 +72,58 @@ function saveState(patch: Partial<PersistedState>): void {
 let suppressScrollUntil = 0;
 let scrollMap: MapEntry[] | null = null;
 let revealThrottle: ReturnType<typeof setTimeout> | undefined;
+/** Whether the panel is the on-screen tab of its group — see `setHostVisible`. */
+let hostVisible = true;
 
 function invalidateScrollMap(): void {
   scrollMap = null;
 }
 
 function getScrollMap(): MapEntry[] {
-  if (!scrollMap) scrollMap = buildScrollMap(content);
-  return scrollMap;
+  if (scrollMap) return scrollMap;
+  const map = buildScrollMap(content);
+  // Off screen every element measures zero. Such a map is useless but it must
+  // above all not outlive the panel's return, so it is never cached.
+  if (hostVisible) scrollMap = map;
+  return map;
+}
+
+function scrollToOffset(top: number): void {
+  if (window.scrollY === top) return;
+  suppressScrollUntil = Date.now() + 150;
+  window.scrollTo({ top });
 }
 
 function scrollToLine(line: number, ratio: number): void {
   const top = offsetForLine(getScrollMap(), line);
   if (top === null) return;
-  suppressScrollUntil = Date.now() + 150;
-  window.scrollTo({ top: Math.max(0, top - ratio * window.innerHeight - 8) });
+  scrollToOffset(Math.max(0, top - ratio * window.innerHeight - 8));
+}
+
+/**
+ * Apply a scroll on the next frame, keeping only the last request. A panel
+ * that just came back on screen has not necessarily been laid out yet, and
+ * where the host wants us supersedes the offset we restore on our own.
+ */
+let queuedScroll: (() => void) | null = null;
+let queuedFrame = 0;
+
+function queueScroll(apply: () => void): void {
+  queuedScroll = apply;
+  if (queuedFrame) return;
+  queuedFrame = requestAnimationFrame(() => {
+    queuedFrame = 0;
+    const run = queuedScroll;
+    queuedScroll = null;
+    run?.();
+  });
 }
 
 window.addEventListener(
   'scroll',
   () => {
     if (Date.now() < suppressScrollUntil) return;
+    if (!hostVisible) return;
     if (!settings?.scrollSync) return;
     if (revealThrottle) return;
     revealThrottle = setTimeout(() => {
@@ -107,6 +138,32 @@ window.addEventListener(
 window.addEventListener('resize', invalidateScrollMap);
 // Late-loading images shift every offset below them.
 content.addEventListener('load', invalidateScrollMap, true);
+
+// ── Visibility ───────────────────────────────────────────────────────
+
+/** Where the page stood when it went off screen, in case the browser clamps it. */
+let parkedScrollY: number | null = null;
+
+/**
+ * Track whether the panel is the on-screen tab of its group.
+ * `retainContextWhenHidden` keeps this page alive behind another tab but not
+ * its layout: measurements read zero and the browser is free to clamp the
+ * scroll position to the top. So the page stops measuring while it is away and
+ * puts the reader back where they were on return — the host lands the editor's
+ * position on top of that when the two are meant to be in sync.
+ */
+function setHostVisible(visible: boolean): void {
+  if (visible === hostVisible) return;
+  hostVisible = visible;
+  invalidateScrollMap();
+  if (!visible) {
+    parkedScrollY = window.scrollY;
+    return;
+  }
+  const top = parkedScrollY;
+  parkedScrollY = null;
+  if (top !== null && top > 0) queueScroll(() => scrollToOffset(top));
+}
 
 // ── Theme ────────────────────────────────────────────────────────────
 
@@ -249,15 +306,18 @@ function handleUpdate(msg: UpdateMessage): void {
   applyThemeClasses();
   nav.update(msg.canGoBack, msg.canGoForward);
   const sameDocument = state.uri === msg.uri;
+  if (!sameDocument) parkedScrollY = null;
   saveState({ uri: msg.uri });
 
   let restoreLine: number | null = null;
   if (msg.reset) {
     // Keep the reader's place across a full rebuild — but a *different*
-    // document (followed a link, went back) starts at its top.
-    restoreLine = sameDocument
-      ? lineForOffset(getScrollMap(), window.scrollY + 8)
-      : null;
+    // document (followed a link, went back) starts at its top. Off screen
+    // there is nothing to measure with; the parked offset covers that case.
+    restoreLine =
+      sameDocument && hostVisible
+        ? lineForOffset(getScrollMap(), window.scrollY + 8)
+        : null;
     content.textContent = '';
   }
 
@@ -290,10 +350,9 @@ function handleUpdate(msg: UpdateMessage): void {
 
   if (restoreLine !== null) {
     const line = restoreLine;
-    requestAnimationFrame(() => scrollToLine(line, 0));
+    queueScroll(() => scrollToLine(line, 0));
   } else if (msg.reset && !sameDocument) {
-    suppressScrollUntil = Date.now() + 150;
-    window.scrollTo({ top: 0 });
+    queueScroll(() => scrollToOffset(0));
   }
 }
 
@@ -348,7 +407,12 @@ window.addEventListener('message', (event) => {
       handleUpdate(msg);
       break;
     case 'scroll':
-      if (settings?.scrollSync) scrollToLine(msg.line, msg.ratio);
+      if (settings?.scrollSync && hostVisible) {
+        queueScroll(() => scrollToLine(msg.line, msg.ratio));
+      }
+      break;
+    case 'visibility':
+      setHostVisible(msg.visible);
       break;
     case 'theme':
       // Only matters while following the editor, but the switch's icon tracks
