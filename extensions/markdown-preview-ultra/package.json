@@ -2,11 +2,11 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.4.13",
+  "version": "0.4.17",
   "private": true,
   "publisher": "weixu",
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.100.0"
   },
   "categories": [
     "Other"
@@ -96,7 +96,7 @@
         "command": "markdownPreviewUltra.setModeSplit",
         "title": "Switch to Split View",
         "category": "Markdown Preview Ultra",
-        "icon": "$(split-horizontal)"
+        "icon": "$(layout-sidebar-right)"
       },
       {
         "command": "markdownPreviewUltra.setModePreview",
@@ -159,13 +159,13 @@
           "group": "navigation@1"
         },
         {
-          "command": "markdownPreviewUltra.setModeSplit",
-          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && markdownPreviewUltra.mode != split",
+          "command": "markdownPreviewUltra.setModePreview",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && markdownPreviewUltra.mode != preview",
           "group": "navigation@2"
         },
         {
-          "command": "markdownPreviewUltra.setModePreview",
-          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && markdownPreviewUltra.mode != preview",
+          "command": "markdownPreviewUltra.setModeSplit",
+          "when": "(editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && markdownPreviewUltra.mode != split",
           "group": "navigation@3"
         },
         {

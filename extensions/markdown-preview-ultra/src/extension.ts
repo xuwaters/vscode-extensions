@@ -16,7 +16,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // Shared by both surfaces, so the WASM engine is loaded at most once.
   const renderer = new PreviewRenderer(context.extensionUri);
   const manager = new PreviewManager(renderer);
-  const modes = new ModeManager(manager);
+  const editors = new MarkdownEditorProvider(renderer);
+  const modes = new ModeManager(manager, editors);
   context.subscriptions.push(manager, modes);
 
   /**
@@ -83,12 +84,12 @@ export function activate(context: vscode.ExtensionContext): void {
       deserializeWebviewPanel: (panel, state) =>
         manager.restorePanel(panel, state as { uri?: string } | undefined),
     }),
-    // Opt-in entry point: with `workbench.editorAssociations` pointing `*.md`
-    // here, a markdown file opens straight into the preview — no text editor
-    // is created first, so there is no flash of source on open.
+    // The full-tab preview: what Preview mode swaps the source editor for, and
+    // — with `workbench.editorAssociations` pointing `*.md` here — what a
+    // markdown file opens as, with no flash of source first.
     vscode.window.registerCustomEditorProvider(
       MarkdownEditorProvider.viewType,
-      new MarkdownEditorProvider(renderer),
+      editors,
       {
         webviewOptions: {
           retainContextWhenHidden: true,

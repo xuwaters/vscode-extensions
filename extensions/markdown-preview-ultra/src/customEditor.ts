@@ -11,9 +11,19 @@ const DEBOUNCE_MS = 150;
 const TEXT_EDITOR = 'default';
 
 /**
+ * VSCode's own Reopen With, which swaps the editor *inside* the active tab.
+ * `vscode.openWith` cannot: its resolver only reuses a tab when the editor type
+ * matches, so opening a file's preview over its source leaves the source tab
+ * sitting behind it. Replacing keeps the tab's place in the tab bar and hands
+ * the unsaved changes over — closing the source instead would ask to save them.
+ */
+const REOPEN_ACTIVE_EDITOR_WITH = 'reopenActiveEditorWith';
+
+/**
  * Opens a markdown file *straight into* the preview: no text editor is created
- * first, so there is no flash of source and no tab switch on open. Enable it
- * per-user with
+ * first, so there is no flash of source and no tab switch on open. Switching to
+ * Preview mode lands here, and it can also own the file from the moment it is
+ * opened:
  *
  * ```jsonc
  * "workbench.editorAssociations": { "*.md": "markdownPreviewUltra.editor" }
@@ -28,7 +38,28 @@ const TEXT_EDITOR = 'default';
 export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = 'markdownPreviewUltra.editor';
 
+  /**
+   * Where each file's preview stands, by URI. A mode switch *replaces* the tab
+   * rather than moving it, so the line being read has to outlive the webview
+   * that reported it — parked on the way in, taken on the way out. One-shot:
+   * whoever takes it owns it.
+   */
+  private readonly parkedLines = new Map<string, number>();
+
   constructor(private readonly renderer: PreviewRenderer) {}
+
+  /** Hand the preview editor a line to open at; set before `vscode.openWith`. */
+  public parkLine(uri: vscode.Uri, line: number): void {
+    this.parkedLines.set(uri.toString(), line);
+  }
+
+  /** Take the line this file's preview was last read to, if it reported one. */
+  public takeLine(uri: vscode.Uri): number | undefined {
+    const key = uri.toString();
+    const line = this.parkedLines.get(key);
+    this.parkedLines.delete(key);
+    return line;
+  }
 
   public resolveCustomTextEditor(
     document: vscode.TextDocument,
@@ -90,6 +121,9 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       if (debounce) clearTimeout(debounce);
       for (const d of disposables) d.dispose();
       session?.dispose();
+      // A mode switch takes the line before it replaces the tab; anything left
+      // here belongs to a tab the reader simply closed.
+      this.parkedLines.delete(document.uri.toString());
     });
   }
 
@@ -101,7 +135,7 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     reset: () => void,
   ): Promise<void> {
     switch (msg.type) {
-      case 'ready':
+      case 'ready': {
         // The tab can be restored behind another one; tell the page where it
         // stands before the first render so it knows not to measure.
         this.renderer.post(panel.webview, {
@@ -109,10 +143,21 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
           visible: panel.visible,
         });
         update();
+        // Arriving from the text editor: pick the reader up where the source
+        // left off, rather than at the top of the file. The patch above is
+        // applied first, so the page has something to scroll through.
+        const line = this.takeLine(document.uri);
+        if (line !== undefined && this.renderer.readSettings().scrollSync) {
+          this.renderer.post(panel.webview, { type: 'scroll', line, ratio: 0 });
+        }
         break;
+      }
       case 'revealLine': {
-        // Only meaningful once the source has been split out beside us.
         if (!this.renderer.readSettings().scrollSync) return;
+        // Remembered even with no editor to reveal in: this is the position a
+        // switch back to Edit hands over.
+        this.parkLine(document.uri, msg.line);
+        // Revealing is only meaningful once the source is split out beside us.
         const editor = visibleEditorFor(document);
         editor?.revealRange(
           new vscode.Range(msg.line, 0, msg.line, 0),
@@ -123,7 +168,10 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       case 'jumpToLine':
         // Double-click on the page: this tab *is* the preview, so the source
         // has nowhere to go but beside it.
-        await openSource(document, vscode.ViewColumn.Beside, msg.line);
+        await openSource(document, vscode.ViewColumn.Beside, {
+          line: msg.line,
+          select: true,
+        });
         break;
       case 'navigate':
         // No history: the tab is bound to its document (buttons stay hidden).
@@ -178,6 +226,76 @@ function visibleEditorFor(
   );
 }
 
+/** What a tab is showing, for the two kinds of tab this extension opens. */
+function tabEditor(
+  tab: vscode.Tab,
+): { uri: vscode.Uri; editorId: string } | undefined {
+  const input = tab.input;
+  if (input instanceof vscode.TabInputText) {
+    return { uri: input.uri, editorId: TEXT_EDITOR };
+  }
+  if (input instanceof vscode.TabInputCustom) {
+    return { uri: input.uri, editorId: input.viewType };
+  }
+  return undefined;
+}
+
+/**
+ * The editor a tab in `column` is using to show `uri`, if one is. The active tab
+ * wins, so a mode switch acts on the tab the reader is looking at.
+ */
+function editorShowing(
+  uri: vscode.Uri,
+  column: vscode.ViewColumn,
+): string | undefined {
+  const group = vscode.window.tabGroups.all.find(
+    (candidate) => candidate.viewColumn === column,
+  );
+  if (!group) return undefined;
+  const tabs = group.activeTab ? [group.activeTab, ...group.tabs] : group.tabs;
+  for (const tab of tabs) {
+    const shown = tabEditor(tab);
+    if (shown?.uri.toString() === uri.toString()) return shown.editorId;
+  }
+  return undefined;
+}
+
+/**
+ * Show `uri` in `column` under the editor `editorId`, taking over the tab that
+ * already shows the file rather than opening in front of it.
+ *
+ * The symbolic columns are left to VSCode: `Beside` and `Active` match no group,
+ * so they open a tab of their own the way a jump to the source should.
+ */
+async function showWith(
+  uri: vscode.Uri,
+  column: vscode.ViewColumn,
+  editorId: string,
+): Promise<void> {
+  const current = editorShowing(uri, column);
+  if (current !== undefined && current !== editorId) {
+    // Reopen With acts on the active editor, so the tab has to come forward as
+    // it stands before VSCode is asked to swap what is inside it.
+    await openWith(uri, column, current);
+    await vscode.commands.executeCommand(REOPEN_ACTIVE_EDITOR_WITH, editorId);
+    return;
+  }
+  // Nothing to take over, or the tab already holds the right editor — which
+  // makes this a reveal rather than a second copy.
+  await openWith(uri, column, editorId);
+}
+
+function openWith(
+  uri: vscode.Uri,
+  column: vscode.ViewColumn,
+  editorId: string,
+): Thenable<unknown> {
+  return vscode.commands.executeCommand('vscode.openWith', uri, editorId, {
+    viewColumn: column,
+    preserveFocus: false,
+  });
+}
+
 /**
  * Open the *source* of a markdown file. Plain `vscode.open` would be routed
  * straight back to the preview by the editor association, so the text editor
@@ -186,21 +304,36 @@ function visibleEditorFor(
 export async function openSource(
   uriOrDocument: vscode.Uri | vscode.TextDocument,
   column: vscode.ViewColumn,
-  line?: number,
+  reveal?: {
+    line: number;
+    /** Put the cursor there too — a jump to the source, not a mode switch. */
+    select?: boolean;
+  },
 ): Promise<void> {
   const uri = 'uri' in uriOrDocument ? uriOrDocument.uri : uriOrDocument;
-  await vscode.commands.executeCommand('vscode.openWith', uri, TEXT_EDITOR, {
-    viewColumn: column,
-    preserveFocus: false,
-  });
-  if (line === undefined) return;
+  await showWith(uri, column, TEXT_EDITOR);
+  if (!reveal) return;
   const editor = vscode.window.visibleTextEditors.find(
     (ed) => ed.document.uri.toString() === uri.toString(),
   );
   if (!editor) return;
-  const target = new vscode.Range(line, 0, line, 0);
-  editor.selection = new vscode.Selection(target.start, target.start);
+  const target = new vscode.Range(reveal.line, 0, reveal.line, 0);
+  if (reveal.select) {
+    editor.selection = new vscode.Selection(target.start, target.start);
+  }
   editor.revealRange(target, vscode.TextEditorRevealType.AtTop);
+}
+
+/**
+ * Open a markdown file *in* the preview editor — the mirror of `openSource`.
+ * The tab holding the source becomes the preview, rather than gaining a second
+ * tab in front of it.
+ */
+export async function openPreviewEditor(
+  uri: vscode.Uri,
+  column: vscode.ViewColumn,
+): Promise<void> {
+  await showWith(uri, column, MarkdownEditorProvider.viewType);
 }
 
 /**
