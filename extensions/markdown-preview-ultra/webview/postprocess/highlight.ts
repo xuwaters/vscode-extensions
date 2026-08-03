@@ -2,6 +2,11 @@
 // bundle (≈40 popular languages) to keep the webview bundle reasonable while
 // still covering the languages most markdown authors reach for.
 import hljs from 'highlight.js/lib/common';
+import capnp from './capnp';
+
+// Languages the common bundle doesn't carry. Registered once at module load so
+// their fences highlight exactly like the built-in ones.
+hljs.registerLanguage('capnp', capnp);
 
 /**
  * Highlight the engine-emitted `<pre><code class="language-…">` fences inside
