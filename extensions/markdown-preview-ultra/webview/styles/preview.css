@@ -83,6 +83,8 @@ body {
   background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15));
   padding: 12px 16px;
   border-radius: 6px;
+  /* Fallback for a `<pre>` with no `<code>` (raw HTML, mermaid errors); a
+   * fenced block scrolls on its `<code>` instead — see below. */
   overflow-x: auto;
   margin: 1em 0;
 }
@@ -96,6 +98,12 @@ body {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.9em;
   line-height: 1.5;
+  /* The long line scrolls, not the `<pre>`. An absolutely positioned child of
+   * a scroll container is placed against the scrolled content and rides along
+   * with it; keeping `<pre>` itself unscrolled pins the copy button to the
+   * block's visible corner. */
+  display: block;
+  overflow-x: auto;
 }
 
 /* Blockquotes */
