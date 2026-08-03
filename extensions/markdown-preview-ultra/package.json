@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.4.22",
+  "version": "0.4.23",
   "private": true,
   "publisher": "weixu",
   "engines": {

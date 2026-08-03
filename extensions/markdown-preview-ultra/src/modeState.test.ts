@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { resolveMode, toggleEditPreview } from './modeState';
+import {
+  resolveMode,
+  shouldHandOffToSource,
+  toggleEditPreview,
+} from './modeState';
 
 describe('resolveMode', () => {
   it('is edit with nothing open', () => {
@@ -55,6 +59,39 @@ describe('resolveMode', () => {
         sourceColumn: 1,
       }),
     ).toBe('preview');
+  });
+});
+
+describe('shouldHandOffToSource', () => {
+  /** Source in column 1, preview panel beside it in column 2. */
+  const split = { hasPanel: true, panelColumn: 2, sourceColumn: 1 };
+
+  it('claims the source column of a split for the text editor', () => {
+    expect(shouldHandOffToSource(split, 1)).toBe(true);
+  });
+
+  it('leaves a tab that opened in another column alone', () => {
+    expect(shouldHandOffToSource(split, 2)).toBe(false);
+    expect(shouldHandOffToSource(split, 3)).toBe(false);
+  });
+
+  it('claims it too when the panel has yet to report a column of its own', () => {
+    expect(shouldHandOffToSource({ hasPanel: true, sourceColumn: 1 }, 1)).toBe(
+      true,
+    );
+  });
+
+  it('leaves the tab alone with no panel open — Preview mode opened it', () => {
+    expect(shouldHandOffToSource({ hasPanel: false }, 1)).toBe(false);
+  });
+
+  it('leaves the tab alone when the panel holds the source column', () => {
+    expect(
+      shouldHandOffToSource(
+        { hasPanel: true, panelColumn: 1, sourceColumn: 1 },
+        1,
+      ),
+    ).toBe(false);
   });
 });
 

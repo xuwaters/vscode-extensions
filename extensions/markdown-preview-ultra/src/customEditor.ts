@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { applyTaskToggle, resolveLink } from './actions';
 import type { EngineSession } from './engine';
 import { isWebviewToHost, type WebviewToHost } from './messages';
+import { shouldHandOffToSource } from './modeState';
+import type { PreviewManager } from './previewManager';
 import { NO_HISTORY, PreviewRenderer } from './renderer';
 import { isMarkdownPath, visibleEditorFor } from './util';
 
@@ -29,6 +31,10 @@ const REOPEN_ACTIVE_EDITOR_WITH = 'reopenActiveEditorWith';
  * "workbench.editorAssociations": { "*.md": "markdownPreviewUltra.editor" }
  * ```
  *
+ * That association routes *every* markdown file here, which is one file too
+ * many: a reader in Split has already said where the source goes. Those tabs
+ * are handed straight back to the text editor — see `handOffToSource`.
+ *
  * VSCode owns these webviews, one per tab, and binds each to its document for
  * the tab's life. So unlike the following panel there is nothing to retarget:
  * no active-editor following, no pinning, and no link history — a link opens
@@ -46,7 +52,17 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
    */
   private readonly parkedLines = new Map<string, number>();
 
-  constructor(private readonly renderer: PreviewRenderer) {}
+  /**
+   * Files a hand-off back to the source is already in flight for. Taking a tab
+   * over reveals it first, which can route back through this provider for the
+   * same file; the second pass renders rather than bouncing again.
+   */
+  private readonly handingOff = new Set<string>();
+
+  constructor(
+    private readonly renderer: PreviewRenderer,
+    private readonly manager: PreviewManager,
+  ) {}
 
   /** Hand the preview editor a line to open at; set before `vscode.openWith`. */
   public parkLine(uri: vscode.Uri, line: number): void {
@@ -66,6 +82,11 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     panel: vscode.WebviewPanel,
     _token: vscode.CancellationToken,
   ): void {
+    // The editor association routes every markdown file here, Split mode
+    // included — where the tab belongs to the source. Nothing is wired up for a
+    // tab that is on its way out.
+    if (this.handOffToSource(document, panel)) return;
+
     panel.webview.options = {
       enableScripts: true,
       localResourceRoots: this.renderer.localResourceRoots(document),
@@ -125,6 +146,53 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       // here belongs to a tab the reader simply closed.
       this.parkedLines.delete(document.uri.toString());
     });
+  }
+
+  /**
+   * Give the tab back to the text editor when it has landed in the source
+   * column of a split, and report having done so.
+   *
+   * Only tabs that *arrived* here are handed back: a mode switch into Preview
+   * closes the panel before opening this editor, so by the time it reaches us
+   * there is no split left to hand back to. Anything still standing in a split
+   * came from the editor association, which is to say from the reader opening a
+   * file rather than asking for a different layout.
+   */
+  private handOffToSource(
+    document: vscode.TextDocument,
+    panel: vscode.WebviewPanel,
+  ): boolean {
+    const key = document.uri.toString();
+    if (this.handingOff.has(key)) return false;
+    const column = panel.viewColumn;
+    if (column === undefined) return false;
+    const claim = shouldHandOffToSource(
+      {
+        hasPanel: this.manager.hasPreview,
+        panelColumn: this.manager.panelColumn,
+        sourceColumn: this.manager.sourceColumn,
+      },
+      column,
+    );
+    if (!claim) return false;
+    this.handingOff.add(key);
+    // This tab is still being resolved; swapping what is inside it from in here
+    // would re-enter the editor service, so let the resolve return first.
+    setTimeout(() => {
+      // The panel follows the active editor, so retargeting it to the new file
+      // is the source editor taking focus — nothing more to do here.
+      void openSource(document.uri, column).then(
+        () => this.handingOff.delete(key),
+        (err: unknown) => {
+          this.handingOff.delete(key);
+          console.error(
+            'markdown-preview-ultra: hand-off to source failed',
+            err,
+          );
+        },
+      );
+    }, 0);
+    return true;
   }
 
   private async onMessage(

@@ -42,3 +42,29 @@ export function resolveMode(placement: PreviewPlacement): PreviewMode {
     ? 'preview'
     : 'split';
 }
+
+/**
+ * Whether a preview-editor tab that has just opened in `tabColumn` should be
+ * handed straight back to the text editor.
+ *
+ * With `workbench.editorAssociations` pointing `*.md` at the preview editor,
+ * *every* way of opening a markdown file goes there — including clicking the
+ * next file while reading in Split. But Split is a layout the reader chose:
+ * source in one column, preview beside it. A file arriving in the source column
+ * is a request for that file, not for a different layout, so the column keeps
+ * showing source and the panel — which follows the active editor — picks the
+ * new file up. Opening it as a preview tab instead would bury the source and
+ * leave the panel behind on the old file.
+ *
+ * The tab being decided is excluded from the layout it is judged against: it is
+ * active before this extension hears about it, and reading it back would answer
+ * "Preview" every time. Only the source column is claimed — a preview tab that
+ * lands anywhere else is not standing in the source's place.
+ */
+export function shouldHandOffToSource(
+  placement: Omit<PreviewPlacement, 'previewEditorActive'>,
+  tabColumn: number,
+): boolean {
+  const mode = resolveMode({ ...placement, previewEditorActive: false });
+  return mode === 'split' && tabColumn === placement.sourceColumn;
+}

@@ -16,7 +16,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // Shared by both surfaces, so the WASM engine is loaded at most once.
   const renderer = new PreviewRenderer(context.extensionUri);
   const manager = new PreviewManager(renderer);
-  const editors = new MarkdownEditorProvider(renderer);
+  // The provider reads the panel's placement: a markdown file opened while the
+  // reader is in Split belongs in the source column, not in a preview tab.
+  const editors = new MarkdownEditorProvider(renderer, manager);
   const modes = new ModeManager(manager, editors);
   context.subscriptions.push(manager, modes);
 
