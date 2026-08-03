@@ -5,7 +5,7 @@
 //! byte-by-byte, joining quoted continuations into a single
 //! [`ast::Assignment`].
 
-use crate::ast::{Assignment, Blank, Comment, Entry, File, Identifier, ValueKind, VarRef};
+use crate::ast::{Assignment, Blank, Comment, Entry, File, Identifier, Invalid, ValueKind, VarRef};
 use crate::diagnostics::{DiagnosticCode, DotenvDiagnostic};
 use crate::spans::ByteSpan;
 use std::collections::HashMap;
@@ -58,9 +58,7 @@ impl<'a> Parser<'a> {
             }
 
             // Otherwise: assignment (or malformed).
-            if let Some(entry) = self.parse_assignment(line_start, trimmed_start) {
-                entries.push(entry);
-            }
+            entries.push(self.parse_assignment(line_start, trimmed_start));
         }
         let file = File { entries };
         self.check_duplicates(&file);
@@ -68,7 +66,7 @@ impl<'a> Parser<'a> {
         file
     }
 
-    fn parse_assignment(&mut self, line_start: usize, content_start: usize) -> Option<Entry> {
+    fn parse_assignment(&mut self, line_start: usize, content_start: usize) -> Entry {
         let mut cursor = content_start;
 
         // Optional `export ` prefix.
@@ -95,14 +93,17 @@ impl<'a> Parser<'a> {
 
         // Find the `=`. Anything else after the key (besides whitespace) is invalid.
         if after_key_ws >= self.source.len() || self.source[after_key_ws] != b'=' {
-            // No `=` on this line — emit MissingEquals and skip the line.
+            // No `=` on this line — emit MissingEquals and keep the line
+            // as an opaque entry so it survives a round-trip.
             let line_end = self.consume_to_eol();
             self.diagnostics.push(DotenvDiagnostic::warning(
                 DiagnosticCode::MissingEquals,
                 "line is not blank, a comment, or an assignment",
                 ByteSpan::from_usize(line_start, end_excl_newline(line_end, self.source)),
             ));
-            return None;
+            return Entry::Invalid(Invalid {
+                span: ByteSpan::from_usize(line_start, line_end),
+            });
         }
         let equals_pos = after_key_ws;
 
@@ -153,7 +154,7 @@ impl<'a> Parser<'a> {
         let name = std::str::from_utf8(&self.source[key_start..key_end])
             .unwrap_or("")
             .to_string();
-        Some(Entry::Assignment(Assignment {
+        Entry::Assignment(Assignment {
             span: ByteSpan::from_usize(line_start, line_end),
             export,
             name: Identifier {
@@ -164,7 +165,7 @@ impl<'a> Parser<'a> {
             value_span: ByteSpan::from_usize(value_start, value_end),
             value_kind,
             references,
-        }))
+        })
     }
 
     /// Returns `(value_end, kind, refs, line_end_including_newline)`.
@@ -515,6 +516,15 @@ mod tests {
     fn missing_equals_warns() {
         let (_f, diags) = parse("just_text\n");
         assert!(diags.iter().any(|d| d.code == DiagnosticCode::MissingEquals));
+    }
+
+    #[test]
+    fn missing_equals_line_is_kept_verbatim() {
+        let src = "just_text\nA=1\n";
+        let (f, _diags) = parse(src);
+        assert_eq!(f.entries.len(), 2);
+        let Entry::Invalid(i) = &f.entries[0] else { panic!() };
+        assert_eq!(&src[i.span.start as usize..i.span.end as usize], "just_text\n");
     }
 
     #[test]

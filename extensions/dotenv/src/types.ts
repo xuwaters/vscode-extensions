@@ -45,6 +45,18 @@ export interface AnalyzerHover {
   end: LineCol;
 }
 
+export interface AnalyzerTextEdit {
+  start: LineCol;
+  end: LineCol;
+  new_text: string;
+}
+
+/** Mirrors `FormatOptions` in crates/dotenv-analyzer/src/features/formatting.rs. */
+export interface FormatOptions {
+  max_blank_lines: number;
+  insert_final_newline: boolean;
+}
+
 export interface WasmAnalyzerCtor {
   new (): WasmAnalyzer;
 }
@@ -57,6 +69,13 @@ export interface WasmAnalyzer {
   folding_ranges(uri: string): string;
   complete(uri: string, line: number, col: number): string;
   hover(uri: string, line: number, col: number): string;
+  formatting(uri: string, options_json: string): string;
+  formatting_range(
+    uri: string,
+    start_line: number,
+    end_line: number,
+    options_json: string,
+  ): string;
 }
 
 export interface WasmModule {

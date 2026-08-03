@@ -4,6 +4,7 @@ import { refreshDiagnostics } from './diagnostics';
 import { DotenvCompletionProvider } from './providers/completion';
 import { DotenvDocumentSymbolProvider } from './providers/documentSymbol';
 import { DotenvFoldingRangeProvider } from './providers/foldingRange';
+import { DotenvFormattingProvider } from './providers/formatting';
 import { DotenvHoverProvider } from './providers/hover';
 
 const DOTENV_SELECTOR: vscode.DocumentSelector = { scheme: 'file', language: 'dotenv' };
@@ -14,6 +15,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diagCollection = vscode.languages.createDiagnosticCollection('dotenv');
   context.subscriptions.push(diagCollection);
 
+  const formattingProvider = new DotenvFormattingProvider(bridge);
   context.subscriptions.push(
     vscode.languages.registerDocumentSymbolProvider(
       DOTENV_SELECTOR,
@@ -30,6 +32,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       '{',
     ),
     vscode.languages.registerHoverProvider(DOTENV_SELECTOR, new DotenvHoverProvider(bridge)),
+    vscode.languages.registerDocumentFormattingEditProvider(DOTENV_SELECTOR, formattingProvider),
+    vscode.languages.registerDocumentRangeFormattingEditProvider(
+      DOTENV_SELECTOR,
+      formattingProvider,
+    ),
   );
 
   for (const doc of vscode.workspace.textDocuments) {

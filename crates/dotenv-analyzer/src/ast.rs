@@ -2,9 +2,13 @@
 //!
 //! The grammar is flat: a file is a list of [`Entry`] items, one per
 //! logical line. An entry is either an assignment, a standalone comment,
-//! or a blank line. Assignments record exact byte ranges for the key,
-//! the `=`, and the value — feature providers use these for completion,
-//! hover, and references.
+//! a blank line, or an unparseable line. Assignments record exact byte
+//! ranges for the key, the `=`, and the value — feature providers use
+//! these for completion, hover, and references.
+//!
+//! Every byte of the source belongs to exactly one entry, including
+//! lines that failed to parse — the formatter relies on that to rewrite
+//! a file without dropping content.
 
 use crate::spans::ByteSpan;
 
@@ -18,6 +22,10 @@ pub enum Entry {
     Assignment(Assignment),
     Comment(Comment),
     Blank(Blank),
+    /// A line that is neither blank, a comment, nor an assignment. Kept
+    /// verbatim so consumers can round-trip the file; the parser also
+    /// reports it as `ENV002`.
+    Invalid(Invalid),
 }
 
 impl Entry {
@@ -26,6 +34,7 @@ impl Entry {
             Entry::Assignment(a) => a.span,
             Entry::Comment(c) => c.span,
             Entry::Blank(b) => b.span,
+            Entry::Invalid(i) => i.span,
         }
     }
 }
@@ -87,5 +96,11 @@ pub struct Comment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blank {
+    pub span: ByteSpan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Invalid {
+    /// Full span of the line, including its trailing newline if present.
     pub span: ByteSpan,
 }

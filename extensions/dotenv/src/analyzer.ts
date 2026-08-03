@@ -6,6 +6,8 @@ import type {
   AnalyzerDocumentSymbol,
   AnalyzerFoldingRange,
   AnalyzerHover,
+  AnalyzerTextEdit,
+  FormatOptions,
   WasmAnalyzer,
   WasmModule,
 } from './types';
@@ -92,6 +94,34 @@ export class AnalyzerBridge {
     if (!this.analyzer) return null;
     try {
       return JSON.parse(this.analyzer.hover(uri, line, col)) as AnalyzerHover | null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** `null` when the file is already formatted or the formatter declined. */
+  formatting(uri: string, options: FormatOptions): AnalyzerTextEdit | null {
+    if (!this.analyzer) return null;
+    try {
+      return JSON.parse(
+        this.analyzer.formatting(uri, JSON.stringify(options)),
+      ) as AnalyzerTextEdit | null;
+    } catch {
+      return null;
+    }
+  }
+
+  formattingRange(
+    uri: string,
+    startLine: number,
+    endLine: number,
+    options: FormatOptions,
+  ): AnalyzerTextEdit | null {
+    if (!this.analyzer) return null;
+    try {
+      return JSON.parse(
+        this.analyzer.formatting_range(uri, startLine, endLine, JSON.stringify(options)),
+      ) as AnalyzerTextEdit | null;
     } catch {
       return null;
     }

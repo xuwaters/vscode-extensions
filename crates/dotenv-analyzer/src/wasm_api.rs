@@ -1,15 +1,26 @@
 //! WASM entry points. The surface is intentionally flat and string-typed
 //! so the TypeScript host can treat the module as "JSON in, JSON out".
 
-use crate::features::{completion, document_symbols, folding, hover};
+use crate::features::formatting::FormatOptions;
+use crate::features::{completion, document_symbols, folding, formatting, hover};
 use crate::spans::LineCol;
 use crate::vfs::{FileUri, Workspace};
 use analyzer_core::lsp::{
     span_to_line_cols, to_lsp_diagnostic, LspDiagnostic, LspDocumentSymbol, LspFoldingRange,
     LspHover,
 };
+use serde::Serialize;
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
+
+/// A whole-range replacement. The dotenv formatter only ever produces
+/// one, so there is no batch variant.
+#[derive(Serialize)]
+struct LspTextEdit {
+    start: LineCol,
+    end: LineCol,
+    new_text: String,
+}
 
 #[wasm_bindgen(start)]
 fn init() {
@@ -107,6 +118,47 @@ impl Analyzer {
         };
         let items = completion::completions(pf, LineCol { line, col });
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".into())
+    }
+
+    /// `options_json` is a [`FormatOptions`] object; unparseable or
+    /// partial JSON falls back to the defaults. Returns `null` when the
+    /// file is already formatted or the formatter declined.
+    pub fn formatting(&self, uri: &str, options_json: &str) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else {
+            return "null".into();
+        };
+        let opts: FormatOptions = serde_json::from_str(options_json).unwrap_or_default();
+        let Some(text) = formatting::format_file(pf, &opts) else {
+            return "null".into();
+        };
+        let end = pf.spans.offset_to_line_col(&pf.source, pf.source.len() as u32);
+        let lsp = LspTextEdit { start: LineCol { line: 0, col: 0 }, end, new_text: text };
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "null".into())
+    }
+
+    /// Formats the entries overlapping the inclusive line range
+    /// `[start_line, end_line]`.
+    pub fn formatting_range(
+        &self,
+        uri: &str,
+        start_line: u32,
+        end_line: u32,
+        options_json: &str,
+    ) -> String {
+        let ws = self.0.borrow();
+        let uri = FileUri::new(uri);
+        let Some(pf) = ws.file(&uri) else {
+            return "null".into();
+        };
+        let opts: FormatOptions = serde_json::from_str(options_json).unwrap_or_default();
+        let Some((span, text)) = formatting::format_range(pf, start_line, end_line, &opts) else {
+            return "null".into();
+        };
+        let (start, end) = span_to_line_cols(span, &pf.source, &pf.spans);
+        let lsp = LspTextEdit { start, end, new_text: text };
+        serde_json::to_string(&lsp).unwrap_or_else(|_| "null".into())
     }
 
     pub fn hover(&self, uri: &str, line: u32, col: u32) -> String {
