@@ -2,7 +2,7 @@
   "name": "wx-vsce-claude-usage-ultra",
   "displayName": "Claude Usage Ultra",
   "description": "Show Claude Code plan usage — 5-hour session window, weekly all-models and per-model windows, reset countdowns and extra-usage spend — in the VS Code status bar.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -40,11 +40,18 @@
     "configuration": {
       "title": "Claude Usage Ultra",
       "properties": {
+        "claudeUsageUltra.label": {
+          "type": "string",
+          "default": "Claude",
+          "description": "Text shown before the numbers, so the status bar item is recognisable. Leave empty for the icon alone."
+        },
         "claudeUsageUltra.show": {
           "type": "array",
           "default": [
             "session",
             "weekly",
+            "scoped",
+            "spend",
             "reset"
           ],
           "items": {
@@ -60,9 +67,9 @@
             "enumDescriptions": [
               "5-hour session window, percent used",
               "7-day all-models window, percent used",
-              "Fullest per-model weekly window, percent used",
+              "Fullest per-model weekly window, percent used — for example Fable or Opus",
               "Countdown to the next window reset",
-              "Extra usage spent this month",
+              "Extra usage credits spent this month",
               "Subscription plan name"
             ]
           },

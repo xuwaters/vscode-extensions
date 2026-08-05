@@ -17,6 +17,7 @@ const NOW = Date.parse('2026-08-05T09:21:00.000Z');
 
 const OPTIONS: FormatOptions = {
   segments: ['session', 'weekly', 'reset'],
+  label: 'Claude',
   staleAfterMs: 30 * 60_000,
   warnAtPercent: 80,
   errorAtPercent: 95,
@@ -105,16 +106,39 @@ describe('nextReset', () => {
 });
 
 describe('formatStatusText', () => {
-  it('renders the configured segments in order', () => {
+  it('renders the label, then the configured segments in order', () => {
     expect(formatStatusText(snapshot(), NOW, OPTIONS)).toBe(
+      '$(pulse) Claude · 5h 7% · 7d 69% · $(history) 3h 49m',
+    );
+  });
+
+  it('drops the label when it is blank', () => {
+    expect(formatStatusText(snapshot(), NOW, { ...OPTIONS, label: '  ' })).toBe(
       '$(pulse) 5h 7% · 7d 69% · $(history) 3h 49m',
     );
   });
 
-  it('renders the per-model window, spend and plan when asked', () => {
+  it('renders the per-model window, credits and plan when asked', () => {
     const withScoped = snapshot({ limits: [limit(), WEEKLY, SCOPED] });
-    const options: FormatOptions = { ...OPTIONS, segments: ['scoped', 'spend', 'plan'] };
-    expect(formatStatusText(withScoped, NOW, options)).toBe('$(pulse) Fable 100% · $72.77 · max');
+    const options: FormatOptions = {
+      ...OPTIONS,
+      label: '',
+      segments: ['scoped', 'spend', 'plan'],
+    };
+    expect(formatStatusText(withScoped, NOW, options)).toBe(
+      '$(pulse) Fable 100% · $(credit-card) $72.77 · max',
+    );
+  });
+
+  it('shows the default segments — Fable and credits included', () => {
+    const full = snapshot({ limits: [limit(), WEEKLY, SCOPED] });
+    const options: FormatOptions = {
+      ...OPTIONS,
+      segments: ['session', 'weekly', 'scoped', 'spend', 'reset'],
+    };
+    expect(formatStatusText(full, NOW, options)).toBe(
+      '$(pulse) Claude · 5h 7% · 7d 69% · Fable 100% · $(credit-card) $72.77 · $(history) 3h 49m',
+    );
   });
 
   it('falls back to the placeholder before anything has landed', () => {

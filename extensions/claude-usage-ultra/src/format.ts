@@ -11,6 +11,8 @@ export type BarSeverity = 'normal' | 'warning' | 'error';
 
 export interface FormatOptions {
   segments: Segment[];
+  /** Prefix naming the item, so the numbers are not anonymous. Empty hides it. */
+  label: string;
   staleAfterMs: number;
   warnAtPercent: number;
   errorAtPercent: number;
@@ -107,8 +109,9 @@ function segmentText(
       return limit ? `$(history) ${formatCountdown(limit.resetsAtMs! - nowMs)}` : undefined;
     }
     case 'spend':
+      // The card icon is what marks this as money rather than one more percentage.
       return snapshot.spend
-        ? formatMoney(snapshot.spend.usedUsd, snapshot.spend.currency)
+        ? `$(credit-card) ${formatMoney(snapshot.spend.usedUsd, snapshot.spend.currency)}`
         : undefined;
     case 'plan':
       return snapshot.subscriptionType;
@@ -132,7 +135,11 @@ export function formatStatusText(
     .map((segment) => segmentText(segment, snapshot, nowMs))
     .filter((part): part is string => Boolean(part));
 
+  // The placeholder already names itself, so an empty reading needs no label.
   if (parts.length === 0) return EMPTY_TEXT;
+
+  const label = options.label.trim();
+  if (label) parts.unshift(label);
 
   const stale = isStale(snapshot, nowMs, options.staleAfterMs) ? ' (stale)' : '';
   return `$(pulse) ${parts.join(' · ')}${stale}`;
