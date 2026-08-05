@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   EMPTY_TEXT,
-  alertFor,
-  formatAlertText,
   formatCountdown,
   formatPercent,
   formatPlan,
   formatStatusText,
   formatTooltip,
   isStale,
+  levelFor,
   nextReset,
   toPlainText,
   type FormatOptions,
@@ -20,10 +19,15 @@ const NOW = Date.parse('2026-08-05T09:21:00.000Z');
 /** The em space {@link formatStatusText} puts between chunks. */
 const GAP = ' ';
 
+const NOTICE = '🟡';
+const WARN = '🟠';
+const ERROR = '🔴';
+
 const OPTIONS: FormatOptions = {
   segments: ['session', 'weekly', 'reset'],
   label: 'Claude',
   staleAfterMs: 30 * 60_000,
+  noticeAtPercent: 50,
   warnAtPercent: 80,
   errorAtPercent: 95,
 };
@@ -57,14 +61,6 @@ const SCOPED = limit({
   percent: 100,
   severity: 'critical',
   isActive: true,
-});
-
-const SCOPED_OPUS = limit({
-  kind: 'weekly_scoped',
-  group: 'weekly',
-  label: 'Weekly · Opus',
-  scopeName: 'Opus',
-  percent: 34,
 });
 
 function snapshot(overrides: Partial<UsageSnapshot> = {}): UsageSnapshot {
@@ -130,13 +126,13 @@ describe('nextReset', () => {
 describe('formatStatusText', () => {
   it('renders the label, then the configured segments in order', () => {
     expect(formatStatusText(snapshot(), NOW, OPTIONS)).toBe(
-      `$(pulse) Claude${GAP}5h 7% · 7d 69%${GAP}$(history) 3h 49m`,
+      `$(pulse) Claude${GAP}5h 7% · ${NOTICE}7d 69%${GAP}$(history) 3h 49m`,
     );
   });
 
   it('drops the label when it is blank', () => {
     expect(formatStatusText(snapshot(), NOW, { ...OPTIONS, label: '  ' })).toBe(
-      `$(pulse) 5h 7% · 7d 69%${GAP}$(history) 3h 49m`,
+      `$(pulse) 5h 7% · ${NOTICE}7d 69%${GAP}$(history) 3h 49m`,
     );
   });
 
@@ -148,7 +144,7 @@ describe('formatStatusText', () => {
       segments: ['scoped', 'spend', 'plan'],
     };
     expect(formatStatusText(withScoped, NOW, options)).toBe(
-      `$(pulse) Fable 100%${GAP}$(credit-card) $72.77${GAP}Max`,
+      `$(pulse) ${ERROR}Fable 100%${GAP}$(credit-card) $72.77${GAP}Max`,
     );
   });
 
@@ -166,7 +162,7 @@ describe('formatStatusText', () => {
       segments: ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'],
     };
     expect(formatStatusText(full, NOW, options)).toBe(
-      `$(pulse) Claude Max${GAP}5h 7% · 7d 69% · Fable 100%${GAP}` +
+      `$(pulse) Claude Max${GAP}5h 7% · ${NOTICE}7d 69% · ${ERROR}Fable 100%${GAP}` +
         `$(credit-card) $72.77${GAP}$(history) 3h 49m`,
     );
   });
@@ -178,31 +174,26 @@ describe('formatStatusText', () => {
       segments: ['session', 'spend', 'weekly'],
     };
     expect(formatStatusText(snapshot(), NOW, options)).toBe(
-      `$(pulse) 5h 7%${GAP}$(credit-card) $72.77${GAP}7d 69%`,
+      `$(pulse) 5h 7%${GAP}$(credit-card) $72.77${GAP}${NOTICE}7d 69%`,
     );
   });
 
-  it('leaves out the window the alert item is showing', () => {
-    const full = snapshot({ limits: [limit(), WEEKLY, SCOPED] });
+  it('dots every window on its own percentage, not the worst one on screen', () => {
+    const full = snapshot({ limits: [limit({ percent: 84 }), WEEKLY, SCOPED] });
     const options: FormatOptions = {
       ...OPTIONS,
-      segments: ['plan', 'session', 'weekly', 'scoped'],
+      label: '',
+      segments: ['session', 'weekly', 'scoped'],
     };
-    expect(formatStatusText(full, NOW, options, SCOPED)).toBe(
-      `$(pulse) Claude Max${GAP}5h 7% · 7d 69%`,
+    expect(formatStatusText(full, NOW, options)).toBe(
+      `$(pulse) ${WARN}5h 84% · ${NOTICE}7d 69% · ${ERROR}Fable 100%`,
     );
   });
 
-  it('promotes the runner-up per-model window into the freed slot', () => {
-    const full = snapshot({ limits: [SCOPED, SCOPED_OPUS] });
-    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['scoped'] };
-    expect(formatStatusText(full, NOW, options, SCOPED)).toBe('$(pulse) Opus 34%');
-  });
-
-  it('keeps the label when the alert item has taken the only window', () => {
-    const only = snapshot({ limits: [SCOPED], spend: undefined });
-    const options: FormatOptions = { ...OPTIONS, segments: ['scoped'] };
-    expect(formatStatusText(only, NOW, options, SCOPED)).toBe('$(pulse) Claude');
+  it('leaves the dots off entirely while every window is quiet', () => {
+    const calm = snapshot({ limits: [limit(), limit({ ...WEEKLY, percent: 12 })] });
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['session', 'weekly'] };
+    expect(formatStatusText(calm, NOW, options)).toBe('$(pulse) 5h 7% · 7d 12%');
   });
 
   it('falls back to the placeholder before anything has landed', () => {
@@ -228,50 +219,28 @@ describe('formatStatusText', () => {
   });
 });
 
-describe('alertFor', () => {
-  it('stays quiet while every window is below the thresholds', () => {
-    expect(alertFor(snapshot(), OPTIONS)).toBeUndefined();
+describe('levelFor', () => {
+  it('steps up at each threshold, and stays normal below the first', () => {
+    expect(levelFor(limit({ percent: 49 }), OPTIONS)).toBe('normal');
+    expect(levelFor(limit({ percent: 50 }), OPTIONS)).toBe('notice');
+    expect(levelFor(limit({ percent: 70 }), OPTIONS)).toBe('notice');
+    expect(levelFor(limit({ percent: 80 }), OPTIONS)).toBe('warning');
+    expect(levelFor(limit({ percent: 95 }), OPTIONS)).toBe('error');
+    expect(levelFor(limit({ percent: 140 }), OPTIONS)).toBe('error');
   });
 
-  it('warns once a window passes warnAtPercent', () => {
-    const hot = limit({ percent: 82 });
-    expect(alertFor(snapshot({ limits: [hot] }), OPTIONS)).toEqual({
-      limit: hot,
-      severity: 'warning',
-    });
+  it("escalates on Claude Code's own severity, whatever the percentage", () => {
+    expect(levelFor(limit({ percent: 12, severity: 'critical' }), OPTIONS)).toBe('error');
+    expect(levelFor(limit({ percent: 12, severity: 'warning' }), OPTIONS)).toBe('warning');
   });
 
-  it('errors once a window passes errorAtPercent', () => {
-    expect(alertFor(snapshot({ limits: [limit({ percent: 96 })] }), OPTIONS)?.severity).toBe(
-      'error',
-    );
-  });
+  it('honours thresholds the user has moved', () => {
+    const eager: FormatOptions = { ...OPTIONS, noticeAtPercent: 10, warnAtPercent: 20 };
+    expect(levelFor(limit({ percent: 15 }), eager)).toBe('notice');
+    expect(levelFor(limit({ percent: 25 }), eager)).toBe('warning');
 
-  it("escalates on Claude Code's own critical severity, whatever the percentage", () => {
-    const critical = snapshot({ limits: [limit({ percent: 12, severity: 'critical' })] });
-    expect(alertFor(critical, OPTIONS)?.severity).toBe('error');
-  });
-
-  it('picks the loudest window, and among equals the fullest', () => {
-    const warm = limit({ kind: 'weekly_all', group: 'weekly', percent: 84 });
-    const full = snapshot({ limits: [warm, SCOPED, limit({ percent: 7 })] });
-    expect(alertFor(full, OPTIONS)?.limit).toBe(SCOPED);
-
-    const twoWarnings = snapshot({ limits: [warm, limit({ percent: 88 })] });
-    expect(alertFor(twoWarnings, OPTIONS)?.limit.percent).toBe(88);
-  });
-
-  it('has nothing to say without a reading, or without plan limits', () => {
-    expect(alertFor(undefined, OPTIONS)).toBeUndefined();
-    expect(alertFor(snapshot({ available: false, limits: [SCOPED] }), OPTIONS)).toBeUndefined();
-  });
-});
-
-describe('formatAlertText', () => {
-  it('names the window and its percentage, and nothing else', () => {
-    expect(formatAlertText({ limit: SCOPED, severity: 'error' })).toBe('Fable 100%');
-    expect(formatAlertText({ limit: limit({ percent: 96 }), severity: 'error' })).toBe('5h 96%');
-    expect(formatAlertText({ limit: WEEKLY, severity: 'warning' })).toBe('7d 69%');
+    const off: FormatOptions = { ...OPTIONS, noticeAtPercent: 100 };
+    expect(levelFor(limit({ percent: 70 }), off)).toBe('normal');
   });
 });
 
@@ -288,7 +257,7 @@ describe('formatTooltip', () => {
   it('lists every window with its countdown', () => {
     const tooltip = formatTooltip(snapshot(), NOW, OPTIONS);
     expect(tooltip).toContain('- Session (5h): **7%** · resets in 3h 49m');
-    expect(tooltip).toContain('- Weekly, all models: **69%** · resets in 13h');
+    expect(tooltip).toContain(`- ${NOTICE}Weekly, all models: **69%** · resets in 13h`);
     expect(tooltip).toContain('- Plan: Max');
     expect(tooltip).toContain('- Extra usage: $72.77 of $200.00 (36%) (off)');
     expect(tooltip).toContain('_Updated just now_');

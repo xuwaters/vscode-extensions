@@ -3,8 +3,6 @@ import * as vscode from 'vscode';
 import { bundledCliPath, fetchUsage, localCliPath, UsageCliError } from './cli';
 import {
   LOADING_TEXT,
-  alertFor,
-  formatAlertText,
   formatStatusText,
   formatTooltip,
   toPlainText,
@@ -51,6 +49,7 @@ function readOptions(): FormatOptions {
     segments: segments.length > 0 ? segments : DEFAULT_SEGMENTS,
     label: settings.get<string>('label', 'Claude'),
     staleAfterMs: settings.get<number>('staleAfterMinutes', 30) * 60_000,
+    noticeAtPercent: settings.get<number>('noticeAtPercent', 50),
     warnAtPercent: settings.get<number>('warnAtPercent', 80),
     errorAtPercent: settings.get<number>('errorAtPercent', 95),
   };
@@ -84,7 +83,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel('Claude Usage Ultra', { log: true });
   context.subscriptions.push(log);
 
-  let items = createItems();
+  let item = createItem();
   let snapshot = context.globalState.get<UsageSnapshot>(SNAPSHOT_KEY);
   let problem: string | undefined;
   let inFlight = false;
@@ -93,67 +92,37 @@ export function activate(context: vscode.ExtensionContext): void {
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
 
-  /**
-   * The reading, plus a second item for whichever window has gone hot. Splitting
-   * them is what lets one window be coloured without dragging the rest with it —
-   * a status bar item's colour applies to the whole of its text.
-   */
-  function createItems(): { main: vscode.StatusBarItem; alert: vscode.StatusBarItem } {
+  function createItem(): vscode.StatusBarItem {
     const settings = config();
     const alignment =
       settings.get<string>('alignment', 'right') === 'left'
         ? vscode.StatusBarAlignment.Left
         : vscode.StatusBarAlignment.Right;
-    const priority = settings.get<number>('priority', 100);
-
-    const main = vscode.window.createStatusBarItem('claudeUsageUltra.status', alignment, priority);
-    main.name = 'Claude Usage Ultra';
-    main.command = 'claudeUsageUltra.showDetails';
-    main.show();
-
-    // One step lower, which in either alignment puts it directly to the right
-    // of the reading it belongs to. Shown only while there is something to say.
-    const alert = vscode.window.createStatusBarItem(
-      'claudeUsageUltra.alert',
+    const created = vscode.window.createStatusBarItem(
+      'claudeUsageUltra.status',
       alignment,
-      priority - 1,
+      settings.get<number>('priority', 100),
     );
-    alert.name = 'Claude Usage Ultra — limit reached';
-    alert.command = 'claudeUsageUltra.showDetails';
-
-    return { main, alert };
+    created.name = 'Claude Usage Ultra';
+    created.command = 'claudeUsageUltra.showDetails';
+    created.show();
+    return created;
   }
 
   function render(): void {
     const options = readOptions();
     const now = Date.now();
-    const alert = alertFor(snapshot, options);
 
-    items.main.text =
-      snapshot === undefined && inFlight
-        ? LOADING_TEXT
-        : formatStatusText(snapshot, now, options, alert?.limit);
+    item.text =
+      snapshot === undefined && inFlight ? LOADING_TEXT : formatStatusText(snapshot, now, options);
 
     const tooltip = new vscode.MarkdownString(formatTooltip(snapshot, now, options, problem));
     tooltip.supportThemeIcons = true;
-    items.main.tooltip = tooltip;
-    items.alert.tooltip = tooltip;
+    item.tooltip = tooltip;
 
-    // All the colour lives here, so the main item stays legible no matter how
-    // full one window is. A background rather than a foreground because the
-    // status bar's own background varies by theme; VS Code pairs this one with
-    // a readable foreground for us.
-    if (alert) {
-      items.alert.text = formatAlertText(alert);
-      items.alert.backgroundColor = new vscode.ThemeColor(
-        alert.severity === 'error'
-          ? 'statusBarItem.errorBackground'
-          : 'statusBarItem.warningBackground',
-      );
-      items.alert.show();
-    } else {
-      items.alert.hide();
-    }
+    // No background colour: it would paint every window with the severity of
+    // the worst one. The dots inside the text carry severity per window, which
+    // is the whole reason they are emoji rather than codicons.
   }
 
   function pollIntervalMs(): number {
@@ -219,13 +188,8 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   context.subscriptions.push(
-    // Disposes whichever items are current — alignment changes replace them.
-    {
-      dispose: () => {
-        items.main.dispose();
-        items.alert.dispose();
-      },
-    },
+    // Disposes whichever item is current — alignment changes replace it.
+    { dispose: () => item.dispose() },
     vscode.commands.registerCommand('claudeUsageUltra.refresh', () => refresh()),
     vscode.commands.registerCommand('claudeUsageUltra.showDetails', showDetails),
     vscode.commands.registerCommand('claudeUsageUltra.showLog', () => log.show()),
@@ -235,9 +199,8 @@ export function activate(context: vscode.ExtensionContext): void {
         event.affectsConfiguration('claudeUsageUltra.alignment') ||
         event.affectsConfiguration('claudeUsageUltra.priority')
       ) {
-        items.main.dispose();
-        items.alert.dispose();
-        items = createItems();
+        item.dispose();
+        item = createItem();
       }
       if (event.affectsConfiguration('claudeUsageUltra.pollIntervalSeconds')) schedule();
       render();

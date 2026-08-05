@@ -7,19 +7,29 @@ import {
 } from './usage';
 
 export type Segment = 'session' | 'weekly' | 'scoped' | 'reset' | 'spend' | 'plan';
-type BarSeverity = 'normal' | 'warning' | 'error';
 
-/** A window loud enough to be lifted out of the run and rendered on its own. */
-export interface Alert {
-  limit: UsageLimit;
-  severity: 'warning' | 'error';
-}
+/** How full one window is, in the four steps the dots distinguish. */
+export type Level = 'normal' | 'notice' | 'warning' | 'error';
+
+/**
+ * A status bar item paints all of its text one colour, so per-window colour has
+ * to come from the characters themselves — and emoji are the only glyphs that
+ * carry their own. One dot per window, none at all while a window is nowhere
+ * near its limit, so the bar stays quiet until it has something to say.
+ */
+const DOTS: Record<Level, string> = {
+  normal: '',
+  notice: '🟡',
+  warning: '🟠',
+  error: '🔴',
+};
 
 export interface FormatOptions {
   segments: Segment[];
   /** Prefix naming the item, so the numbers are not anonymous. Empty hides it. */
   label: string;
   staleAfterMs: number;
+  noticeAtPercent: number;
   warnAtPercent: number;
   errorAtPercent: number;
 }
@@ -85,52 +95,16 @@ function topScoped(snapshot: UsageSnapshot): UsageLimit | undefined {
   return scopedLimits(snapshot)[0];
 }
 
-/** The fullest per-model window other than one already shown elsewhere. */
-function nextScoped(snapshot: UsageSnapshot, exclude: UsageLimit): UsageLimit | undefined {
-  return scopedLimits(snapshot).find((limit) => limit !== exclude);
-}
-
-/** How loudly one window should be shown, given the user's thresholds. */
-function severityOf(limit: UsageLimit, options: FormatOptions): BarSeverity {
-  // Trust Claude Code's own severity when it escalates, then fall back to the
-  // user's thresholds so the colours still track a plain percentage.
+/**
+ * How full one window is. Claude Code's own severity is trusted when it
+ * escalates, then the user's thresholds take over so the dots still track a
+ * plain percentage.
+ */
+export function levelFor(limit: UsageLimit, options: FormatOptions): Level {
   if (limit.severity === 'critical' || limit.percent >= options.errorAtPercent) return 'error';
   if (limit.severity === 'warning' || limit.percent >= options.warnAtPercent) return 'warning';
+  if (limit.percent >= options.noticeAtPercent) return 'notice';
   return 'normal';
-}
-
-/**
- * The single window worth colouring: the loudest, and among equals the fullest.
- * Undefined while everything sits below the thresholds — which is exactly when
- * the bar should stay quiet. Colouring one window rather than the whole reading
- * is the point: a full per-model window used to turn every number red.
- */
-export function alertFor(
-  snapshot: UsageSnapshot | undefined,
-  options: FormatOptions,
-): Alert | undefined {
-  if (!snapshot?.available) return undefined;
-
-  let loudest: Alert | undefined;
-  for (const limit of snapshot.limits) {
-    const severity = severityOf(limit, options);
-    if (severity === 'normal') continue;
-    if (loudest === undefined || outranks({ limit, severity }, loudest)) {
-      loudest = { limit, severity };
-    }
-  }
-  return loudest;
-}
-
-/** Error beats warning; within a severity, the fuller window wins. */
-function outranks(candidate: Alert, held: Alert): boolean {
-  if (candidate.severity !== held.severity) return candidate.severity === 'error';
-  return candidate.limit.percent > held.limit.percent;
-}
-
-/** Text for the alert item. Short, because the colour is doing the shouting. */
-export function formatAlertText(alert: Alert): string {
-  return windowText(alert.limit);
 }
 
 /** How a window names itself in the bar: "5h", "7d", "Fable". */
@@ -141,30 +115,29 @@ function shortLabel(limit: UsageLimit): string {
   return limit.label;
 }
 
-function windowText(limit: UsageLimit): string {
-  return `${shortLabel(limit)} ${formatPercent(limit.percent)}`;
+/** "5h 7%", "🟠7d 84%" — the dot leads, so a scan reads the colours first. */
+function windowText(limit: UsageLimit, options: FormatOptions): string {
+  return `${DOTS[levelFor(limit, options)]}${shortLabel(limit)} ${formatPercent(limit.percent)}`;
 }
 
 function segmentText(
   segment: Segment,
   snapshot: UsageSnapshot,
   nowMs: number,
-  alerted: UsageLimit | undefined,
+  options: FormatOptions,
 ): string | undefined {
   switch (segment) {
     case 'session': {
       const limit = sessionLimit(snapshot);
-      return limit && limit !== alerted ? windowText(limit) : undefined;
+      return limit ? windowText(limit, options) : undefined;
     }
     case 'weekly': {
       const limit = weeklyLimit(snapshot);
-      return limit && limit !== alerted ? windowText(limit) : undefined;
+      return limit ? windowText(limit, options) : undefined;
     }
     case 'scoped': {
-      // The alert item already carries the fullest one, so show the runner-up
-      // here rather than dropping the per-model reading altogether.
-      const limit = alerted === undefined ? topScoped(snapshot) : nextScoped(snapshot, alerted);
-      return limit ? windowText(limit) : undefined;
+      const limit = topScoped(snapshot);
+      return limit ? windowText(limit, options) : undefined;
     }
     case 'reset': {
       const limit = nextReset(snapshot);
@@ -228,8 +201,6 @@ export function formatStatusText(
   snapshot: UsageSnapshot | undefined,
   nowMs: number,
   options: FormatOptions,
-  /** Window rendered by the alert item, and so left out of this one. */
-  alerted?: UsageLimit,
 ): string {
   if (!snapshot) return EMPTY_TEXT;
   if (!snapshot.available) return '$(pulse) Claude usage n/a';
@@ -238,15 +209,12 @@ export function formatStatusText(
   const pieces: Piece[] = label ? [{ chunk: 'identity', text: label }] : [];
 
   for (const segment of options.segments) {
-    const text = segmentText(segment, snapshot, nowMs, alerted);
+    const text = segmentText(segment, snapshot, nowMs, options);
     if (text) pieces.push({ chunk: SEGMENT_CHUNK[segment], text });
   }
 
-  // Nothing but the label left: either the alert item is carrying the whole
-  // reading, or there is no reading and the placeholder should name itself.
-  if (pieces.length === (label ? 1 : 0)) {
-    return alerted ? `$(pulse) ${label}`.trimEnd() : EMPTY_TEXT;
-  }
+  // The placeholder already names itself, so an empty reading needs no label.
+  if (pieces.length === (label ? 1 : 0)) return EMPTY_TEXT;
 
   const stale = isStale(snapshot, nowMs, options.staleAfterMs) ? ' (stale)' : '';
   return `$(pulse) ${joinChunks(pieces)}${stale}`;
@@ -257,13 +225,15 @@ function timeAgo(ms: number): string {
   return `${formatCountdown(ms)} ago`;
 }
 
-function limitLine(limit: UsageLimit, nowMs: number): string {
+function limitLine(limit: UsageLimit, nowMs: number, options: FormatOptions): string {
   const reset =
     limit.resetsAtMs === undefined
       ? ''
       : ` · resets in ${formatCountdown(limit.resetsAtMs - nowMs)}`;
   const active = limit.isActive ? ' — currently limiting' : '';
-  return `- ${limit.label}: **${formatPercent(limit.percent)}**${reset}${active}`;
+  // The same dot as the bar, so the hover confirms what the glance suggested.
+  const dot = DOTS[levelFor(limit, options)];
+  return `- ${dot}${limit.label}: **${formatPercent(limit.percent)}**${reset}${active}`;
 }
 
 /**
@@ -295,7 +265,7 @@ export function formatTooltip(
   } else if (snapshot.limits.length === 0) {
     lines.push('Claude Code reported no usage windows.');
   } else {
-    for (const limit of snapshot.limits) lines.push(limitLine(limit, nowMs));
+    for (const limit of snapshot.limits) lines.push(limitLine(limit, nowMs, options));
   }
 
   const details: string[] = [];

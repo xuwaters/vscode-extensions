@@ -43,6 +43,7 @@ const OPTIONS: FormatOptions = {
   segments: ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'],
   label: 'Claude',
   staleAfterMs: 30 * 60_000,
+  noticeAtPercent: 50,
   warnAtPercent: 80,
   errorAtPercent: 95,
 };
