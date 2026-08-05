@@ -12,7 +12,7 @@ import {
   toPlainText,
   type FormatOptions,
 } from './format';
-import type { UsageLimit, UsageSnapshot } from './usage';
+import type { UsageLimit, UsageSnapshot, UsageSpend } from './usage';
 
 const NOW = Date.parse('2026-08-05T09:21:00.000Z');
 
@@ -145,8 +145,24 @@ describe('formatStatusText', () => {
       segments: ['scoped', 'spend', 'plan'],
     };
     expect(formatStatusText(withScoped, NOW, options)).toBe(
-      `$(pulse) ${CRITICAL} Fable 100%${GAP}$(credit-card) $72.77${GAP}Max`,
+      `$(pulse) ${CRITICAL} Fable 100%${GAP}$(credit-card) $72.77/$200${GAP}Max`,
     );
+  });
+
+  it('renders the spend against its cap, without a cap ending in ".00"', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['spend'] };
+    const spending = (spend: Partial<UsageSpend>) =>
+      formatStatusText(snapshot({ spend: { ...snapshot().spend!, ...spend } }), NOW, options);
+
+    expect(spending({ usedUsd: 384.87, limitUsd: 4000 })).toBe(
+      '$(pulse) $(credit-card) $384.87/$4000',
+    );
+    expect(spending({ usedUsd: 72, limitUsd: 200 })).toBe('$(pulse) $(credit-card) $72/$200');
+    expect(spending({ usedUsd: 5.5, limitUsd: 99.5 })).toBe('$(pulse) $(credit-card) $5.50/$99.50');
+    // A currency with no symbol names itself once, not on both sides.
+    expect(spending({ currency: 'EUR' })).toBe('$(pulse) $(credit-card) EUR 72.77/200');
+    // An uncapped account has nothing to compare against.
+    expect(spending({ limitUsd: 0 })).toBe('$(pulse) $(credit-card) $72.77');
   });
 
   it('omits the plan when the CLI did not report one', () => {
@@ -164,7 +180,7 @@ describe('formatStatusText', () => {
     };
     expect(formatStatusText(full, NOW, options)).toBe(
       `$(pulse) Claude Max${GAP}${OK} 5h 7% · ${NOTICE} 7d 69% · ${CRITICAL} Fable 100%${GAP}` +
-        `$(credit-card) $72.77${GAP}$(history) 3h 49m`,
+        `$(credit-card) $72.77/$200${GAP}$(history) 3h 49m`,
     );
   });
 
@@ -175,7 +191,7 @@ describe('formatStatusText', () => {
       segments: ['session', 'spend', 'weekly'],
     };
     expect(formatStatusText(snapshot(), NOW, options)).toBe(
-      `$(pulse) ${OK} 5h 7%${GAP}$(credit-card) $72.77${GAP}${NOTICE} 7d 69%`,
+      `$(pulse) ${OK} 5h 7%${GAP}$(credit-card) $72.77/$200${GAP}${NOTICE} 7d 69%`,
     );
   });
 

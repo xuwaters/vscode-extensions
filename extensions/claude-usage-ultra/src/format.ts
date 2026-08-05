@@ -4,6 +4,7 @@ import {
   weeklyLimit,
   type UsageLimit,
   type UsageSnapshot,
+  type UsageSpend,
 } from './usage';
 
 export type Segment = 'session' | 'weekly' | 'scoped' | 'reset' | 'spend' | 'plan';
@@ -64,9 +65,37 @@ export function formatPercent(value: number): string {
   return `${Math.round(value)}%`;
 }
 
+/** "$" for dollars; anything else names itself, since its symbol may not render. */
+function currencyPrefix(currency: string): string {
+  return currency === 'USD' ? '$' : `${currency} `;
+}
+
 function formatMoney(amount: number, currency: string): string {
-  const symbol = currency === 'USD' ? '$' : `${currency} `;
-  return `${symbol}${amount.toFixed(2)}`;
+  return `${currencyPrefix(currency)}${amount.toFixed(2)}`;
+}
+
+/** Cents when there are cents to show, nothing when there are not: "$4000". */
+function formatAmount(amount: number): string {
+  const cents = Math.round(amount * 100);
+  const rounded = cents / 100;
+  return cents % 100 === 0 ? String(rounded) : rounded.toFixed(2);
+}
+
+/**
+ * "$72.77/$200". A spend on its own is a number without a scale — $72 is
+ * nothing against a $4000 cap and most of the way through a $100 one — so the
+ * cap travels with it. The cap is nearly always round, and its ".00" is width
+ * the bar cannot spare.
+ */
+function formatSpend(spend: UsageSpend): string {
+  const prefix = currencyPrefix(spend.currency);
+  const used = `${prefix}${formatAmount(spend.usedUsd)}`;
+  // An uncapped account has nothing to compare against.
+  if (!(spend.limitUsd > 0)) return used;
+  // A symbol repeats cheaply; a currency code would double the width to say
+  // what the first number already said.
+  const capPrefix = prefix.endsWith(' ') ? '' : prefix;
+  return `${used} / ${capPrefix}${formatAmount(spend.limitUsd)}`;
 }
 
 /**
@@ -146,9 +175,7 @@ function segmentText(
     }
     case 'spend':
       // The card icon is what marks this as money rather than one more percentage.
-      return snapshot.spend
-        ? `$(credit-card) ${formatMoney(snapshot.spend.usedUsd, snapshot.spend.currency)}`
-        : undefined;
+      return snapshot.spend ? `$(credit-card) ${formatSpend(snapshot.spend)}` : undefined;
     case 'plan':
       return snapshot.subscriptionType ? formatPlan(snapshot.subscriptionType) : undefined;
   }
