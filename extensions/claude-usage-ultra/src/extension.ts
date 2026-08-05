@@ -3,9 +3,10 @@ import * as vscode from 'vscode';
 import { bundledCliPath, fetchUsage, localCliPath, UsageCliError } from './cli';
 import {
   LOADING_TEXT,
+  alertFor,
+  formatAlertText,
   formatStatusText,
   formatTooltip,
-  severityFor,
   toPlainText,
   type FormatOptions,
   type Segment,
@@ -83,7 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel('Claude Usage Ultra', { log: true });
   context.subscriptions.push(log);
 
-  let item = createItem();
+  let items = createItems();
   let snapshot = context.globalState.get<UsageSnapshot>(SNAPSHOT_KEY);
   let problem: string | undefined;
   let inFlight = false;
@@ -92,43 +93,66 @@ export function activate(context: vscode.ExtensionContext): void {
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
 
-  function createItem(): vscode.StatusBarItem {
+  /**
+   * The reading, plus a second item for whichever window has gone hot. Splitting
+   * them is what lets one window be coloured without dragging the rest with it —
+   * a status bar item's colour applies to the whole of its text.
+   */
+  function createItems(): { main: vscode.StatusBarItem; alert: vscode.StatusBarItem } {
     const settings = config();
     const alignment =
       settings.get<string>('alignment', 'right') === 'left'
         ? vscode.StatusBarAlignment.Left
         : vscode.StatusBarAlignment.Right;
-    const created = vscode.window.createStatusBarItem(
-      'claudeUsageUltra.status',
+    const priority = settings.get<number>('priority', 100);
+
+    const main = vscode.window.createStatusBarItem('claudeUsageUltra.status', alignment, priority);
+    main.name = 'Claude Usage Ultra';
+    main.command = 'claudeUsageUltra.showDetails';
+    main.show();
+
+    // One step lower, which in either alignment puts it directly to the right
+    // of the reading it belongs to. Shown only while there is something to say.
+    const alert = vscode.window.createStatusBarItem(
+      'claudeUsageUltra.alert',
       alignment,
-      settings.get<number>('priority', 100),
+      priority - 1,
     );
-    created.name = 'Claude Usage Ultra';
-    created.command = 'claudeUsageUltra.showDetails';
-    created.show();
-    return created;
+    alert.name = 'Claude Usage Ultra — limit reached';
+    alert.command = 'claudeUsageUltra.showDetails';
+
+    return { main, alert };
   }
 
   function render(): void {
     const options = readOptions();
     const now = Date.now();
+    const alert = alertFor(snapshot, options);
 
-    item.text =
-      snapshot === undefined && inFlight ? LOADING_TEXT : formatStatusText(snapshot, now, options);
+    items.main.text =
+      snapshot === undefined && inFlight
+        ? LOADING_TEXT
+        : formatStatusText(snapshot, now, options, alert?.limit);
 
     const tooltip = new vscode.MarkdownString(formatTooltip(snapshot, now, options, problem));
     tooltip.supportThemeIcons = true;
-    item.tooltip = tooltip;
+    items.main.tooltip = tooltip;
+    items.alert.tooltip = tooltip;
 
-    switch (severityFor(snapshot, options)) {
-      case 'error':
-        item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-        break;
-      case 'warning':
-        item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-        break;
-      default:
-        item.backgroundColor = undefined;
+    // All the colour lives here, so the main item stays legible no matter how
+    // full one window is. A background rather than a foreground because the
+    // status bar's own background varies by theme; VS Code pairs this one with
+    // a readable foreground for us.
+    if (alert) {
+      items.alert.text = formatAlertText(alert);
+      items.alert.backgroundColor = new vscode.ThemeColor(
+        alert.severity === 'error'
+          ? 'statusBarItem.errorBackground'
+          : 'statusBarItem.warningBackground',
+      );
+      items.alert.show();
+    } else {
+      items.alert.hide();
     }
   }
 
@@ -195,8 +219,13 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   context.subscriptions.push(
-    // Disposes whichever item is current — alignment changes replace it.
-    { dispose: () => item.dispose() },
+    // Disposes whichever items are current — alignment changes replace them.
+    {
+      dispose: () => {
+        items.main.dispose();
+        items.alert.dispose();
+      },
+    },
     vscode.commands.registerCommand('claudeUsageUltra.refresh', () => refresh()),
     vscode.commands.registerCommand('claudeUsageUltra.showDetails', showDetails),
     vscode.commands.registerCommand('claudeUsageUltra.showLog', () => log.show()),
@@ -206,8 +235,9 @@ export function activate(context: vscode.ExtensionContext): void {
         event.affectsConfiguration('claudeUsageUltra.alignment') ||
         event.affectsConfiguration('claudeUsageUltra.priority')
       ) {
-        item.dispose();
-        item = createItem();
+        items.main.dispose();
+        items.alert.dispose();
+        items = createItems();
       }
       if (event.affectsConfiguration('claudeUsageUltra.pollIntervalSeconds')) schedule();
       render();

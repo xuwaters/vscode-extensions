@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   EMPTY_TEXT,
+  alertFor,
+  formatAlertText,
   formatCountdown,
   formatPercent,
   formatPlan,
@@ -8,13 +10,15 @@ import {
   formatTooltip,
   isStale,
   nextReset,
-  severityFor,
   toPlainText,
   type FormatOptions,
 } from './format';
 import type { UsageLimit, UsageSnapshot } from './usage';
 
 const NOW = Date.parse('2026-08-05T09:21:00.000Z');
+
+/** The em space {@link formatStatusText} puts between chunks. */
+const GAP = ' ';
 
 const OPTIONS: FormatOptions = {
   segments: ['session', 'weekly', 'reset'],
@@ -53,6 +57,14 @@ const SCOPED = limit({
   percent: 100,
   severity: 'critical',
   isActive: true,
+});
+
+const SCOPED_OPUS = limit({
+  kind: 'weekly_scoped',
+  group: 'weekly',
+  label: 'Weekly · Opus',
+  scopeName: 'Opus',
+  percent: 34,
 });
 
 function snapshot(overrides: Partial<UsageSnapshot> = {}): UsageSnapshot {
@@ -118,13 +130,13 @@ describe('nextReset', () => {
 describe('formatStatusText', () => {
   it('renders the label, then the configured segments in order', () => {
     expect(formatStatusText(snapshot(), NOW, OPTIONS)).toBe(
-      '$(pulse) Claude · 5h 7% · 7d 69% · $(history) 3h 49m',
+      `$(pulse) Claude${GAP}5h 7% · 7d 69%${GAP}$(history) 3h 49m`,
     );
   });
 
   it('drops the label when it is blank', () => {
     expect(formatStatusText(snapshot(), NOW, { ...OPTIONS, label: '  ' })).toBe(
-      '$(pulse) 5h 7% · 7d 69% · $(history) 3h 49m',
+      `$(pulse) 5h 7% · 7d 69%${GAP}$(history) 3h 49m`,
     );
   });
 
@@ -136,7 +148,7 @@ describe('formatStatusText', () => {
       segments: ['scoped', 'spend', 'plan'],
     };
     expect(formatStatusText(withScoped, NOW, options)).toBe(
-      '$(pulse) Fable 100% · $(credit-card) $72.77 · Max',
+      `$(pulse) Fable 100%${GAP}$(credit-card) $72.77${GAP}Max`,
     );
   });
 
@@ -154,8 +166,43 @@ describe('formatStatusText', () => {
       segments: ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'],
     };
     expect(formatStatusText(full, NOW, options)).toBe(
-      '$(pulse) Claude · Max · 5h 7% · 7d 69% · Fable 100% · $(credit-card) $72.77 · $(history) 3h 49m',
+      `$(pulse) Claude Max${GAP}5h 7% · 7d 69% · Fable 100%${GAP}` +
+        `$(credit-card) $72.77${GAP}$(history) 3h 49m`,
     );
+  });
+
+  it('opens a gap wherever the configured order crosses chunks', () => {
+    const options: FormatOptions = {
+      ...OPTIONS,
+      label: '',
+      segments: ['session', 'spend', 'weekly'],
+    };
+    expect(formatStatusText(snapshot(), NOW, options)).toBe(
+      `$(pulse) 5h 7%${GAP}$(credit-card) $72.77${GAP}7d 69%`,
+    );
+  });
+
+  it('leaves out the window the alert item is showing', () => {
+    const full = snapshot({ limits: [limit(), WEEKLY, SCOPED] });
+    const options: FormatOptions = {
+      ...OPTIONS,
+      segments: ['plan', 'session', 'weekly', 'scoped'],
+    };
+    expect(formatStatusText(full, NOW, options, SCOPED)).toBe(
+      `$(pulse) Claude Max${GAP}5h 7% · 7d 69%`,
+    );
+  });
+
+  it('promotes the runner-up per-model window into the freed slot', () => {
+    const full = snapshot({ limits: [SCOPED, SCOPED_OPUS] });
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['scoped'] };
+    expect(formatStatusText(full, NOW, options, SCOPED)).toBe('$(pulse) Opus 34%');
+  });
+
+  it('keeps the label when the alert item has taken the only window', () => {
+    const only = snapshot({ limits: [SCOPED], spend: undefined });
+    const options: FormatOptions = { ...OPTIONS, segments: ['scoped'] };
+    expect(formatStatusText(only, NOW, options, SCOPED)).toBe('$(pulse) Claude');
   });
 
   it('falls back to the placeholder before anything has landed', () => {
@@ -181,26 +228,50 @@ describe('formatStatusText', () => {
   });
 });
 
-describe('severityFor', () => {
-  it('stays normal below the thresholds', () => {
-    expect(severityFor(snapshot(), OPTIONS)).toBe('normal');
+describe('alertFor', () => {
+  it('stays quiet while every window is below the thresholds', () => {
+    expect(alertFor(snapshot(), OPTIONS)).toBeUndefined();
   });
 
   it('warns once a window passes warnAtPercent', () => {
-    expect(severityFor(snapshot({ limits: [limit({ percent: 82 })] }), OPTIONS)).toBe('warning');
+    const hot = limit({ percent: 82 });
+    expect(alertFor(snapshot({ limits: [hot] }), OPTIONS)).toEqual({
+      limit: hot,
+      severity: 'warning',
+    });
   });
 
   it('errors once a window passes errorAtPercent', () => {
-    expect(severityFor(snapshot({ limits: [limit({ percent: 96 })] }), OPTIONS)).toBe('error');
+    expect(alertFor(snapshot({ limits: [limit({ percent: 96 })] }), OPTIONS)?.severity).toBe(
+      'error',
+    );
   });
 
   it("escalates on Claude Code's own critical severity, whatever the percentage", () => {
     const critical = snapshot({ limits: [limit({ percent: 12, severity: 'critical' })] });
-    expect(severityFor(critical, OPTIONS)).toBe('error');
+    expect(alertFor(critical, OPTIONS)?.severity).toBe('error');
   });
 
-  it('has nothing to say without a reading', () => {
-    expect(severityFor(undefined, OPTIONS)).toBe('normal');
+  it('picks the loudest window, and among equals the fullest', () => {
+    const warm = limit({ kind: 'weekly_all', group: 'weekly', percent: 84 });
+    const full = snapshot({ limits: [warm, SCOPED, limit({ percent: 7 })] });
+    expect(alertFor(full, OPTIONS)?.limit).toBe(SCOPED);
+
+    const twoWarnings = snapshot({ limits: [warm, limit({ percent: 88 })] });
+    expect(alertFor(twoWarnings, OPTIONS)?.limit.percent).toBe(88);
+  });
+
+  it('has nothing to say without a reading, or without plan limits', () => {
+    expect(alertFor(undefined, OPTIONS)).toBeUndefined();
+    expect(alertFor(snapshot({ available: false, limits: [SCOPED] }), OPTIONS)).toBeUndefined();
+  });
+});
+
+describe('formatAlertText', () => {
+  it('names the window and its percentage, and nothing else', () => {
+    expect(formatAlertText({ limit: SCOPED, severity: 'error' })).toBe('Fable 100%');
+    expect(formatAlertText({ limit: limit({ percent: 96 }), severity: 'error' })).toBe('5h 96%');
+    expect(formatAlertText({ limit: WEEKLY, severity: 'warning' })).toBe('7d 69%');
   });
 });
 

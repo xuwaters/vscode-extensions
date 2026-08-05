@@ -2,7 +2,7 @@
   "name": "wx-vsce-claude-usage-ultra",
   "displayName": "Claude Usage Ultra",
   "description": "Show Claude Code plan usage — 5-hour session window, weekly all-models and per-model windows, reset countdowns and extra-usage spend — in the VS Code status bar.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -81,14 +81,14 @@
           "default": 80,
           "minimum": 0,
           "maximum": 100,
-          "description": "Highlight the status bar item once either usage window passes this percentage."
+          "description": "Move a usage window into its own highlighted status bar item once it passes this percentage, so the rest of the reading stays readable."
         },
         "claudeUsageUltra.errorAtPercent": {
           "type": "number",
           "default": 95,
           "minimum": 0,
           "maximum": 100,
-          "description": "Show the status bar item in the error color once either usage window passes this percentage."
+          "description": "Show that highlighted item in the error color once the window passes this percentage."
         },
         "claudeUsageUltra.staleAfterMinutes": {
           "type": "number",
@@ -130,7 +130,7 @@
         "claudeUsageUltra.priority": {
           "type": "number",
           "default": 100,
-          "description": "Status bar item priority. Higher values sit further left within the chosen alignment."
+          "description": "Status bar item priority. Higher values sit further left within the chosen alignment. The highlighted limit gets the next priority down, so it sits directly after the reading."
         }
       }
     }
