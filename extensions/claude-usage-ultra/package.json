@@ -1,0 +1,144 @@
+{
+  "name": "wx-vsce-claude-usage-ultra",
+  "displayName": "Claude Usage Ultra",
+  "description": "Show Claude Code plan usage — 5-hour session window, weekly all-models window, reset countdown, cost and context — in the VS Code status bar.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeUsageUltra.install",
+        "title": "Install Status Line Bridge",
+        "category": "Claude Usage Ultra",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "claudeUsageUltra.uninstall",
+        "title": "Remove Status Line Bridge",
+        "category": "Claude Usage Ultra",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "claudeUsageUltra.showDetails",
+        "title": "Show Usage Details",
+        "category": "Claude Usage Ultra",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "claudeUsageUltra.refresh",
+        "title": "Refresh",
+        "category": "Claude Usage Ultra",
+        "icon": "$(refresh)"
+      }
+    ],
+    "configuration": {
+      "title": "Claude Usage Ultra",
+      "properties": {
+        "claudeUsageUltra.show": {
+          "type": "array",
+          "default": [
+            "session",
+            "weekly",
+            "reset"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+              "session",
+              "weekly",
+              "reset",
+              "cost",
+              "context",
+              "model"
+            ],
+            "enumDescriptions": [
+              "5-hour session window, percent used",
+              "7-day all-models window, percent used",
+              "Countdown to the next window reset",
+              "Session cost in USD",
+              "Context window, percent used",
+              "Model display name"
+            ]
+          },
+          "description": "Segments to render in the status bar, in order."
+        },
+        "claudeUsageUltra.warnAtPercent": {
+          "type": "number",
+          "default": 80,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Highlight the status bar item once either usage window passes this percentage."
+        },
+        "claudeUsageUltra.errorAtPercent": {
+          "type": "number",
+          "default": 95,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Show the status bar item in the error color once either usage window passes this percentage."
+        },
+        "claudeUsageUltra.staleAfterMinutes": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "description": "Mark the reading stale when no status line payload has arrived for this many minutes. Claude Code only reports usage while a session is running."
+        },
+        "claudeUsageUltra.refreshInterval": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "description": "Written to `statusLine.refreshInterval` in Claude Code's settings when installing the bridge: how often (seconds) Claude Code re-runs the status line command."
+        },
+        "claudeUsageUltra.pollIntervalSeconds": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "description": "Fallback poll interval for the payload file, in case the filesystem watcher misses an update."
+        },
+        "claudeUsageUltra.alignment": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "default": "right",
+          "description": "Which side of the status bar to place the item on."
+        },
+        "claudeUsageUltra.priority": {
+          "type": "number",
+          "default": 100,
+          "description": "Status bar item priority. Higher values sit further left within the chosen alignment."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}
