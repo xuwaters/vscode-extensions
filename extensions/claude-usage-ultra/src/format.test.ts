@@ -127,13 +127,15 @@ describe('nextReset', () => {
 describe('formatStatusText', () => {
   it('renders the label, then the configured segments in order', () => {
     expect(formatStatusText(snapshot(), NOW, OPTIONS)).toBe(
-      `$(pulse) Claude${GAP}${OK} 5h 7% · ${NOTICE} 7d 69%${GAP}$(history) 3h 49m`,
+      `$(pulse) Claude${GAP}${OK} Session 7% · ${NOTICE} Weekly 69%` +
+        `${GAP}$(history) Session 3h 49m · Weekly 13h`,
     );
   });
 
   it('drops the label when it is blank', () => {
     expect(formatStatusText(snapshot(), NOW, { ...OPTIONS, label: '  ' })).toBe(
-      `$(pulse) ${OK} 5h 7% · ${NOTICE} 7d 69%${GAP}$(history) 3h 49m`,
+      `$(pulse) ${OK} Session 7% · ${NOTICE} Weekly 69%` +
+        `${GAP}$(history) Session 3h 49m · Weekly 13h`,
     );
   });
 
@@ -145,7 +147,7 @@ describe('formatStatusText', () => {
       segments: ['scoped', 'spend', 'plan'],
     };
     expect(formatStatusText(withScoped, NOW, options)).toBe(
-      `$(pulse) ${CRITICAL} Fable 100%${GAP}$(credit-card) $72.77/$200${GAP}Max`,
+      `$(pulse) ${CRITICAL} Fable 100%${GAP}$(credit-card) $72.77 / $200${GAP}Max`,
     );
   });
 
@@ -155,12 +157,14 @@ describe('formatStatusText', () => {
       formatStatusText(snapshot({ spend: { ...snapshot().spend!, ...spend } }), NOW, options);
 
     expect(spending({ usedUsd: 384.87, limitUsd: 4000 })).toBe(
-      '$(pulse) $(credit-card) $384.87/$4000',
+      '$(pulse) $(credit-card) $384.87 / $4000',
     );
-    expect(spending({ usedUsd: 72, limitUsd: 200 })).toBe('$(pulse) $(credit-card) $72/$200');
-    expect(spending({ usedUsd: 5.5, limitUsd: 99.5 })).toBe('$(pulse) $(credit-card) $5.50/$99.50');
+    expect(spending({ usedUsd: 72, limitUsd: 200 })).toBe('$(pulse) $(credit-card) $72 / $200');
+    expect(spending({ usedUsd: 5.5, limitUsd: 99.5 })).toBe(
+      '$(pulse) $(credit-card) $5.50 / $99.50',
+    );
     // A currency with no symbol names itself once, not on both sides.
-    expect(spending({ currency: 'EUR' })).toBe('$(pulse) $(credit-card) EUR 72.77/200');
+    expect(spending({ currency: 'EUR' })).toBe('$(pulse) $(credit-card) EUR 72.77 / 200');
     // An uncapped account has nothing to compare against.
     expect(spending({ limitUsd: 0 })).toBe('$(pulse) $(credit-card) $72.77');
   });
@@ -168,7 +172,7 @@ describe('formatStatusText', () => {
   it('omits the plan when the CLI did not report one', () => {
     const options: FormatOptions = { ...OPTIONS, label: '', segments: ['plan', 'session'] };
     expect(formatStatusText(snapshot({ subscriptionType: undefined }), NOW, options)).toBe(
-      `$(pulse) ${OK} 5h 7%`,
+      `$(pulse) ${OK} Session 7%`,
     );
   });
 
@@ -179,9 +183,32 @@ describe('formatStatusText', () => {
       segments: ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'],
     };
     expect(formatStatusText(full, NOW, options)).toBe(
-      `$(pulse) Claude Max${GAP}${OK} 5h 7% · ${NOTICE} 7d 69% · ${CRITICAL} Fable 100%${GAP}` +
-        `$(credit-card) $72.77/$200${GAP}$(history) 3h 49m`,
+      `$(pulse) Claude Max${GAP}${OK} Session 7% · ${NOTICE} Weekly 69%` +
+        ` · ${CRITICAL} Fable 100%${GAP}$(credit-card) $72.77 / $200` +
+        `${GAP}$(history) Session 3h 49m · Weekly 13h`,
     );
+  });
+
+  it('counts down both the session and the weekly window, not just the sooner one', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['reset'] };
+    const week = snapshot({
+      limits: [limit(), limit({ ...WEEKLY, resetsAtMs: NOW + 3 * 86_400_000 + 2 * 3_600_000 })],
+    });
+    expect(formatStatusText(week, NOW, options)).toBe(
+      '$(pulse) $(history) Session 3h 49m · Weekly 3d 2h',
+    );
+  });
+
+  it('counts down whichever of the two windows reported a reset', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['reset'] };
+    const noWeekly = snapshot({ limits: [limit(), limit({ ...WEEKLY, resetsAtMs: undefined })] });
+    expect(formatStatusText(noWeekly, NOW, options)).toBe('$(pulse) $(history) Session 3h 49m');
+  });
+
+  it('falls back to the next reset when neither named window has one', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['reset'] };
+    const scopedOnly = snapshot({ limits: [SCOPED] });
+    expect(formatStatusText(scopedOnly, NOW, options)).toBe('$(pulse) $(history) Fable 3h 49m');
   });
 
   it('opens a gap wherever the configured order crosses chunks', () => {
@@ -191,7 +218,7 @@ describe('formatStatusText', () => {
       segments: ['session', 'spend', 'weekly'],
     };
     expect(formatStatusText(snapshot(), NOW, options)).toBe(
-      `$(pulse) ${OK} 5h 7%${GAP}$(credit-card) $72.77/$200${GAP}${NOTICE} 7d 69%`,
+      `$(pulse) ${OK} Session 7%${GAP}$(credit-card) $72.77 / $200${GAP}${NOTICE} Weekly 69%`,
     );
   });
 
@@ -203,14 +230,16 @@ describe('formatStatusText', () => {
       segments: ['session', 'weekly', 'scoped'],
     };
     expect(formatStatusText(full, NOW, options)).toBe(
-      `$(pulse) ${WARN} 5h 84% · ${NOTICE} 7d 69% · ${CRITICAL} Fable 100%`,
+      `$(pulse) ${WARN} Session 84% · ${NOTICE} Weekly 69% · ${CRITICAL} Fable 100%`,
     );
   });
 
   it('dots a quiet window green rather than leaving a hole', () => {
     const calm = snapshot({ limits: [limit(), limit({ ...WEEKLY, percent: 12 })] });
     const options: FormatOptions = { ...OPTIONS, label: '', segments: ['session', 'weekly'] };
-    expect(formatStatusText(calm, NOW, options)).toBe(`$(pulse) ${OK} 5h 7% · ${OK} 7d 12%`);
+    expect(formatStatusText(calm, NOW, options)).toBe(
+      `$(pulse) ${OK} Session 7% · ${OK} Weekly 12%`,
+    );
   });
 
   it('falls back to the placeholder before anything has landed', () => {

@@ -72,7 +72,10 @@ describe.runIf(enabled)('fetchUsage against the real CLI', () => {
     expect(session!.resetsAtMs! - now).toBeLessThanOrEqual(5 * 3_600_000 + 60_000);
 
     const text = formatStatusText(snapshot, now, OPTIONS);
-    expect(text).toMatch(/^\$\(pulse\) Claude · \w+ · 5h \d+%/);
+    // "$(pulse) Claude Max  🟢 Session 7% · ..." — the plan and the session
+    // window are the two segments a signed-in account always has.
+    expect(text).toMatch(/^\$\(pulse\) Claude \w+/);
+    expect(text).toMatch(/Session \d+%/);
     expect(text).not.toContain('(stale)');
     expect(text).not.toContain('undefined');
 

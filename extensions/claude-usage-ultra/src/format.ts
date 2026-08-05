@@ -82,10 +82,11 @@ function formatAmount(amount: number): string {
 }
 
 /**
- * "$72.77/$200". A spend on its own is a number without a scale — $72 is
+ * "$72.77 / $200". A spend on its own is a number without a scale — $72 is
  * nothing against a $4000 cap and most of the way through a $100 one — so the
  * cap travels with it. The cap is nearly always round, and its ".00" is width
- * the bar cannot spare.
+ * the bar cannot spare; the slash keeps its spaces, because two runs of digits
+ * pressed against a stroke read as one long number.
  */
 function formatSpend(spend: UsageSpend): string {
   const prefix = currencyPrefix(spend.currency);
@@ -137,17 +138,59 @@ export function levelFor(limit: UsageLimit, options: FormatOptions): Level {
   return 'normal';
 }
 
-/** How a window names itself in the bar: "5h", "7d", "Fable". */
+/**
+ * How a window names itself in the bar: "Session", "Weekly", "Fable".
+ *
+ * The windows are named for what they are, not for how long they run. "5h" and
+ * "7d" are durations, and next to a countdown — which is also a duration — the
+ * two blur into one another: "5h 3h 49m" has to be parsed before it can be
+ * read. A word costs a few pixels and cannot be mistaken for a number, and it
+ * capitalises to sit alongside the model names, which arrive that way.
+ */
 function shortLabel(limit: UsageLimit): string {
   if (limit.scopeName) return limit.scopeName;
-  if (limit.group === 'session') return '5h';
-  if (limit.group === 'weekly') return '7d';
+  if (limit.group === 'session') return 'Session';
+  if (limit.group === 'weekly') return 'Weekly';
   return limit.label;
 }
 
-/** "🟢 5h 7%", "🟠 7d 84%" — the dot leads, so a scan reads the colours first. */
+/** "🟢 Session 7%", "🟠 Weekly 84%" — the dot leads, so a scan reads colour first. */
 function windowText(limit: UsageLimit, options: FormatOptions): string {
   return `${DOTS[levelFor(limit, options)]} ${shortLabel(limit)} ${formatPercent(limit.percent)}`;
+}
+
+/**
+ * The windows whose countdowns are worth carrying: the session, because it says
+ * when work can resume today, and the weekly, because it says whether the rest
+ * of the week is salvageable. A soonest-first countdown answers only the first
+ * of those, and the weekly window is the one that hurts to run into blind.
+ *
+ * An account shaped oddly enough to have neither falls back to whatever resets
+ * next, so the segment still says something.
+ */
+function resetWindows(snapshot: UsageSnapshot): UsageLimit[] {
+  const named = [sessionLimit(snapshot), weeklyLimit(snapshot)].filter(
+    (limit): limit is UsageLimit => limit?.resetsAtMs !== undefined,
+  );
+  if (named.length > 0) return named;
+
+  const next = nextReset(snapshot);
+  return next ? [next] : [];
+}
+
+/**
+ * "$(history) Session 3h 49m · Weekly 2d 6h". Each countdown wears the same
+ * name its percentage does, so the eye can pair "Weekly 69%" with "Weekly 2d
+ * 6h" without counting positions.
+ */
+function resetText(snapshot: UsageSnapshot, nowMs: number): string | undefined {
+  const windows = resetWindows(snapshot);
+  if (windows.length === 0) return undefined;
+
+  const countdowns = windows
+    .map((limit) => `${shortLabel(limit)} ${formatCountdown(limit.resetsAtMs! - nowMs)}`)
+    .join(' · ');
+  return `$(history) ${countdowns}`;
 }
 
 function segmentText(
@@ -169,10 +212,8 @@ function segmentText(
       const limit = topScoped(snapshot);
       return limit ? windowText(limit, options) : undefined;
     }
-    case 'reset': {
-      const limit = nextReset(snapshot);
-      return limit ? `$(history) ${formatCountdown(limit.resetsAtMs! - nowMs)}` : undefined;
-    }
+    case 'reset':
+      return resetText(snapshot, nowMs);
     case 'spend':
       // The card icon is what marks this as money rather than one more percentage.
       return snapshot.spend ? `$(credit-card) ${formatSpend(snapshot.spend)}` : undefined;
