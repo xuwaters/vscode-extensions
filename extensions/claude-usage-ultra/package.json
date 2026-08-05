@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-claude-usage-ultra",
   "displayName": "Claude Usage Ultra",
-  "description": "Show Claude Code plan usage — 5-hour session window, weekly all-models window, reset countdown, cost and context — in the VS Code status bar.",
-  "version": "0.1.0",
+  "description": "Show Claude Code plan usage — 5-hour session window, weekly all-models and per-model windows, reset countdowns and extra-usage spend — in the VS Code status bar.",
+  "version": "0.2.0",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -19,18 +19,6 @@
   "contributes": {
     "commands": [
       {
-        "command": "claudeUsageUltra.install",
-        "title": "Install Status Line Bridge",
-        "category": "Claude Usage Ultra",
-        "icon": "$(plug)"
-      },
-      {
-        "command": "claudeUsageUltra.uninstall",
-        "title": "Remove Status Line Bridge",
-        "category": "Claude Usage Ultra",
-        "icon": "$(debug-disconnect)"
-      },
-      {
         "command": "claudeUsageUltra.showDetails",
         "title": "Show Usage Details",
         "category": "Claude Usage Ultra",
@@ -41,6 +29,12 @@
         "title": "Refresh",
         "category": "Claude Usage Ultra",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeUsageUltra.showLog",
+        "title": "Show Log",
+        "category": "Claude Usage Ultra",
+        "icon": "$(output)"
       }
     ],
     "configuration": {
@@ -58,18 +52,18 @@
             "enum": [
               "session",
               "weekly",
+              "scoped",
               "reset",
-              "cost",
-              "context",
-              "model"
+              "spend",
+              "plan"
             ],
             "enumDescriptions": [
               "5-hour session window, percent used",
               "7-day all-models window, percent used",
+              "Fullest per-model weekly window, percent used",
               "Countdown to the next window reset",
-              "Session cost in USD",
-              "Context window, percent used",
-              "Model display name"
+              "Extra usage spent this month",
+              "Subscription plan name"
             ]
           },
           "description": "Segments to render in the status bar, in order."
@@ -90,21 +84,31 @@
         },
         "claudeUsageUltra.staleAfterMinutes": {
           "type": "number",
-          "default": 20,
+          "default": 30,
           "minimum": 1,
-          "description": "Mark the reading stale when no status line payload has arrived for this many minutes. Claude Code only reports usage while a session is running."
-        },
-        "claudeUsageUltra.refreshInterval": {
-          "type": "number",
-          "default": 10,
-          "minimum": 1,
-          "description": "Written to `statusLine.refreshInterval` in Claude Code's settings when installing the bridge: how often (seconds) Claude Code re-runs the status line command."
+          "description": "Mark the reading stale when this many minutes have passed since the last successful refresh."
         },
         "claudeUsageUltra.pollIntervalSeconds": {
           "type": "number",
-          "default": 15,
-          "minimum": 1,
-          "description": "Fallback poll interval for the payload file, in case the filesystem watcher misses an update."
+          "default": 300,
+          "minimum": 30,
+          "description": "How often to ask the Claude Code CLI for plan usage. Each refresh runs the CLI briefly; failed refreshes back off automatically."
+        },
+        "claudeUsageUltra.refreshOnFocus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refresh when the window regains focus and the reading is over a minute old."
+        },
+        "claudeUsageUltra.timeoutSeconds": {
+          "type": "number",
+          "default": 45,
+          "minimum": 5,
+          "description": "Give up on a refresh if the Claude Code CLI has not answered within this many seconds."
+        },
+        "claudeUsageUltra.claudePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the `claude` executable. Leave empty to use the CLI bundled with the Claude Code extension, then `~/.claude/local/claude`, then `claude` from PATH."
         },
         "claudeUsageUltra.alignment": {
           "type": "string",

@@ -1,7 +1,13 @@
-import type { UsageSnapshot, UsageWindow } from './types';
+import {
+  scopedLimits,
+  sessionLimit,
+  weeklyLimit,
+  type UsageLimit,
+  type UsageSnapshot,
+} from './usage';
 
-export type Segment = 'session' | 'weekly' | 'reset' | 'cost' | 'context' | 'model';
-export type Severity = 'normal' | 'warning' | 'error';
+export type Segment = 'session' | 'weekly' | 'scoped' | 'reset' | 'spend' | 'plan';
+export type BarSeverity = 'normal' | 'warning' | 'error';
 
 export interface FormatOptions {
   segments: Segment[];
@@ -39,27 +45,42 @@ export function formatPercent(value: number): string {
   return `${Math.round(value)}%`;
 }
 
-export function isStale(snapshot: UsageSnapshot, nowMs: number, staleAfterMs: number): boolean {
-  return nowMs - snapshot.receivedAtMs > staleAfterMs;
+function formatMoney(amount: number, currency: string): string {
+  const symbol = currency === 'USD' ? '$' : `${currency} `;
+  return `${symbol}${amount.toFixed(2)}`;
 }
 
-/** The window resetting soonest — what a bare "resets in ..." should count down. */
-export function nextReset(snapshot: UsageSnapshot): UsageWindow | undefined {
-  const candidates = [snapshot.fiveHour, snapshot.sevenDay].filter(
-    (w): w is UsageWindow => w?.resetsAtMs !== undefined,
-  );
+export function isStale(snapshot: UsageSnapshot, nowMs: number, staleAfterMs: number): boolean {
+  return nowMs - snapshot.fetchedAtMs > staleAfterMs;
+}
+
+/** The window resetting soonest — what a bare countdown should track. */
+export function nextReset(snapshot: UsageSnapshot): UsageLimit | undefined {
+  const candidates = snapshot.limits.filter((limit) => limit.resetsAtMs !== undefined);
   if (candidates.length === 0) return undefined;
   return candidates.reduce((a, b) => (a.resetsAtMs! <= b.resetsAtMs! ? a : b));
+}
+
+/** The fullest per-model window, which is the one worth surfacing. */
+function topScoped(snapshot: UsageSnapshot): UsageLimit | undefined {
+  return scopedLimits(snapshot)[0];
 }
 
 export function severityFor(
   snapshot: UsageSnapshot | undefined,
   options: FormatOptions,
-): Severity {
+): BarSeverity {
   if (!snapshot) return 'normal';
-  const peak = Math.max(snapshot.fiveHour?.usedPercent ?? 0, snapshot.sevenDay?.usedPercent ?? 0);
+
+  // Trust Claude Code's own severity when it escalates, then fall back to the
+  // user's thresholds so the colours still track a plain percentage.
+  if (snapshot.limits.some((limit) => limit.severity === 'critical')) return 'error';
+
+  const peak = snapshot.limits.reduce((max, limit) => Math.max(max, limit.percent), 0);
   if (peak >= options.errorAtPercent) return 'error';
-  if (peak >= options.warnAtPercent) return 'warning';
+  if (peak >= options.warnAtPercent || snapshot.limits.some((l) => l.severity === 'warning')) {
+    return 'warning';
+  }
   return 'normal';
 }
 
@@ -69,27 +90,35 @@ function segmentText(
   nowMs: number,
 ): string | undefined {
   switch (segment) {
-    case 'session':
-      return snapshot.fiveHour ? `5h ${formatPercent(snapshot.fiveHour.usedPercent)}` : undefined;
-    case 'weekly':
-      return snapshot.sevenDay ? `7d ${formatPercent(snapshot.sevenDay.usedPercent)}` : undefined;
-    case 'reset': {
-      const window = nextReset(snapshot);
-      return window ? `$(history) ${formatCountdown(window.resetsAtMs! - nowMs)}` : undefined;
+    case 'session': {
+      const limit = sessionLimit(snapshot);
+      return limit ? `5h ${formatPercent(limit.percent)}` : undefined;
     }
-    case 'cost':
-      return snapshot.costUsd === undefined ? undefined : `$${snapshot.costUsd.toFixed(2)}`;
-    case 'context':
-      return snapshot.contextUsedPercent === undefined
-        ? undefined
-        : `ctx ${formatPercent(snapshot.contextUsedPercent)}`;
-    case 'model':
-      return snapshot.modelName;
+    case 'weekly': {
+      const limit = weeklyLimit(snapshot);
+      return limit ? `7d ${formatPercent(limit.percent)}` : undefined;
+    }
+    case 'scoped': {
+      const limit = topScoped(snapshot);
+      return limit ? `${limit.scopeName} ${formatPercent(limit.percent)}` : undefined;
+    }
+    case 'reset': {
+      const limit = nextReset(snapshot);
+      return limit ? `$(history) ${formatCountdown(limit.resetsAtMs! - nowMs)}` : undefined;
+    }
+    case 'spend':
+      return snapshot.spend
+        ? formatMoney(snapshot.spend.usedUsd, snapshot.spend.currency)
+        : undefined;
+    case 'plan':
+      return snapshot.subscriptionType;
   }
 }
 
-/** Placeholder shown before any payload has landed. */
+/** Shown before the first reading lands. */
 export const EMPTY_TEXT = '$(pulse) Claude usage —';
+/** Shown while the first reading is in flight. */
+export const LOADING_TEXT = '$(sync~spin) Claude usage';
 
 export function formatStatusText(
   snapshot: UsageSnapshot | undefined,
@@ -97,6 +126,7 @@ export function formatStatusText(
   options: FormatOptions,
 ): string {
   if (!snapshot) return EMPTY_TEXT;
+  if (!snapshot.available) return '$(pulse) Claude usage n/a';
 
   const parts = options.segments
     .map((segment) => segmentText(segment, snapshot, nowMs))
@@ -113,18 +143,18 @@ function timeAgo(ms: number): string {
   return `${formatCountdown(ms)} ago`;
 }
 
-function windowLine(label: string, window: UsageWindow | undefined, nowMs: number): string {
-  if (!window) return `- ${label}: _not reported_`;
+function limitLine(limit: UsageLimit, nowMs: number): string {
   const reset =
-    window.resetsAtMs === undefined
+    limit.resetsAtMs === undefined
       ? ''
-      : ` · resets in ${formatCountdown(window.resetsAtMs - nowMs)}`;
-  return `- ${label}: **${formatPercent(window.usedPercent)}** used${reset}`;
+      : ` · resets in ${formatCountdown(limit.resetsAtMs - nowMs)}`;
+  const active = limit.isActive ? ' — currently limiting' : '';
+  return `- ${limit.label}: **${formatPercent(limit.percent)}**${reset}${active}`;
 }
 
 /**
  * Strip the emphasis {@link formatTooltip} adds, for plain-text dialogs.
- * Underscores inside words (session names, model ids) are left alone.
+ * Underscores inside words (model ids, plan names) are left alone.
  */
 export function toPlainText(markdown: string): string {
   return markdown
@@ -137,44 +167,39 @@ export function formatTooltip(
   snapshot: UsageSnapshot | undefined,
   nowMs: number,
   options: FormatOptions,
-  bridgeInstalled: boolean,
+  problem?: string,
 ): string {
   const lines: string[] = ['**Claude Code usage**', ''];
 
   if (!snapshot) {
-    lines.push(
-      bridgeInstalled
-        ? 'Bridge installed, but no status line payload has arrived yet. Claude Code only runs the status line command for sessions with a terminal UI.'
-        : 'Not set up yet. Run **Claude Usage Ultra: Install Status Line Bridge**.',
-    );
+    lines.push(problem ?? 'Waiting for the first reading from the Claude Code CLI.');
     return lines.join('\n');
   }
 
-  lines.push(windowLine('Session (5h)', snapshot.fiveHour, nowMs));
-  lines.push(windowLine('Weekly, all models (7d)', snapshot.sevenDay, nowMs));
-
-  if (!snapshot.fiveHour && !snapshot.sevenDay) {
-    lines.push('', 'Claude Code has not reported plan limits yet for this session.');
+  if (!snapshot.available) {
+    lines.push('Plan limits are not available for this login method.');
+  } else if (snapshot.limits.length === 0) {
+    lines.push('Claude Code reported no usage windows.');
+  } else {
+    for (const limit of snapshot.limits) lines.push(limitLine(limit, nowMs));
   }
 
   const details: string[] = [];
-  if (snapshot.modelName) details.push(`- Model: ${snapshot.modelName}`);
-  if (snapshot.costUsd !== undefined) {
-    details.push(`- Session cost: $${snapshot.costUsd.toFixed(2)}`);
+  if (snapshot.subscriptionType) details.push(`- Plan: ${snapshot.subscriptionType}`);
+  if (snapshot.spend) {
+    const { usedUsd, limitUsd, currency, percent, enabled } = snapshot.spend;
+    const state = enabled ? '' : ' (off)';
+    details.push(
+      `- Extra usage: ${formatMoney(usedUsd, currency)} of ${formatMoney(limitUsd, currency)}` +
+        ` (${formatPercent(percent)})${state}`,
+    );
   }
-  if (snapshot.contextUsedPercent !== undefined) {
-    const size = snapshot.contextWindowSize
-      ? ` of ${Math.round(snapshot.contextWindowSize / 1000)}k`
-      : '';
-    details.push(`- Context: ${formatPercent(snapshot.contextUsedPercent)}${size}`);
-  }
-  if (snapshot.sessionName) details.push(`- Session: ${snapshot.sessionName}`);
   if (details.length > 0) lines.push('', ...details);
 
-  lines.push('', `_Updated ${timeAgo(nowMs - snapshot.receivedAtMs)}_`);
+  lines.push('', `_Updated ${timeAgo(nowMs - snapshot.fetchedAtMs)}_`);
   if (isStale(snapshot, nowMs, options.staleAfterMs)) {
-    lines.push('', '_Stale — no Claude Code session has reported since._');
+    lines.push('', '_Stale — the last refresh did not succeed._');
   }
-  lines.push('', 'Per-model weekly limits are not available; Claude Code does not send them here.');
+  if (problem) lines.push('', `_${problem}_`);
   return lines.join('\n');
 }

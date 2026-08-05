@@ -1,16 +1,8 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { bundledCliPath, fetchUsage, localCliPath, UsageCliError } from './cli';
 import {
-  claudeSettingsPath,
-  existingStatusLine,
-  manualSnippet,
-  patchSettings,
-  renderBridgeScript,
-  unpatchSettings,
-  type StatusLineSetting,
-} from './bridge';
-import {
+  LOADING_TEXT,
   formatStatusText,
   formatTooltip,
   severityFor,
@@ -18,57 +10,97 @@ import {
   type FormatOptions,
   type Segment,
 } from './format';
-import { PayloadWatcher } from './watcher';
+import { toSnapshot, type UsageSnapshot } from './usage';
 
-/** Remembers what we displaced in settings.json so uninstall can restore it. */
-const REPLACED_KEY = 'claudeUsageUltra.replacedStatusLine';
+/** Last good reading, so a reload does not start with a blank bar. */
+const SNAPSHOT_KEY = 'claudeUsageUltra.lastSnapshot';
+
+/** The Claude Code extension, whose bundled CLI we borrow. */
+const CLAUDE_CODE_EXTENSION_ID = 'Anthropic.claude-code';
 
 const DEFAULT_SEGMENTS: Segment[] = ['session', 'weekly', 'reset'];
 const VALID_SEGMENTS = new Set<Segment>([
   'session',
   'weekly',
+  'scoped',
   'reset',
-  'cost',
-  'context',
-  'model',
+  'spend',
+  'plan',
 ]);
 
-/** Keeps the reset countdown moving between payloads. */
+/** Keeps the reset countdown moving between refreshes. */
 const TICK_MS = 30_000;
 
+/** Refresh on focus only if the reading is older than this. */
+const FOCUS_REFRESH_AFTER_MS = 60_000;
+
+/** Failed refreshes back off from the configured interval up to this ceiling. */
+const MAX_BACKOFF_MS = 30 * 60_000;
+
+function config(): vscode.WorkspaceConfiguration {
+  return vscode.workspace.getConfiguration('claudeUsageUltra');
+}
+
 function readOptions(): FormatOptions {
-  const config = vscode.workspace.getConfiguration('claudeUsageUltra');
-  const raw = config.get<string[]>('show', DEFAULT_SEGMENTS);
+  const settings = config();
+  const raw = settings.get<string[]>('show', DEFAULT_SEGMENTS);
   const segments = raw.filter((s): s is Segment => VALID_SEGMENTS.has(s as Segment));
 
   return {
     segments: segments.length > 0 ? segments : DEFAULT_SEGMENTS,
-    staleAfterMs: config.get<number>('staleAfterMinutes', 20) * 60_000,
-    warnAtPercent: config.get<number>('warnAtPercent', 80),
-    errorAtPercent: config.get<number>('errorAtPercent', 95),
+    staleAfterMs: settings.get<number>('staleAfterMinutes', 30) * 60_000,
+    warnAtPercent: settings.get<number>('warnAtPercent', 80),
+    errorAtPercent: settings.get<number>('errorAtPercent', 95),
   };
 }
 
+/**
+ * Find a Claude Code CLI to query.
+ *
+ * The binary shipped inside the Claude Code extension is preferred: it is the
+ * one the user is actually running, and it exists even when nothing is on PATH.
+ */
+function resolveCli(log: vscode.LogOutputChannel): string {
+  const configured = config().get<string>('claudePath', '').trim();
+  if (configured) return configured;
+
+  const claudeCode = vscode.extensions.getExtension(CLAUDE_CODE_EXTENSION_ID);
+  if (claudeCode) {
+    const bundled = bundledCliPath(claudeCode.extensionUri.fsPath);
+    if (fs.existsSync(bundled)) return bundled;
+    log.debug(`Claude Code extension found but no bundled CLI at ${bundled}`);
+  }
+
+  const local = localCliPath();
+  if (fs.existsSync(local)) return local;
+
+  // Last resort: let the OS resolve it, which works when `claude` is on PATH.
+  return 'claude';
+}
+
 export function activate(context: vscode.ExtensionContext): void {
-  const stateDir = path.join(context.globalStorageUri.fsPath, 'statusline');
-  const scriptPath = path.join(context.globalStorageUri.fsPath, 'claude-usage-bridge.sh');
+  const log = vscode.window.createOutputChannel('Claude Usage Ultra', { log: true });
+  context.subscriptions.push(log);
 
   let item = createItem();
-  let tick: ReturnType<typeof setInterval> | undefined;
-
-  const watcher = new PayloadWatcher(stateDir, () => render());
-  context.subscriptions.push({ dispose: () => watcher.dispose() });
+  let snapshot = context.globalState.get<UsageSnapshot>(SNAPSHOT_KEY);
+  let problem: string | undefined;
+  let inFlight = false;
+  let everRefreshed = false;
+  let failures = 0;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let tickTimer: ReturnType<typeof setInterval> | undefined;
 
   function createItem(): vscode.StatusBarItem {
-    const config = vscode.workspace.getConfiguration('claudeUsageUltra');
+    const settings = config();
     const alignment =
-      config.get<string>('alignment', 'right') === 'left'
+      settings.get<string>('alignment', 'right') === 'left'
         ? vscode.StatusBarAlignment.Left
         : vscode.StatusBarAlignment.Right;
     const created = vscode.window.createStatusBarItem(
       'claudeUsageUltra.status',
       alignment,
-      config.get<number>('priority', 100),
+      settings.get<number>('priority', 100),
     );
     created.name = 'Claude Usage Ultra';
     created.command = 'claudeUsageUltra.showDetails';
@@ -76,20 +108,14 @@ export function activate(context: vscode.ExtensionContext): void {
     return created;
   }
 
-  function bridgeInstalled(): boolean {
-    return fs.existsSync(scriptPath);
-  }
-
   function render(): void {
     const options = readOptions();
-    const snapshot = watcher.snapshot;
     const now = Date.now();
 
-    item.text = formatStatusText(snapshot, now, options);
+    item.text =
+      snapshot === undefined && inFlight ? LOADING_TEXT : formatStatusText(snapshot, now, options);
 
-    const tooltip = new vscode.MarkdownString(
-      formatTooltip(snapshot, now, options, bridgeInstalled()),
-    );
+    const tooltip = new vscode.MarkdownString(formatTooltip(snapshot, now, options, problem));
     tooltip.supportThemeIcons = true;
     item.tooltip = tooltip;
 
@@ -105,161 +131,74 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   }
 
-  async function install(): Promise<void> {
-    const config = vscode.workspace.getConfiguration('claudeUsageUltra');
-    const refreshInterval = config.get<number>('refreshInterval', 10);
-    const settingsPath = claudeSettingsPath();
-
-    let source: string | undefined;
-    try {
-      source = fs.readFileSync(settingsPath, 'utf8');
-    } catch {
-      source = undefined;
-    }
-
-    let previous: StatusLineSetting | undefined;
-    try {
-      previous = existingStatusLine(source);
-    } catch {
-      await showManualFallback(
-        `Could not parse ${settingsPath}. Add this yourself:`,
-        scriptPath,
-        refreshInterval,
-      );
-      return;
-    }
-
-    let delegate = '';
-    if (previous && previous.command !== scriptPath) {
-      const choice = await vscode.window.showWarningMessage(
-        'Claude Code already has a status line command configured.',
-        { modal: true, detail: `Current: ${previous.command}` },
-        'Chain it',
-        'Replace it',
-      );
-      if (choice === undefined) return;
-      if (choice === 'Chain it') delegate = previous.command;
-    } else {
-      const confirmed = await vscode.window.showInformationMessage(
-        'Install the Claude Code usage bridge?',
-        {
-          modal: true,
-          detail:
-            `Writes ${scriptPath}\n` +
-            `Sets "statusLine" in ${settingsPath}\n\n` +
-            'Claude Code will pipe its status line payload to that script, which saves it for this extension to read.',
-        },
-        'Install',
-      );
-      if (confirmed !== 'Install') return;
-    }
-
-    try {
-      fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
-      fs.mkdirSync(stateDir, { recursive: true });
-      fs.writeFileSync(scriptPath, renderBridgeScript(stateDir, delegate), { mode: 0o755 });
-      fs.chmodSync(scriptPath, 0o755);
-
-      if (source !== undefined) {
-        fs.copyFileSync(settingsPath, `${settingsPath}.wx-vsce-claude-usage-ultra.bak`);
-      } else {
-        fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-      }
-
-      const patched = patchSettings(source, scriptPath, refreshInterval);
-      fs.writeFileSync(settingsPath, patched.json, 'utf8');
-      await context.globalState.update(REPLACED_KEY, delegate ? patched.replaced : undefined);
-    } catch (error) {
-      vscode.window.showErrorMessage(`Claude Usage Ultra: install failed — ${describe(error)}`);
-      return;
-    }
-
-    watcher.refresh(true);
-    render();
-    vscode.window.showInformationMessage(
-      'Claude usage bridge installed. Start or continue a Claude Code session in a terminal to populate the status bar.',
-    );
+  function pollIntervalMs(): number {
+    return Math.max(30, config().get<number>('pollIntervalSeconds', 300)) * 1000;
   }
 
-  async function uninstall(): Promise<void> {
-    const settingsPath = claudeSettingsPath();
-    const confirmed = await vscode.window.showWarningMessage(
-      'Remove the Claude Code usage bridge?',
-      { modal: true, detail: `Deletes ${scriptPath} and clears "statusLine" in ${settingsPath}.` },
-      'Remove',
-    );
-    if (confirmed !== 'Remove') return;
-
-    try {
-      const restore = context.globalState.get<StatusLineSetting>(REPLACED_KEY);
-      const source = fs.readFileSync(settingsPath, 'utf8');
-      const result = unpatchSettings(source, scriptPath, restore);
-      if (result.changed) fs.writeFileSync(settingsPath, result.json, 'utf8');
-      await context.globalState.update(REPLACED_KEY, undefined);
-    } catch (error) {
-      vscode.window.showWarningMessage(
-        `Claude Usage Ultra: could not update settings.json — ${describe(error)}`,
-      );
-    }
-
-    try {
-      fs.rmSync(scriptPath, { force: true });
-      fs.rmSync(path.join(stateDir, 'current.json'), { force: true });
-    } catch {
-      // Nothing actionable; the settings change is what matters.
-    }
-
-    watcher.refresh(true);
-    render();
-    vscode.window.showInformationMessage('Claude usage bridge removed.');
+  /** Schedule the next refresh, backing off while the CLI keeps failing. */
+  function schedule(): void {
+    if (pollTimer) clearTimeout(pollTimer);
+    const base = pollIntervalMs();
+    const delay = failures === 0 ? base : Math.min(base * 2 ** failures, MAX_BACKOFF_MS);
+    pollTimer = setTimeout(() => void refresh(), delay);
   }
 
-  async function showManualFallback(
-    message: string,
-    script: string,
-    refreshInterval: number,
-  ): Promise<void> {
-    const snippet = manualSnippet(script, refreshInterval);
-    const choice = await vscode.window.showErrorMessage(
-      message,
-      { modal: true, detail: snippet },
-      'Copy snippet',
-    );
-    if (choice === 'Copy snippet') await vscode.env.clipboard.writeText(snippet);
+  async function refresh(): Promise<void> {
+    if (inFlight) return;
+    inFlight = true;
+    everRefreshed = true;
+    render();
+
+    const command = resolveCli(log);
+    const started = Date.now();
+
+    try {
+      const response = await fetchUsage({
+        command,
+        cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        timeoutMs: config().get<number>('timeoutSeconds', 45) * 1000,
+        log: (message) => log.debug(message),
+      });
+
+      const next = toSnapshot(response, Date.now());
+      if (!next) throw new UsageCliError('Claude Code returned an unrecognised usage payload');
+
+      snapshot = next;
+      problem = undefined;
+      failures = 0;
+      await context.globalState.update(SNAPSHOT_KEY, next);
+      log.info(
+        `Refreshed in ${Date.now() - started}ms — ${next.limits
+          .map((l) => `${l.kind} ${Math.round(l.percent)}%`)
+          .join(', ')}`,
+      );
+    } catch (error) {
+      failures += 1;
+      problem =
+        error instanceof UsageCliError && error.missingCli
+          ? `Could not find the Claude Code CLI. Install the Claude Code extension, or set \`claudeUsageUltra.claudePath\`.`
+          : `Last refresh failed: ${describe(error)}`;
+      log.warn(`${problem} (attempt ${failures}, ${command})`);
+    } finally {
+      inFlight = false;
+      render();
+      schedule();
+    }
   }
 
   async function showDetails(): Promise<void> {
-    const installed = bridgeInstalled();
-    const snapshot = watcher.snapshot;
-    const options = readOptions();
-
-    const detail = toPlainText(formatTooltip(snapshot, Date.now(), options, installed));
-
-    const actions = installed
-      ? ['Refresh', 'Reinstall bridge', 'Remove bridge']
-      : ['Install bridge'];
-    const choice = await vscode.window.showInformationMessage(detail, ...actions);
-
-    if (choice === 'Refresh') {
-      watcher.refresh(true);
-      render();
-    } else if (choice === 'Install bridge' || choice === 'Reinstall bridge') {
-      await install();
-    } else if (choice === 'Remove bridge') {
-      await uninstall();
-    }
+    const detail = toPlainText(formatTooltip(snapshot, Date.now(), readOptions(), problem));
+    const choice = await vscode.window.showInformationMessage(detail, 'Refresh', 'Show log');
+    if (choice === 'Refresh') await refresh();
+    else if (choice === 'Show log') log.show();
   }
 
   context.subscriptions.push(
     // Disposes whichever item is current — alignment changes replace it.
     { dispose: () => item.dispose() },
-    vscode.commands.registerCommand('claudeUsageUltra.install', install),
-    vscode.commands.registerCommand('claudeUsageUltra.uninstall', uninstall),
+    vscode.commands.registerCommand('claudeUsageUltra.refresh', () => refresh()),
     vscode.commands.registerCommand('claudeUsageUltra.showDetails', showDetails),
-    vscode.commands.registerCommand('claudeUsageUltra.refresh', () => {
-      watcher.refresh(true);
-      render();
-    }),
+    vscode.commands.registerCommand('claudeUsageUltra.showLog', () => log.show()),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration('claudeUsageUltra')) return;
       if (
@@ -269,27 +208,31 @@ export function activate(context: vscode.ExtensionContext): void {
         item.dispose();
         item = createItem();
       }
-      if (event.affectsConfiguration('claudeUsageUltra.pollIntervalSeconds')) {
-        watcher.setPollInterval(pollIntervalMs());
-      }
+      if (event.affectsConfiguration('claudeUsageUltra.pollIntervalSeconds')) schedule();
       render();
     }),
+    vscode.window.onDidChangeWindowState((state) => {
+      if (!state.focused) return;
+      if (!config().get<boolean>('refreshOnFocus', true)) return;
+      const age = snapshot ? Date.now() - snapshot.fetchedAtMs : Number.POSITIVE_INFINITY;
+      if (age > FOCUS_REFRESH_AFTER_MS) void refresh();
+    }),
+    {
+      dispose: () => {
+        if (pollTimer) clearTimeout(pollTimer);
+        if (tickTimer) clearInterval(tickTimer);
+      },
+    },
   );
 
-  function pollIntervalMs(): number {
-    return vscode.workspace.getConfiguration('claudeUsageUltra').get<number>('pollIntervalSeconds', 15) * 1000;
-  }
-
-  watcher.start(pollIntervalMs());
   render();
+  void refresh();
 
-  tick = setInterval(render, TICK_MS);
-  context.subscriptions.push({
-    dispose: () => {
-      if (tick) clearInterval(tick);
-      tick = undefined;
-    },
-  });
+  tickTimer = setInterval(() => {
+    // Only the countdowns move between refreshes; skip the work if nothing is
+    // on screen yet.
+    if (snapshot !== undefined || everRefreshed) render();
+  }, TICK_MS);
 }
 
 function describe(error: unknown): string {
