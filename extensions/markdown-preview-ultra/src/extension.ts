@@ -3,6 +3,7 @@ import { MarkdownEditorProvider, isPreviewable } from './customEditor';
 import { ModeManager } from './modes';
 import { PreviewManager, canPreview } from './previewManager';
 import { PreviewRenderer } from './renderer';
+import { ThemeOverrideStore } from './themeStore';
 
 export function activate(context: vscode.ExtensionContext): void {
   // Suppresses the built-in Markdown preview buttons (editor title bar, explorer
@@ -13,14 +14,17 @@ export function activate(context: vscode.ExtensionContext): void {
     true,
   );
 
+  // The in-page light/dark switch, held for the window rather than for one
+  // page — a webview's own state dies with the tab that owned it.
+  const themes = new ThemeOverrideStore(context.globalState);
   // Shared by both surfaces, so the WASM engine is loaded at most once.
-  const renderer = new PreviewRenderer(context.extensionUri);
+  const renderer = new PreviewRenderer(context.extensionUri, themes);
   const manager = new PreviewManager(renderer);
   // The provider reads the panel's placement: a markdown file opened while the
   // reader is in Split belongs in the source column, not in a preview tab.
   const editors = new MarkdownEditorProvider(renderer, manager);
   const modes = new ModeManager(manager, editors);
-  context.subscriptions.push(manager, modes);
+  context.subscriptions.push(themes, manager, modes);
 
   /**
    * Resolve what to preview. The explorer and tab context menus pass the

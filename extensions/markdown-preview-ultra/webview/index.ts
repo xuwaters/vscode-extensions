@@ -29,7 +29,7 @@ import { addCopyButtons, installCopyHandler } from './ui/copyCode';
 import { renderFrontmatter } from './ui/frontmatter';
 import { installLightbox } from './ui/lightbox';
 import { NavButtons } from './ui/nav';
-import { ThemeToggle, reconcileOverride } from './ui/themeToggle';
+import { ThemeToggle } from './ui/themeToggle';
 import { TocSidebar, addHeadingAnchors } from './ui/toc';
 import { installZoom } from './ui/zoom';
 
@@ -39,10 +39,6 @@ interface PersistedState {
   /** Dragged sidebar width; wins over the configured default. */
   tocWidth?: number;
   zoom?: number;
-  /** In-page light/dark switch; wins over the configured theme. */
-  themeOverride?: PreviewTheme;
-  /** Configured theme the override was made against — see `reconcileTheme`. */
-  themeOverrideBase?: PreviewTheme;
 }
 
 declare function acquireVsCodeApi(): {
@@ -167,9 +163,30 @@ function setHostVisible(visible: boolean): void {
 
 // ── Theme ────────────────────────────────────────────────────────────
 
-/** The in-page switch wins over the configured theme until it is cleared. */
+/**
+ * The in-page light/dark switch, which wins over the configured theme until it
+ * is cleared. The host holds it for the whole window — this page is told what
+ * it stands at and never decides on its own, which is what carries a flip from
+ * one file to the next.
+ */
+let themeOverride: PreviewTheme | null = null;
+
+/**
+ * The theme the host stamped onto <body> when it built the page, switch
+ * included. It stands in for the settings until the first `update` arrives, so
+ * the page never repaints away from what it was served in.
+ */
+const stampedTheme = readStampedTheme();
+
+function readStampedTheme(): PreviewTheme {
+  const cls = document.body.classList;
+  if (cls.contains('theme-github-light')) return 'github-light';
+  if (cls.contains('theme-github-dark')) return 'github-dark';
+  return 'auto';
+}
+
 function effectiveTheme(): PreviewTheme {
-  return state.themeOverride ?? settings?.theme ?? 'auto';
+  return themeOverride ?? settings?.theme ?? stampedTheme;
 }
 
 function themeKind(): 'light' | 'dark' {
@@ -194,35 +211,29 @@ function applyThemeClasses(): void {
   const cls = document.body.classList;
   cls.toggle('theme-github-light', theme === 'github-light');
   cls.toggle('theme-github-dark', theme === 'github-dark');
-  themeToggle.update(themeKind(), state.themeOverride !== undefined);
+  themeToggle.update(themeKind(), themeOverride !== null);
 }
 
 /** Flip the page between light and dark without touching the configuration. */
 function toggleTheme(): void {
   const next = themeKind() === 'light' ? 'github-dark' : 'github-light';
-  const configured = settings?.theme;
-  // Landing back on the configured theme retires the override entirely.
-  saveState(
-    next === configured
-      ? { themeOverride: undefined, themeOverrideBase: undefined }
-      : { themeOverride: next, themeOverrideBase: configured },
-  );
+  // The host owns the switch: it decides whether this is an override or a
+  // return to the configured theme, records it for the window, and tells every
+  // open preview. Painting it here first is only what keeps the click instant —
+  // its answer lands on top.
+  themeOverride = next;
   applyThemeClasses();
   rerenderAllMermaid();
+  vscode.postMessage({ type: 'setTheme', theme: next });
 }
 
-function reconcileThemeOverride(configured: PreviewTheme): void {
-  const next = reconcileOverride(
-    { override: state.themeOverride, base: state.themeOverrideBase },
-    configured,
-  );
-  if (
-    next.override === state.themeOverride &&
-    next.base === state.themeOverrideBase
-  ) {
-    return;
-  }
-  saveState({ themeOverride: next.override, themeOverrideBase: next.base });
+/** The host's word on the switch: our own flip echoed, or another page's. */
+function setThemeOverride(theme: PreviewTheme | null): void {
+  if (theme === themeOverride) return;
+  const before = themeKind();
+  themeOverride = theme;
+  applyThemeClasses();
+  if (themeKind() !== before) rerenderAllMermaid();
 }
 
 // ── Document chrome (base href, custom styles) ───────────────────────
@@ -299,7 +310,7 @@ function handleUpdate(msg: UpdateMessage): void {
   if (msg.seq <= lastSeq && !msg.reset) return;
   lastSeq = msg.seq;
   settings = msg.settings;
-  reconcileThemeOverride(settings.theme);
+  setThemeOverride(msg.themeOverride);
 
   ensureBase(msg.baseHref);
   ensureCustomStyles(msg.customStyles);
@@ -419,6 +430,9 @@ window.addEventListener('message', (event) => {
       // whatever the page actually shows.
       applyThemeClasses();
       rerenderAllMermaid();
+      break;
+    case 'themeOverride':
+      setThemeOverride(msg.theme);
       break;
     case 'noEngine':
       showNoEngine();

@@ -66,6 +66,8 @@ export interface UpdateMessage {
   /** Webview URIs of user customCss files, applied in order. */
   customStyles: string[];
   settings: PreviewSettings;
+  /** In-page light/dark switch, or `null` while the configured theme is in force. */
+  themeOverride: PreviewTheme | null;
   /** Preview-local link history (drives the toolbar's ← / → buttons). */
   canGoBack: boolean;
   canGoForward: boolean;
@@ -94,6 +96,16 @@ export interface VisibilityMessage {
   visible: boolean;
 }
 
+/**
+ * The in-page light/dark switch was flipped — here or in another preview. The
+ * host holds it for the whole window, so every open page follows along.
+ */
+export interface ThemeOverrideMessage {
+  type: 'themeOverride';
+  /** `null` → no override; the configured theme applies. */
+  theme: PreviewTheme | null;
+}
+
 /** The WASM engine is not built; show a friendly hint instead of content. */
 export interface NoEngineMessage {
   type: 'noEngine';
@@ -103,6 +115,7 @@ export type HostToWebview =
   | UpdateMessage
   | ScrollMessage
   | ThemeMessage
+  | ThemeOverrideMessage
   | VisibilityMessage
   | NoEngineMessage;
 
@@ -137,6 +150,15 @@ export interface OpenLinkMessage {
   href: string;
 }
 
+/**
+ * The in-page light/dark switch was flipped. The host records it for the window
+ * and echoes back what it made of it; the configuration is never written.
+ */
+export interface SetThemeMessage {
+  type: 'setTheme';
+  theme: PreviewTheme;
+}
+
 /** Task checkbox clicked (only when `taskLists.toggleFromPreview` is on). */
 export interface ToggleTaskMessage {
   type: 'toggleTask';
@@ -157,6 +179,7 @@ export type WebviewToHost =
   | JumpToLineMessage
   | NavigateMessage
   | OpenLinkMessage
+  | SetThemeMessage
   | ToggleTaskMessage
   | ErrorMessage;
 
@@ -164,6 +187,10 @@ export type WebviewToHost =
 
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
+}
+
+function isPreviewTheme(v: unknown): v is PreviewTheme {
+  return v === 'auto' || v === 'github-light' || v === 'github-dark';
 }
 
 /**
@@ -183,6 +210,8 @@ export function isWebviewToHost(msg: unknown): msg is WebviewToHost {
       return m.direction === 'back' || m.direction === 'forward';
     case 'openLink':
       return typeof m.href === 'string';
+    case 'setTheme':
+      return isPreviewTheme(m.theme);
     case 'toggleTask':
       return (
         isFiniteNumber(m.line) && m.line >= 0 && typeof m.checked === 'boolean'

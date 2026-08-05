@@ -94,6 +94,13 @@ export class PreviewManager implements vscode.Disposable {
           this.renderer.postTheme(this.preview.panel.webview, theme);
         }
       }),
+      // The light/dark switch belongs to the window: flipping it in a preview
+      // tab restyles the panel too, without a re-render.
+      this.renderer.onDidChangeThemeOverride(() => {
+        if (this.preview) {
+          this.renderer.postThemeOverride(this.preview.panel.webview);
+        }
+      }),
       vscode.window.onDidChangeTextEditorVisibleRanges((e) =>
         this.syncScroll(e.textEditor),
       ),
@@ -581,6 +588,9 @@ export class PreviewManager implements vscode.Disposable {
         break;
       case 'openLink':
         void this.openLink(preview, msg.href);
+        break;
+      case 'setTheme':
+        this.renderer.setThemeOverride(msg.theme);
         break;
       case 'toggleTask':
         void applyTaskToggle(preview.document, msg);

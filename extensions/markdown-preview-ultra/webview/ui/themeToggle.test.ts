@@ -1,34 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ThemeToggle, reconcileOverride } from './themeToggle';
-
-describe('reconcileOverride', () => {
-  it('keeps an override while its configured theme is unchanged', () => {
-    const stored = { override: 'github-dark', base: 'github-light' } as const;
-    expect(reconcileOverride(stored, 'github-light')).toEqual(stored);
-  });
-
-  it('drops the override when the configured theme changes', () => {
-    expect(
-      reconcileOverride(
-        { override: 'github-dark', base: 'github-light' },
-        'auto',
-      ),
-    ).toEqual({});
-  });
-
-  it('adopts the configured theme as the base when none was recorded', () => {
-    expect(reconcileOverride({ override: 'github-dark' }, 'auto')).toEqual({
-      override: 'github-dark',
-      base: 'auto',
-    });
-  });
-
-  it('is a no-op without an override', () => {
-    expect(reconcileOverride({}, 'github-light')).toEqual({});
-    expect(reconcileOverride({ base: 'github-light' }, 'auto')).toEqual({});
-  });
-});
+import { ThemeToggle } from './themeToggle';
 
 describe('ThemeToggle', () => {
   let toolbar: HTMLElement;

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { EngineBridge, EngineSession, type EngineOptions } from './engine';
-import type { HostToWebview, PreviewSettings } from './messages';
+import type { HostToWebview, PreviewSettings, PreviewTheme } from './messages';
+import { configuredTheme, type ThemeOverrideStore } from './themeStore';
 import { getNonce } from './util';
 
 /** Preview-local link history; drives the webview toolbar's ← / → buttons. */
@@ -22,9 +23,15 @@ export const NO_HISTORY: NavState = { canGoBack: false, canGoForward: false };
  */
 export class PreviewRenderer {
   private readonly engine: EngineBridge;
+  /** Fires when the in-page light/dark switch is flipped or retired. */
+  public readonly onDidChangeThemeOverride: vscode.Event<void>;
 
-  constructor(private readonly extensionUri: vscode.Uri) {
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly themes: ThemeOverrideStore,
+  ) {
     this.engine = new EngineBridge(extensionUri.fsPath);
+    this.onDidChangeThemeOverride = themes.onDidChange;
   }
 
   /** A fresh per-document render session (block hashes for diffing). */
@@ -44,6 +51,20 @@ export class PreviewRenderer {
         ? 'light'
         : 'dark';
     this.post(webview, { type: 'theme', kind });
+  }
+
+  /**
+   * Flip the window-wide light/dark switch. It is the reader's deviation from
+   * `markdownPreviewUltra.theme` for as long as that setting stands, so the
+   * setting itself is left alone.
+   */
+  public setThemeOverride(theme: PreviewTheme): void {
+    this.themes.set(theme);
+  }
+
+  /** Hand a page the switch's current value. */
+  public postThemeOverride(webview: vscode.Webview): void {
+    this.post(webview, { type: 'themeOverride', theme: this.themes.override });
   }
 
   /**
@@ -76,6 +97,7 @@ export class PreviewRenderer {
       baseHref: this.baseHref(webview, document),
       customStyles: this.customStyles(webview, document),
       settings: this.readSettings(),
+      themeOverride: this.themes.override,
       canGoBack: nav.canGoBack,
       canGoForward: nav.canGoForward,
     });
@@ -112,7 +134,7 @@ export class PreviewRenderer {
         'frontmatter.display',
         'card',
       ),
-      theme: cfg.get<PreviewSettings['theme']>('theme', 'github-light'),
+      theme: configuredTheme(),
       tocVisible: cfg.get<boolean>('toc.visible', false),
       tocWidth: cfg.get<number>('toc.width', 240),
       taskToggle: cfg.get<boolean>('taskLists.toggleFromPreview', false),
@@ -179,7 +201,9 @@ export class PreviewRenderer {
     );
     // Stamp a fixed theme onto <body> up front so the preview doesn't flash the
     // editor's colors before the first settings message reaches the webview.
-    const theme = this.readSettings().theme;
+    // The switch is part of that: a page that opens while it is flipped is
+    // painted in the theme it is about to be told to show anyway.
+    const theme = this.themes.theme;
     const bodyClass = theme === 'auto' ? '' : ` class="theme-${theme}"`;
     const nonce = getNonce();
     const csp = [
