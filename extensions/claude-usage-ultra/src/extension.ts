@@ -17,6 +17,12 @@ const SNAPSHOT_KEY = 'claudeUsageUltra.lastSnapshot';
 /** The Claude Code extension, whose bundled CLI we borrow. */
 const CLAUDE_CODE_EXTENSION_ID = 'Anthropic.claude-code';
 
+/**
+ * Anthropic's own usage page — the authority these numbers are read against
+ * when a reading looks wrong, or has gone stale and the bar cannot be trusted.
+ */
+const USAGE_SETTINGS_URL = 'https://claude.ai/settings/usage';
+
 const DEFAULT_SEGMENTS: Segment[] = ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'];
 const VALID_SEGMENTS = new Set<Segment>([
   'session',
@@ -51,8 +57,27 @@ function readOptions(): FormatOptions {
     staleAfterMs: settings.get<number>('staleAfterMinutes', 30) * 60_000,
     noticeAtPercent: settings.get<number>('noticeAtPercent', 50),
     warnAtPercent: settings.get<number>('warnAtPercent', 80),
-    errorAtPercent: settings.get<number>('errorAtPercent', 95),
+    criticalAtPercent: criticalAtPercent(settings),
   };
+}
+
+/** The value a user actually wrote down, at whichever scope they wrote it. */
+function explicit(settings: vscode.WorkspaceConfiguration, key: string): number | undefined {
+  const set = settings.inspect<number>(key);
+  return set?.workspaceFolderValue ?? set?.workspaceValue ?? set?.globalValue;
+}
+
+/**
+ * The red dot's threshold. It was once `errorAtPercent` — a full window is not
+ * an error — so a threshold moved under the old name still counts until it is
+ * moved under the new one.
+ */
+function criticalAtPercent(settings: vscode.WorkspaceConfiguration): number {
+  return (
+    explicit(settings, 'criticalAtPercent') ??
+    explicit(settings, 'errorAtPercent') ??
+    settings.get<number>('criticalAtPercent', 95)
+  );
 }
 
 /**
@@ -180,10 +205,20 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   }
 
+  function openUsagePage(): Thenable<boolean> {
+    return vscode.env.openExternal(vscode.Uri.parse(USAGE_SETTINGS_URL));
+  }
+
   async function showDetails(): Promise<void> {
     const detail = toPlainText(formatTooltip(snapshot, Date.now(), readOptions(), problem));
-    const choice = await vscode.window.showInformationMessage(detail, 'Refresh', 'Show log');
+    const choice = await vscode.window.showInformationMessage(
+      detail,
+      'Refresh',
+      'Check on claude.ai',
+      'Show log',
+    );
     if (choice === 'Refresh') await refresh();
+    else if (choice === 'Check on claude.ai') await openUsagePage();
     else if (choice === 'Show log') log.show();
   }
 
@@ -192,6 +227,7 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => item.dispose() },
     vscode.commands.registerCommand('claudeUsageUltra.refresh', () => refresh()),
     vscode.commands.registerCommand('claudeUsageUltra.showDetails', showDetails),
+    vscode.commands.registerCommand('claudeUsageUltra.openUsagePage', () => openUsagePage()),
     vscode.commands.registerCommand('claudeUsageUltra.showLog', () => log.show()),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration('claudeUsageUltra')) return;

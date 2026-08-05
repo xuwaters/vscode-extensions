@@ -2,7 +2,7 @@
   "name": "wx-vsce-claude-usage-ultra",
   "displayName": "Claude Usage Ultra",
   "description": "Show Claude Code plan usage — 5-hour session window, weekly all-models and per-model windows, reset countdowns and extra-usage spend — in the VS Code status bar.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -29,6 +29,12 @@
         "title": "Refresh",
         "category": "Claude Usage Ultra",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeUsageUltra.openUsagePage",
+        "title": "Open Usage Settings on claude.ai",
+        "category": "Claude Usage Ultra",
+        "icon": "$(link-external)"
       },
       {
         "command": "claudeUsageUltra.showLog",
@@ -81,7 +87,7 @@
           "default": 50,
           "minimum": 0,
           "maximum": 100,
-          "description": "Mark a usage window with a yellow dot once it passes this percentage. Windows below it get no dot at all, so the status bar stays quiet. Set to 100 to drop this step."
+          "description": "Mark a usage window with a yellow dot once it passes this percentage. Windows below it stay green. Set to 100 to drop this step."
         },
         "claudeUsageUltra.warnAtPercent": {
           "type": "number",
@@ -90,12 +96,20 @@
           "maximum": 100,
           "description": "Mark a usage window with an orange dot once it passes this percentage."
         },
-        "claudeUsageUltra.errorAtPercent": {
+        "claudeUsageUltra.criticalAtPercent": {
           "type": "number",
           "default": 95,
           "minimum": 0,
           "maximum": 100,
           "description": "Mark a usage window with a red dot once it passes this percentage. Claude Code's own critical windows always get one."
+        },
+        "claudeUsageUltra.errorAtPercent": {
+          "type": "number",
+          "default": 95,
+          "minimum": 0,
+          "maximum": 100,
+          "markdownDeprecationMessage": "Renamed to `#claudeUsageUltra.criticalAtPercent#` — a full window is not an error. A value left here still applies until the new setting is set.",
+          "description": "Deprecated. Use claudeUsageUltra.criticalAtPercent instead."
         },
         "claudeUsageUltra.staleAfterMinutes": {
           "type": "number",

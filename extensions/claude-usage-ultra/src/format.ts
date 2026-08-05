@@ -9,19 +9,20 @@ import {
 export type Segment = 'session' | 'weekly' | 'scoped' | 'reset' | 'spend' | 'plan';
 
 /** How full one window is, in the four steps the dots distinguish. */
-export type Level = 'normal' | 'notice' | 'warning' | 'error';
+export type Level = 'normal' | 'notice' | 'warning' | 'critical';
 
 /**
  * A status bar item paints all of its text one colour, so per-window colour has
  * to come from the characters themselves — and emoji are the only glyphs that
- * carry their own. One dot per window, none at all while a window is nowhere
- * near its limit, so the bar stays quiet until it has something to say.
+ * carry their own. Every window gets a dot, green included: a row of dots that
+ * all read the same width is easier to scan than one with holes in it, and a
+ * green dot says "checked, fine" where a blank says nothing at all.
  */
 const DOTS: Record<Level, string> = {
-  normal: '',
+  normal: '🟢',
   notice: '🟡',
   warning: '🟠',
-  error: '🔴',
+  critical: '🔴',
 };
 
 export interface FormatOptions {
@@ -31,7 +32,7 @@ export interface FormatOptions {
   staleAfterMs: number;
   noticeAtPercent: number;
   warnAtPercent: number;
-  errorAtPercent: number;
+  criticalAtPercent: number;
 }
 
 const MINUTE = 60_000;
@@ -101,7 +102,7 @@ function topScoped(snapshot: UsageSnapshot): UsageLimit | undefined {
  * plain percentage.
  */
 export function levelFor(limit: UsageLimit, options: FormatOptions): Level {
-  if (limit.severity === 'critical' || limit.percent >= options.errorAtPercent) return 'error';
+  if (limit.severity === 'critical' || limit.percent >= options.criticalAtPercent) return 'critical';
   if (limit.severity === 'warning' || limit.percent >= options.warnAtPercent) return 'warning';
   if (limit.percent >= options.noticeAtPercent) return 'notice';
   return 'normal';
@@ -115,7 +116,7 @@ function shortLabel(limit: UsageLimit): string {
   return limit.label;
 }
 
-/** "5h 7%", "🟠7d 84%" — the dot leads, so a scan reads the colours first. */
+/** "🟢 5h 7%", "🟠 7d 84%" — the dot leads, so a scan reads the colours first. */
 function windowText(limit: UsageLimit, options: FormatOptions): string {
   return `${DOTS[levelFor(limit, options)]} ${shortLabel(limit)} ${formatPercent(limit.percent)}`;
 }
@@ -233,7 +234,7 @@ function limitLine(limit: UsageLimit, nowMs: number, options: FormatOptions): st
   const active = limit.isActive ? ' — currently limiting' : '';
   // The same dot as the bar, so the hover confirms what the glance suggested.
   const dot = DOTS[levelFor(limit, options)];
-  return `- ${dot}${limit.label}: **${formatPercent(limit.percent)}**${reset}${active}`;
+  return `- ${dot} ${limit.label}: **${formatPercent(limit.percent)}**${reset}${active}`;
 }
 
 /**

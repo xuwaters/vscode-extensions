@@ -19,9 +19,10 @@ const NOW = Date.parse('2026-08-05T09:21:00.000Z');
 /** The em space {@link formatStatusText} puts between chunks. */
 const GAP = ' ';
 
+const OK = '🟢';
 const NOTICE = '🟡';
 const WARN = '🟠';
-const ERROR = '🔴';
+const CRITICAL = '🔴';
 
 const OPTIONS: FormatOptions = {
   segments: ['session', 'weekly', 'reset'],
@@ -29,7 +30,7 @@ const OPTIONS: FormatOptions = {
   staleAfterMs: 30 * 60_000,
   noticeAtPercent: 50,
   warnAtPercent: 80,
-  errorAtPercent: 95,
+  criticalAtPercent: 95,
 };
 
 function limit(overrides: Partial<UsageLimit> = {}): UsageLimit {
@@ -126,13 +127,13 @@ describe('nextReset', () => {
 describe('formatStatusText', () => {
   it('renders the label, then the configured segments in order', () => {
     expect(formatStatusText(snapshot(), NOW, OPTIONS)).toBe(
-      `$(pulse) Claude${GAP}5h 7% · ${NOTICE}7d 69%${GAP}$(history) 3h 49m`,
+      `$(pulse) Claude${GAP}${OK} 5h 7% · ${NOTICE} 7d 69%${GAP}$(history) 3h 49m`,
     );
   });
 
   it('drops the label when it is blank', () => {
     expect(formatStatusText(snapshot(), NOW, { ...OPTIONS, label: '  ' })).toBe(
-      `$(pulse) 5h 7% · ${NOTICE}7d 69%${GAP}$(history) 3h 49m`,
+      `$(pulse) ${OK} 5h 7% · ${NOTICE} 7d 69%${GAP}$(history) 3h 49m`,
     );
   });
 
@@ -144,14 +145,14 @@ describe('formatStatusText', () => {
       segments: ['scoped', 'spend', 'plan'],
     };
     expect(formatStatusText(withScoped, NOW, options)).toBe(
-      `$(pulse) ${ERROR}Fable 100%${GAP}$(credit-card) $72.77${GAP}Max`,
+      `$(pulse) ${CRITICAL} Fable 100%${GAP}$(credit-card) $72.77${GAP}Max`,
     );
   });
 
   it('omits the plan when the CLI did not report one', () => {
     const options: FormatOptions = { ...OPTIONS, label: '', segments: ['plan', 'session'] };
     expect(formatStatusText(snapshot({ subscriptionType: undefined }), NOW, options)).toBe(
-      '$(pulse) 5h 7%',
+      `$(pulse) ${OK} 5h 7%`,
     );
   });
 
@@ -162,7 +163,7 @@ describe('formatStatusText', () => {
       segments: ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'],
     };
     expect(formatStatusText(full, NOW, options)).toBe(
-      `$(pulse) Claude Max${GAP}5h 7% · ${NOTICE}7d 69% · ${ERROR}Fable 100%${GAP}` +
+      `$(pulse) Claude Max${GAP}${OK} 5h 7% · ${NOTICE} 7d 69% · ${CRITICAL} Fable 100%${GAP}` +
         `$(credit-card) $72.77${GAP}$(history) 3h 49m`,
     );
   });
@@ -174,7 +175,7 @@ describe('formatStatusText', () => {
       segments: ['session', 'spend', 'weekly'],
     };
     expect(formatStatusText(snapshot(), NOW, options)).toBe(
-      `$(pulse) 5h 7%${GAP}$(credit-card) $72.77${GAP}${NOTICE}7d 69%`,
+      `$(pulse) ${OK} 5h 7%${GAP}$(credit-card) $72.77${GAP}${NOTICE} 7d 69%`,
     );
   });
 
@@ -186,14 +187,14 @@ describe('formatStatusText', () => {
       segments: ['session', 'weekly', 'scoped'],
     };
     expect(formatStatusText(full, NOW, options)).toBe(
-      `$(pulse) ${WARN}5h 84% · ${NOTICE}7d 69% · ${ERROR}Fable 100%`,
+      `$(pulse) ${WARN} 5h 84% · ${NOTICE} 7d 69% · ${CRITICAL} Fable 100%`,
     );
   });
 
-  it('leaves the dots off entirely while every window is quiet', () => {
+  it('dots a quiet window green rather than leaving a hole', () => {
     const calm = snapshot({ limits: [limit(), limit({ ...WEEKLY, percent: 12 })] });
     const options: FormatOptions = { ...OPTIONS, label: '', segments: ['session', 'weekly'] };
-    expect(formatStatusText(calm, NOW, options)).toBe('$(pulse) 5h 7% · 7d 12%');
+    expect(formatStatusText(calm, NOW, options)).toBe(`$(pulse) ${OK} 5h 7% · ${OK} 7d 12%`);
   });
 
   it('falls back to the placeholder before anything has landed', () => {
@@ -225,12 +226,12 @@ describe('levelFor', () => {
     expect(levelFor(limit({ percent: 50 }), OPTIONS)).toBe('notice');
     expect(levelFor(limit({ percent: 70 }), OPTIONS)).toBe('notice');
     expect(levelFor(limit({ percent: 80 }), OPTIONS)).toBe('warning');
-    expect(levelFor(limit({ percent: 95 }), OPTIONS)).toBe('error');
-    expect(levelFor(limit({ percent: 140 }), OPTIONS)).toBe('error');
+    expect(levelFor(limit({ percent: 95 }), OPTIONS)).toBe('critical');
+    expect(levelFor(limit({ percent: 140 }), OPTIONS)).toBe('critical');
   });
 
   it("escalates on Claude Code's own severity, whatever the percentage", () => {
-    expect(levelFor(limit({ percent: 12, severity: 'critical' }), OPTIONS)).toBe('error');
+    expect(levelFor(limit({ percent: 12, severity: 'critical' }), OPTIONS)).toBe('critical');
     expect(levelFor(limit({ percent: 12, severity: 'warning' }), OPTIONS)).toBe('warning');
   });
 
@@ -256,8 +257,8 @@ describe('isStale', () => {
 describe('formatTooltip', () => {
   it('lists every window with its countdown', () => {
     const tooltip = formatTooltip(snapshot(), NOW, OPTIONS);
-    expect(tooltip).toContain('- Session (5h): **7%** · resets in 3h 49m');
-    expect(tooltip).toContain(`- ${NOTICE}Weekly, all models: **69%** · resets in 13h`);
+    expect(tooltip).toContain(`- ${OK} Session (5h): **7%** · resets in 3h 49m`);
+    expect(tooltip).toContain(`- ${NOTICE} Weekly, all models: **69%** · resets in 13h`);
     expect(tooltip).toContain('- Plan: Max');
     expect(tooltip).toContain('- Extra usage: $72.77 of $200.00 (36%) (off)');
     expect(tooltip).toContain('_Updated just now_');
@@ -281,7 +282,7 @@ describe('formatTooltip', () => {
 
   it('keeps showing the last reading alongside a failure', () => {
     const tooltip = formatTooltip(snapshot(), NOW, OPTIONS, 'Last refresh failed: timeout');
-    expect(tooltip).toContain('- Session (5h)');
+    expect(tooltip).toContain(`- ${OK} Session (5h)`);
     expect(tooltip).toContain('_Last refresh failed: timeout_');
   });
 

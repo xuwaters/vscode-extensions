@@ -45,7 +45,7 @@ const OPTIONS: FormatOptions = {
   staleAfterMs: 30 * 60_000,
   noticeAtPercent: 50,
   warnAtPercent: 80,
-  errorAtPercent: 95,
+  criticalAtPercent: 95,
 };
 
 describe.runIf(enabled)('fetchUsage against the real CLI', () => {
