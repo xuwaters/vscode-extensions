@@ -117,7 +117,7 @@ function shortLabel(limit: UsageLimit): string {
 
 /** "5h 7%", "🟠7d 84%" — the dot leads, so a scan reads the colours first. */
 function windowText(limit: UsageLimit, options: FormatOptions): string {
-  return `${DOTS[levelFor(limit, options)]}${shortLabel(limit)} ${formatPercent(limit.percent)}`;
+  return `${DOTS[levelFor(limit, options)]} ${shortLabel(limit)} ${formatPercent(limit.percent)}`;
 }
 
 function segmentText(
