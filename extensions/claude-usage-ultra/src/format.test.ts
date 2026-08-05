@@ -127,15 +127,13 @@ describe('nextReset', () => {
 describe('formatStatusText', () => {
   it('renders the label, then the configured segments in order', () => {
     expect(formatStatusText(snapshot(), NOW, OPTIONS)).toBe(
-      `$(pulse) Claude${GAP}${OK} Session 7% · ${NOTICE} Weekly 69%` +
-        `${GAP}$(history) Session 3h 49m · Weekly 13h`,
+      `$(pulse) Claude${GAP}${OK} Session 7% / 3h 49m · ${NOTICE} Weekly 69% / 13h`,
     );
   });
 
   it('drops the label when it is blank', () => {
     expect(formatStatusText(snapshot(), NOW, { ...OPTIONS, label: '  ' })).toBe(
-      `$(pulse) ${OK} Session 7% · ${NOTICE} Weekly 69%` +
-        `${GAP}$(history) Session 3h 49m · Weekly 13h`,
+      `$(pulse) ${OK} Session 7% / 3h 49m · ${NOTICE} Weekly 69% / 13h`,
     );
   });
 
@@ -147,7 +145,7 @@ describe('formatStatusText', () => {
       segments: ['scoped', 'spend', 'plan'],
     };
     expect(formatStatusText(withScoped, NOW, options)).toBe(
-      `$(pulse) ${CRITICAL} Fable 100%${GAP}$(credit-card) $72.77 / $200${GAP}Max`,
+      `$(pulse) ${CRITICAL} Fable 100% / 3h 49m${GAP}$(credit-card) $72.77 / $200${GAP}Max`,
     );
   });
 
@@ -172,7 +170,7 @@ describe('formatStatusText', () => {
   it('omits the plan when the CLI did not report one', () => {
     const options: FormatOptions = { ...OPTIONS, label: '', segments: ['plan', 'session'] };
     expect(formatStatusText(snapshot({ subscriptionType: undefined }), NOW, options)).toBe(
-      `$(pulse) ${OK} Session 7%`,
+      `$(pulse) ${OK} Session 7% / 3h 49m`,
     );
   });
 
@@ -182,20 +180,36 @@ describe('formatStatusText', () => {
       ...OPTIONS,
       segments: ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'],
     };
+    // Fable resets with the session window here, and the reset segment has
+    // nothing the windows have not already said — both go quiet.
     expect(formatStatusText(full, NOW, options)).toBe(
-      `$(pulse) Claude Max${GAP}${OK} Session 7% · ${NOTICE} Weekly 69%` +
-        ` · ${CRITICAL} Fable 100%${GAP}$(credit-card) $72.77 / $200` +
-        `${GAP}$(history) Session 3h 49m · Weekly 13h`,
+      `$(pulse) Claude Max${GAP}${OK} Session 7% / 3h 49m · ${NOTICE} Weekly 69% / 13h` +
+        ` · ${CRITICAL} Fable 100%${GAP}$(credit-card) $72.77 / $200`,
     );
   });
 
-  it('counts down both the session and the weekly window, not just the sooner one', () => {
-    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['reset'] };
+  it('counts down each window beside its own percentage', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['session', 'weekly'] };
     const week = snapshot({
       limits: [limit(), limit({ ...WEEKLY, resetsAtMs: NOW + 3 * 86_400_000 + 2 * 3_600_000 })],
     });
     expect(formatStatusText(week, NOW, options)).toBe(
-      '$(pulse) $(history) Session 3h 49m · Weekly 3d 2h',
+      `$(pulse) ${OK} Session 7% / 3h 49m · ${NOTICE} Weekly 69% / 3d 2h`,
+    );
+  });
+
+  it('writes a shared countdown once — a per-model window resets with the weekly', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['weekly', 'scoped'] };
+    const shared = snapshot({ limits: [WEEKLY, { ...SCOPED, resetsAtMs: WEEKLY.resetsAtMs }] });
+    expect(formatStatusText(shared, NOW, options)).toBe(
+      `$(pulse) ${NOTICE} Weekly 69% / 13h · ${CRITICAL} Fable 100%`,
+    );
+  });
+
+  it('leaves the standalone countdowns to the reset segment when no window is shown', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['reset'] };
+    expect(formatStatusText(snapshot(), NOW, options)).toBe(
+      '$(pulse) $(history) Session 3h 49m · Weekly 13h',
     );
   });
 
@@ -218,7 +232,8 @@ describe('formatStatusText', () => {
       segments: ['session', 'spend', 'weekly'],
     };
     expect(formatStatusText(snapshot(), NOW, options)).toBe(
-      `$(pulse) ${OK} Session 7%${GAP}$(credit-card) $72.77 / $200${GAP}${NOTICE} Weekly 69%`,
+      `$(pulse) ${OK} Session 7% / 3h 49m${GAP}$(credit-card) $72.77 / $200` +
+        `${GAP}${NOTICE} Weekly 69% / 13h`,
     );
   });
 
@@ -230,7 +245,7 @@ describe('formatStatusText', () => {
       segments: ['session', 'weekly', 'scoped'],
     };
     expect(formatStatusText(full, NOW, options)).toBe(
-      `$(pulse) ${WARN} Session 84% · ${NOTICE} Weekly 69% · ${CRITICAL} Fable 100%`,
+      `$(pulse) ${WARN} Session 84% / 3h 49m · ${NOTICE} Weekly 69% / 13h · ${CRITICAL} Fable 100%`,
     );
   });
 
@@ -238,7 +253,7 @@ describe('formatStatusText', () => {
     const calm = snapshot({ limits: [limit(), limit({ ...WEEKLY, percent: 12 })] });
     const options: FormatOptions = { ...OPTIONS, label: '', segments: ['session', 'weekly'] };
     expect(formatStatusText(calm, NOW, options)).toBe(
-      `$(pulse) ${OK} Session 7% · ${OK} Weekly 12%`,
+      `$(pulse) ${OK} Session 7% / 3h 49m · ${OK} Weekly 12% / 13h`,
     );
   });
 

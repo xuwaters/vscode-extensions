@@ -154,9 +154,38 @@ function shortLabel(limit: UsageLimit): string {
   return limit.label;
 }
 
-/** "🟢 Session 7%", "🟠 Weekly 84%" — the dot leads, so a scan reads colour first. */
-function windowText(limit: UsageLimit, options: FormatOptions): string {
-  return `${DOTS[levelFor(limit, options)]} ${shortLabel(limit)} ${formatPercent(limit.percent)}`;
+/**
+ * A window's countdown, but only the first time that countdown appears.
+ *
+ * The per-model windows ride the weekly cycle and reset with it, so a bar that
+ * counted down every window would read "8h" three times over. The percentages
+ * differ and each earns its place; the clocks do not.
+ */
+function countdownOnce(limit: UsageLimit, nowMs: number, shown: Set<string>): string | undefined {
+  if (limit.resetsAtMs === undefined) return undefined;
+  const countdown = formatCountdown(limit.resetsAtMs - nowMs);
+  if (shown.has(countdown)) return undefined;
+  shown.add(countdown);
+  return countdown;
+}
+
+/**
+ * "🟢 Session 7% / 3h 49m", "🟠 Weekly 84% / 2d 6h" — the dot leads, so a scan
+ * reads colour first, and the countdown rides along with the percentage it
+ * belongs to. Carrying it here rather than in a segment of its own halves the
+ * names on the bar: "Session" is written once and answers both "how much is
+ * left" and "how long until it comes back".
+ */
+function windowText(
+  limit: UsageLimit,
+  nowMs: number,
+  options: FormatOptions,
+  shown: Set<string>,
+): string {
+  const dot = DOTS[levelFor(limit, options)];
+  const head = `${dot} ${shortLabel(limit)} ${formatPercent(limit.percent)}`;
+  const countdown = countdownOnce(limit, nowMs, shown);
+  return countdown ? `${head} / ${countdown}` : head;
 }
 
 /**
@@ -179,18 +208,21 @@ function resetWindows(snapshot: UsageSnapshot): UsageLimit[] {
 }
 
 /**
- * "$(history) Session 3h 49m · Weekly 2d 6h". Each countdown wears the same
- * name its percentage does, so the eye can pair "Weekly 69%" with "Weekly 2d
- * 6h" without counting positions.
+ * "$(history) Session 3h 49m · Weekly 2d 6h" — the standalone clock, for a bar
+ * that shows no windows to hang the countdowns on. Whatever a window has
+ * already counted down is skipped, so with the windows on screen this segment
+ * has nothing left to say and quietly disappears.
  */
-function resetText(snapshot: UsageSnapshot, nowMs: number): string | undefined {
-  const windows = resetWindows(snapshot);
-  if (windows.length === 0) return undefined;
+function resetText(snapshot: UsageSnapshot, nowMs: number, shown: Set<string>): string | undefined {
+  const countdowns = resetWindows(snapshot)
+    .map((limit) => {
+      const countdown = countdownOnce(limit, nowMs, shown);
+      return countdown && `${shortLabel(limit)} ${countdown}`;
+    })
+    .filter((text): text is string => Boolean(text));
+  if (countdowns.length === 0) return undefined;
 
-  const countdowns = windows
-    .map((limit) => `${shortLabel(limit)} ${formatCountdown(limit.resetsAtMs! - nowMs)}`)
-    .join(' · ');
-  return `$(history) ${countdowns}`;
+  return `$(history) ${countdowns.join(' · ')}`;
 }
 
 function segmentText(
@@ -198,22 +230,23 @@ function segmentText(
   snapshot: UsageSnapshot,
   nowMs: number,
   options: FormatOptions,
+  shown: Set<string>,
 ): string | undefined {
   switch (segment) {
     case 'session': {
       const limit = sessionLimit(snapshot);
-      return limit ? windowText(limit, options) : undefined;
+      return limit ? windowText(limit, nowMs, options, shown) : undefined;
     }
     case 'weekly': {
       const limit = weeklyLimit(snapshot);
-      return limit ? windowText(limit, options) : undefined;
+      return limit ? windowText(limit, nowMs, options, shown) : undefined;
     }
     case 'scoped': {
       const limit = topScoped(snapshot);
-      return limit ? windowText(limit, options) : undefined;
+      return limit ? windowText(limit, nowMs, options, shown) : undefined;
     }
     case 'reset':
-      return resetText(snapshot, nowMs);
+      return resetText(snapshot, nowMs, shown);
     case 'spend':
       // The card icon is what marks this as money rather than one more percentage.
       return snapshot.spend ? `$(credit-card) ${formatSpend(snapshot.spend)}` : undefined;
@@ -277,8 +310,12 @@ export function formatStatusText(
   const label = options.label.trim();
   const pieces: Piece[] = label ? [{ chunk: 'identity', text: label }] : [];
 
+  // Countdowns already on the bar, so no clock is written twice. Segments are
+  // rendered in the configured order, which makes the leftmost window that
+  // resets at a given time the one that carries it.
+  const shown = new Set<string>();
   for (const segment of options.segments) {
-    const text = segmentText(segment, snapshot, nowMs, options);
+    const text = segmentText(segment, snapshot, nowMs, options, shown);
     if (text) pieces.push({ chunk: SEGMENT_CHUNK[segment], text });
   }
 
