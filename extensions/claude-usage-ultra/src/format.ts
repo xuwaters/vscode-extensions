@@ -52,6 +52,17 @@ function formatMoney(amount: number, currency: string): string {
   return `${symbol}${amount.toFixed(2)}`;
 }
 
+/**
+ * The API sends the plan as a lowercase slug — "max", "max_5x". Title-case it
+ * so the status bar reads like the plan's name rather than a field value.
+ */
+export function formatPlan(subscriptionType: string): string {
+  return subscriptionType
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 export function isStale(snapshot: UsageSnapshot, nowMs: number, staleAfterMs: number): boolean {
   return nowMs - snapshot.fetchedAtMs > staleAfterMs;
 }
@@ -114,7 +125,7 @@ function segmentText(
         ? `$(credit-card) ${formatMoney(snapshot.spend.usedUsd, snapshot.spend.currency)}`
         : undefined;
     case 'plan':
-      return snapshot.subscriptionType;
+      return snapshot.subscriptionType ? formatPlan(snapshot.subscriptionType) : undefined;
   }
 }
 
@@ -192,7 +203,7 @@ export function formatTooltip(
   }
 
   const details: string[] = [];
-  if (snapshot.subscriptionType) details.push(`- Plan: ${snapshot.subscriptionType}`);
+  if (snapshot.subscriptionType) details.push(`- Plan: ${formatPlan(snapshot.subscriptionType)}`);
   if (snapshot.spend) {
     const { usedUsd, limitUsd, currency, percent, enabled } = snapshot.spend;
     const state = enabled ? '' : ' (off)';

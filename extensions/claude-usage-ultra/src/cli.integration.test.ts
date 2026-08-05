@@ -40,7 +40,7 @@ function findCli(): string | undefined {
 }
 
 const OPTIONS: FormatOptions = {
-  segments: ['session', 'weekly', 'scoped', 'spend', 'reset'],
+  segments: ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'],
   label: 'Claude',
   staleAfterMs: 30 * 60_000,
   warnAtPercent: 80,
@@ -71,7 +71,7 @@ describe.runIf(enabled)('fetchUsage against the real CLI', () => {
     expect(session!.resetsAtMs! - now).toBeLessThanOrEqual(5 * 3_600_000 + 60_000);
 
     const text = formatStatusText(snapshot, now, OPTIONS);
-    expect(text).toMatch(/^\$\(pulse\) Claude · 5h \d+%/);
+    expect(text).toMatch(/^\$\(pulse\) Claude · \w+ · 5h \d+%/);
     expect(text).not.toContain('(stale)');
     expect(text).not.toContain('undefined');
 

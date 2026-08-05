@@ -18,7 +18,7 @@ const SNAPSHOT_KEY = 'claudeUsageUltra.lastSnapshot';
 /** The Claude Code extension, whose bundled CLI we borrow. */
 const CLAUDE_CODE_EXTENSION_ID = 'Anthropic.claude-code';
 
-const DEFAULT_SEGMENTS: Segment[] = ['session', 'weekly', 'scoped', 'spend', 'reset'];
+const DEFAULT_SEGMENTS: Segment[] = ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'];
 const VALID_SEGMENTS = new Set<Segment>([
   'session',
   'weekly',

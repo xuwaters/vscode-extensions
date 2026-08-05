@@ -3,6 +3,7 @@ import {
   EMPTY_TEXT,
   formatCountdown,
   formatPercent,
+  formatPlan,
   formatStatusText,
   formatTooltip,
   isStale,
@@ -84,6 +85,15 @@ describe('formatCountdown', () => {
   });
 });
 
+describe('formatPlan', () => {
+  it('title-cases the API slug', () => {
+    expect(formatPlan('max')).toBe('Max');
+    expect(formatPlan('pro')).toBe('Pro');
+    expect(formatPlan('max_5x')).toBe('Max 5x');
+    expect(formatPlan('Enterprise')).toBe('Enterprise');
+  });
+});
+
 describe('formatPercent', () => {
   it('never rounds a nonzero sliver away, or up to a full 100%', () => {
     expect(formatPercent(0)).toBe('0%');
@@ -126,18 +136,25 @@ describe('formatStatusText', () => {
       segments: ['scoped', 'spend', 'plan'],
     };
     expect(formatStatusText(withScoped, NOW, options)).toBe(
-      '$(pulse) Fable 100% · $(credit-card) $72.77 · max',
+      '$(pulse) Fable 100% · $(credit-card) $72.77 · Max',
     );
   });
 
-  it('shows the default segments — Fable and credits included', () => {
+  it('omits the plan when the CLI did not report one', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['plan', 'session'] };
+    expect(formatStatusText(snapshot({ subscriptionType: undefined }), NOW, options)).toBe(
+      '$(pulse) 5h 7%',
+    );
+  });
+
+  it('shows the default segments — plan, Fable and credits included', () => {
     const full = snapshot({ limits: [limit(), WEEKLY, SCOPED] });
     const options: FormatOptions = {
       ...OPTIONS,
-      segments: ['session', 'weekly', 'scoped', 'spend', 'reset'],
+      segments: ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'],
     };
     expect(formatStatusText(full, NOW, options)).toBe(
-      '$(pulse) Claude · 5h 7% · 7d 69% · Fable 100% · $(credit-card) $72.77 · $(history) 3h 49m',
+      '$(pulse) Claude · Max · 5h 7% · 7d 69% · Fable 100% · $(credit-card) $72.77 · $(history) 3h 49m',
     );
   });
 
@@ -201,7 +218,7 @@ describe('formatTooltip', () => {
     const tooltip = formatTooltip(snapshot(), NOW, OPTIONS);
     expect(tooltip).toContain('- Session (5h): **7%** · resets in 3h 49m');
     expect(tooltip).toContain('- Weekly, all models: **69%** · resets in 13h');
-    expect(tooltip).toContain('- Plan: max');
+    expect(tooltip).toContain('- Plan: Max');
     expect(tooltip).toContain('- Extra usage: $72.77 of $200.00 (36%) (off)');
     expect(tooltip).toContain('_Updated just now_');
   });
