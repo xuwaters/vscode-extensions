@@ -7,4 +7,5 @@ tsdown.config.mts
 .gitignore
 **/*.js.map
 **/*.ts.map
+**/*.d.ts
 temp
