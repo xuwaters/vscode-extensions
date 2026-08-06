@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  creditsResetMs,
   labelFor,
   parseResetsAt,
   scopedLimits,
@@ -213,6 +214,30 @@ describe('toSnapshot', () => {
     )!;
     expect(sessionLimit(snapshot)?.percent).toBe(0);
     expect(weeklyLimit(snapshot)?.percent).toBe(140);
+  });
+});
+
+describe('creditsResetMs', () => {
+  /** Asserted in local time, which is the boundary the credits renew on. */
+  it('lands on the first of next month, at midnight', () => {
+    const reset = new Date(creditsResetMs(NOW));
+    expect(reset.getDate()).toBe(1);
+    expect(reset.getMonth()).toBe(8); // September
+    expect(reset.getHours()).toBe(0);
+    expect(reset.getMinutes()).toBe(0);
+  });
+
+  it('rolls over the year in December', () => {
+    const reset = new Date(creditsResetMs(new Date(2026, 11, 20, 15, 30).getTime()));
+    expect(reset.getFullYear()).toBe(2027);
+    expect(reset.getMonth()).toBe(0);
+    expect(reset.getDate()).toBe(1);
+  });
+
+  it('is always ahead of the moment it is asked about', () => {
+    // The last instant of a month is where an off-by-one would show up.
+    const lastMoment = new Date(2026, 7, 31, 23, 59, 59).getTime();
+    expect(creditsResetMs(lastMoment)).toBeGreaterThan(lastMoment);
   });
 });
 

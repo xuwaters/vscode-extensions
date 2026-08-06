@@ -315,6 +315,24 @@ export function toSnapshot(response: unknown, fetchedAtMs: number): UsageSnapsho
   };
 }
 
+/**
+ * When usage credits renew: midnight local time on the first of next month.
+ *
+ * Credits are the only meter an Enterprise plan has — no session window, no
+ * weekly one — and the usage endpoint sends no reset alongside them. Claude
+ * Code's own `/usage` dialog derives one exactly this way, so deriving it here
+ * too means the two cannot disagree.
+ *
+ * Taken from the render clock rather than the reading, so a snapshot restored
+ * from last month still counts down to the right date. It is a calendar month
+ * rather than a billing anniversary; an org invoiced on some other day will see
+ * this land early.
+ */
+export function creditsResetMs(nowMs: number): number {
+  const now = new Date(nowMs);
+  return new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+}
+
 /** The session (5h) window, if the account has one. */
 export function sessionLimit(snapshot: UsageSnapshot): UsageLimit | undefined {
   return snapshot.limits.find((limit) => limit.group === 'session');

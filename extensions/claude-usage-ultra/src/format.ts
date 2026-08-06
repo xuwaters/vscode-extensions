@@ -1,4 +1,5 @@
 import {
+  creditsResetMs,
   scopedLimits,
   sessionLimit,
   weeklyLimit,
@@ -214,15 +215,22 @@ function resetWindows(snapshot: UsageSnapshot): UsageLimit[] {
  * has nothing left to say and quietly disappears.
  */
 function resetText(snapshot: UsageSnapshot, nowMs: number, shown: Set<string>): string | undefined {
-  const countdowns = resetWindows(snapshot)
+  const windows = resetWindows(snapshot);
+  const countdowns = windows
     .map((limit) => {
       const countdown = countdownOnce(limit, nowMs, shown);
       return countdown && `${shortLabel(limit)} ${countdown}`;
     })
     .filter((text): text is string => Boolean(text));
-  if (countdowns.length === 0) return undefined;
+  if (countdowns.length > 0) return `$(history) ${countdowns.join(' · ')}`;
 
-  return `$(history) ${countdowns.join(' · ')}`;
+  // An Enterprise plan has no windows at all — it spends credits instead — so
+  // the monthly renewal is the only clock it owns, and without it the bar shows
+  // a balance with no sense of how long it has to last. Where windows do exist
+  // they are the faster clocks and have already been written, and a month-long
+  // countdown beside them would only be one more number to skip past.
+  if (windows.length > 0 || !snapshot.spend) return undefined;
+  return `$(history) Credits ${formatCountdown(creditsResetMs(nowMs) - nowMs)}`;
 }
 
 function segmentText(
@@ -369,7 +377,13 @@ export function formatTooltip(
   if (!snapshot.available) {
     lines.push('Plan limits are not available for this login method.');
   } else if (snapshot.limits.length === 0) {
-    lines.push('Claude Code reported no usage windows.');
+    // With credits on the account this is how the plan is shaped, not a reading
+    // that went wrong, and the line below already carries the real number.
+    lines.push(
+      snapshot.spend
+        ? 'This plan has no session or weekly windows — usage runs on credits.'
+        : 'Claude Code reported no usage windows.',
+    );
   } else {
     for (const limit of snapshot.limits) lines.push(limitLine(limit, nowMs, options));
   }
@@ -379,9 +393,12 @@ export function formatTooltip(
   if (snapshot.spend) {
     const { usedUsd, limitUsd, currency, percent, enabled } = snapshot.spend;
     const state = enabled ? '' : ' (off)';
+    // The bar carries this countdown only on a plan with no windows; the
+    // tooltip has room to say it either way.
+    const renews = formatCountdown(creditsResetMs(nowMs) - nowMs);
     details.push(
       `- Extra usage: ${formatMoney(usedUsd, currency)} of ${formatMoney(limitUsd, currency)}` +
-        ` (${formatPercent(percent)})${state}`,
+        ` (${formatPercent(percent)})${state} · renews in ${renews}`,
     );
   }
   if (details.length > 0) lines.push('', ...details);

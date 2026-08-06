@@ -12,12 +12,19 @@ import {
   toPlainText,
   type FormatOptions,
 } from './format';
-import type { UsageLimit, UsageSnapshot, UsageSpend } from './usage';
+import { creditsResetMs, type UsageLimit, type UsageSnapshot, type UsageSpend } from './usage';
 
 const NOW = Date.parse('2026-08-05T09:21:00.000Z');
 
 /** The em space {@link formatStatusText} puts between chunks. */
 const GAP = ' ';
+
+/**
+ * The countdown to the credit renewal. Derived rather than written out, because
+ * the first of next month is a local-time boundary and the figure moves with
+ * the machine's zone; the date arithmetic itself is pinned in `usage.test.ts`.
+ */
+const RENEWAL = formatCountdown(creditsResetMs(NOW) - NOW);
 
 const OK = '🟢';
 const NOTICE = '🟡';
@@ -225,6 +232,37 @@ describe('formatStatusText', () => {
     expect(formatStatusText(scopedOnly, NOW, options)).toBe('$(pulse) $(history) Fable 3h 49m');
   });
 
+  it('counts the credits down instead on a plan with no windows', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['reset'] };
+    // An Enterprise plan: no session or weekly window, only credits.
+    expect(formatStatusText(snapshot({ limits: [] }), NOW, options)).toBe(
+      `$(pulse) $(history) Credits ${RENEWAL}`,
+    );
+  });
+
+  it('leaves the credit renewal off a bar that already has a window clock', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['reset'] };
+    expect(formatStatusText(snapshot(), NOW, options)).not.toContain('Credits');
+  });
+
+  it('says nothing when a plan has neither windows nor credits', () => {
+    const options: FormatOptions = { ...OPTIONS, label: '', segments: ['plan', 'reset'] };
+    expect(formatStatusText(snapshot({ limits: [], spend: undefined }), NOW, options)).toBe(
+      '$(pulse) Max',
+    );
+  });
+
+  it('shows the default segments on a plan billed in credits', () => {
+    const enterprise = snapshot({ subscriptionType: 'enterprise', limits: [] });
+    const options: FormatOptions = {
+      ...OPTIONS,
+      segments: ['plan', 'session', 'weekly', 'scoped', 'spend', 'reset'],
+    };
+    expect(formatStatusText(enterprise, NOW, options)).toBe(
+      `$(pulse) Claude Enterprise${GAP}$(credit-card) $72.77 / $200${GAP}$(history) Credits ${RENEWAL}`,
+    );
+  });
+
   it('opens a gap wherever the configured order crosses chunks', () => {
     const options: FormatOptions = {
       ...OPTIONS,
@@ -320,8 +358,20 @@ describe('formatTooltip', () => {
     expect(tooltip).toContain(`- ${OK} Session (5h): **7%** · resets in 3h 49m`);
     expect(tooltip).toContain(`- ${NOTICE} Weekly, all models: **69%** · resets in 13h`);
     expect(tooltip).toContain('- Plan: Max');
-    expect(tooltip).toContain('- Extra usage: $72.77 of $200.00 (36%) (off)');
+    expect(tooltip).toContain(`- Extra usage: $72.77 of $200.00 (36%) (off) · renews in ${RENEWAL}`);
     expect(tooltip).toContain('_Updated just now_');
+  });
+
+  it('explains a plan that has credits instead of windows', () => {
+    const tooltip = formatTooltip(snapshot({ limits: [] }), NOW, OPTIONS);
+    expect(tooltip).toContain('no session or weekly windows');
+    expect(tooltip).toContain(`renews in ${RENEWAL}`);
+  });
+
+  it('still calls an empty reading empty when there are no credits either', () => {
+    expect(formatTooltip(snapshot({ limits: [], spend: undefined }), NOW, OPTIONS)).toContain(
+      'reported no usage windows',
+    );
   });
 
   it('flags the window that is actually limiting', () => {
