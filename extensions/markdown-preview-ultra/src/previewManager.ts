@@ -55,6 +55,14 @@ const CTX_LOCKED = 'markdownPreviewUltra.previewLocked';
 
 const DEBOUNCE_MS = 150;
 
+/**
+ * The Edit-mode switch, contributed in `extension.ts`. The panel's own way out
+ * of the preview is a whole-layout change — the panel closes and the source
+ * takes the column back — which the mode manager owns; the toolbar's Edit
+ * button asks for exactly what the editor title bar's Edit icon does.
+ */
+const SET_MODE_EDIT = 'markdownPreviewUltra.setModeEdit';
+
 /** Depth of the preview's own link history. */
 const MAX_HISTORY = 50;
 
@@ -582,6 +590,11 @@ export class PreviewManager implements vscode.Disposable {
         break;
       case 'jumpToLine':
         this.revealEditorLine(preview, msg.line, true);
+        break;
+      case 'openSource':
+        // The line the page was read to is handed over by `closePreview`, so
+        // the editor lands on the passage rather than where it was parked.
+        void vscode.commands.executeCommand(SET_MODE_EDIT);
         break;
       case 'navigate':
         void this.navigate(msg.direction);

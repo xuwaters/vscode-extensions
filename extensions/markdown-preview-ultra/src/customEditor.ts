@@ -256,6 +256,20 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
         editor.revealRange(target, vscode.TextEditorRevealType.AtTop);
         break;
       }
+      case 'openSource': {
+        // The toolbar's Edit button, which is the mode switch out of Preview
+        // asked for from the page: the source takes this tab over — keeping its
+        // place in the tab bar and its unsaved changes — and opens on the
+        // passage being read. Acting on this panel's own document rather than
+        // on whatever is active is what the click actually meant.
+        const line = this.takeLine(document.uri);
+        await openSource(
+          document.uri,
+          panel.viewColumn ?? vscode.ViewColumn.One,
+          line === undefined ? undefined : { line },
+        );
+        break;
+      }
       case 'navigate':
         // No history: the tab is bound to its document (buttons stay hidden).
         break;

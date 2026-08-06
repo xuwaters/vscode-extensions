@@ -26,6 +26,7 @@ import { highlightCode } from './postprocess/highlight';
 import { renderMath } from './postprocess/katex';
 import { renderMermaid, type ResolvedMermaidTheme } from './postprocess/mermaid';
 import { addCopyButtons, installCopyHandler } from './ui/copyCode';
+import { installEditButton } from './ui/editButton';
 import { renderFrontmatter } from './ui/frontmatter';
 import { installLightbox } from './ui/lightbox';
 import { NavButtons } from './ui/nav';
@@ -267,7 +268,7 @@ function ensureCustomStyles(urls: string[]): void {
 
 // ── UI chrome ────────────────────────────────────────────────────────
 
-/** Floating chip bar in the top-right corner: history, theme, TOC toggle. */
+/** Floating chip bar in the top-right corner: history, edit, theme, TOC toggle. */
 const toolbar = document.createElement('div');
 toolbar.id = 'preview-toolbar';
 document.body.append(toolbar);
@@ -275,6 +276,8 @@ document.body.append(toolbar);
 const nav = new NavButtons(toolbar, (direction) =>
   vscode.postMessage({ type: 'navigate', direction }),
 );
+
+installEditButton(toolbar, () => vscode.postMessage({ type: 'openSource' }));
 
 const themeToggle = new ThemeToggle(toolbar, toggleTheme);
 

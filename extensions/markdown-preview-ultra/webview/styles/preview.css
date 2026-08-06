@@ -274,6 +274,12 @@ body {
   line-height: 1.3;
 }
 
+/* A pencil is a thinner glyph than the sun/moon it stands beside. */
+#edit-source {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
 #preview-toolbar button:disabled {
   opacity: 0.25;
   cursor: default;

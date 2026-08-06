@@ -10,6 +10,7 @@ describe('isWebviewToHost', () => {
     expect(isWebviewToHost({ type: 'navigate', direction: 'forward' })).toBe(
       true,
     );
+    expect(isWebviewToHost({ type: 'openSource' })).toBe(true);
     expect(isWebviewToHost({ type: 'openLink', href: 'https://x' })).toBe(true);
     expect(
       isWebviewToHost({ type: 'toggleTask', line: 4, checked: true }),

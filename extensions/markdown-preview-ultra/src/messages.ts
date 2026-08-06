@@ -138,6 +138,14 @@ export interface JumpToLineMessage {
   line: number;
 }
 
+/**
+ * The toolbar's Edit button: hand the tab back to the text editor. The same
+ * switch the editor title bar's Edit icon makes, asked for from the page.
+ */
+export interface OpenSourceMessage {
+  type: 'openSource';
+}
+
 /** Preview-local history navigation (the toolbar's ← / → buttons). */
 export interface NavigateMessage {
   type: 'navigate';
@@ -177,6 +185,7 @@ export type WebviewToHost =
   | ReadyMessage
   | RevealLineMessage
   | JumpToLineMessage
+  | OpenSourceMessage
   | NavigateMessage
   | OpenLinkMessage
   | SetThemeMessage
@@ -202,6 +211,7 @@ export function isWebviewToHost(msg: unknown): msg is WebviewToHost {
   const m = msg as Record<string, unknown>;
   switch (m.type) {
     case 'ready':
+    case 'openSource':
       return true;
     case 'revealLine':
     case 'jumpToLine':
