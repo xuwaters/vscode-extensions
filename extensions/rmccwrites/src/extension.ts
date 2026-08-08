@@ -4,8 +4,6 @@ import { resolveConfig, type RawSettings } from './settings.js';
 import { VscodeFs } from './vscodeFs.js';
 
 const LOG_NAME = 'Remove .cc-writes';
-/** Paths spelled out in the confirmation dialog before it switches to a count. */
-const MAX_LISTED = 20;
 
 let log: vscode.LogOutputChannel;
 
@@ -15,7 +13,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     log,
     vscode.commands.registerCommand('rmccwrites.clean', () => clean(workspaceRoots())),
-    vscode.commands.registerCommand('rmccwrites.preview', () => preview(workspaceRoots())),
+    vscode.commands.registerCommand('rmccwrites.preview', () => clean(workspaceRoots(), true)),
     vscode.commands.registerCommand('rmccwrites.cleanFolder', (uri?: vscode.Uri, uris?: vscode.Uri[]) =>
       clean(selectedRoots(uri, uris)),
     ),
@@ -25,28 +23,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {}
 
-/** Scan, confirm, then remove. */
-async function clean(roots: vscode.Uri[]): Promise<void> {
+/** Scan, list what was found, then remove what the review lets through. */
+async function clean(roots: vscode.Uri[], alwaysReview = false): Promise<void> {
   if (roots.length === 0) return;
 
   const scan = await walk(roots, true, 'Scanning for empty directories…');
   if (scan.cancelled) return void vscode.window.showInformationMessage('Scan cancelled.');
   if (scan.uris.length === 0) return void report(scan, true);
 
-  if (confirmBeforeRemoving() && !(await confirm(scan.uris))) return;
-
-  report(await walk(roots, false, 'Removing empty directories…'), false);
-}
-
-/** Scan only, then list what was found and offer to remove it. */
-async function preview(roots: vscode.Uri[]): Promise<void> {
-  if (roots.length === 0) return;
-
-  const scan = await walk(roots, true, 'Scanning for empty directories…');
-  if (scan.cancelled) return void vscode.window.showInformationMessage('Scan cancelled.');
-  if (scan.uris.length === 0) return void report(scan, true);
-
-  if (!(await review(scan.uris))) return;
+  // Preview is the review, so it always shows; cleaning can be set to skip it.
+  if ((alwaysReview || confirmBeforeRemoving()) && !(await review(scan.uris))) return;
 
   report(await walk(roots, false, 'Removing empty directories…'), false);
 }
@@ -156,19 +142,6 @@ function describe(root: vscode.Uri, cfg: Config): string {
     `prune: ${list(cfg.prune)}`,
     `gitignore: ${cfg.noIgnore ? 'not read' : 'respected'}`,
   ].join(' · ');
-}
-
-async function confirm(uris: vscode.Uri[]): Promise<boolean> {
-  const listed = uris.slice(0, MAX_LISTED).map(uri => vscode.workspace.asRelativePath(uri, true));
-  const hidden = uris.length - listed.length;
-  const detail = hidden > 0 ? [...listed, `…and ${hidden} more`].join('\n') : listed.join('\n');
-
-  const choice = await vscode.window.showWarningMessage(
-    `Remove ${directories(uris.length)}?`,
-    { modal: true, detail },
-    'Remove',
-  );
-  return choice === 'Remove';
 }
 
 function report(result: RunResult, dryRun: boolean): void {

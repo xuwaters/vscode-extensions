@@ -2,7 +2,7 @@
   "name": "wx-vsce-rmccwrites",
   "displayName": "Remove .cc-writes",
   "description": "Recursively remove empty .cc-writes directories from the workspace, respecting .gitignore and taking the .claude folders they empty out with them",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
