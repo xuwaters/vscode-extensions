@@ -24,8 +24,8 @@ const REOPEN_ACTIVE_EDITOR_WITH = 'reopenActiveEditorWith';
 /**
  * Opens a markdown file *straight into* the preview: no text editor is created
  * first, so there is no flash of source and no tab switch on open. Switching to
- * Preview mode lands here, and it can also own the file from the moment it is
- * opened:
+ * Preview mode lands here, and it owns the file from the moment it is opened —
+ * the extension ships that association as a contributed default:
  *
  * ```jsonc
  * "workbench.editorAssociations": { "*.md": "markdownPreviewUltra.editor" }

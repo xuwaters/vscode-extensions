@@ -95,8 +95,8 @@ export function activate(context: vscode.ExtensionContext): void {
         manager.restorePanel(panel, state as { uri?: string } | undefined),
     }),
     // The full-tab preview: what Preview mode swaps the source editor for, and
-    // — with `workbench.editorAssociations` pointing `*.md` here — what a
-    // markdown file opens as, with no flash of source first.
+    // — via the `workbench.editorAssociations` default this extension ships —
+    // what a markdown file opens as, with no flash of source first.
     vscode.window.registerCustomEditorProvider(
       MarkdownEditorProvider.viewType,
       editors,

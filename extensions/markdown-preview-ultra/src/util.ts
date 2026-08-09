@@ -7,7 +7,7 @@ export function getNonce(): string {
 }
 
 /** File extensions this extension treats as markdown. */
-const MARKDOWN_EXTENSIONS = /\.(md|markdown|mdx)$/i;
+const MARKDOWN_EXTENSIONS = /\.(md|markdown|mdx|copilotmd)$/i;
 
 /** Whether a document should be previewable as markdown. */
 export function isMarkdownDocument(document: vscode.TextDocument): boolean {
