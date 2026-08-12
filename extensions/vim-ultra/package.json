@@ -2,7 +2,7 @@
   "name": "wx-vsce-vim-ultra",
   "displayName": "Vim Ultra",
   "description": "Modal Vim editing on a Rust/WASM engine — motions, operators, text objects, counts, registers, visual modes, regex search (/ ? n N * #) and search-and-replace (:s). Partial Vim: no other ex commands, macros, marks, dot-repeat, named registers, replace mode, or block visual.",
-  "version": "0.5.2",
+  "version": "0.5.4",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -127,11 +127,6 @@
         "key": "ctrl+u",
         "command": "list.focusPageUp",
         "when": "vimUltra.active && listFocus && !inputFocus"
-      },
-      {
-        "key": "/",
-        "command": "list.find",
-        "when": "vimUltra.active && listFocus && !inputFocus && listSupportsFind"
       }
     ],
     "configuration": {
