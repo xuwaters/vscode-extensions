@@ -1,0 +1,12 @@
+src/
+test/
+tsconfig.json
+tsconfig.tsbuildinfo
+tsdown.config.mts
+**/*.test.ts
+.gitignore
+**/*.js.map
+**/*.ts.map
+**/*.d.ts
+wasm/.gitignore
+temp

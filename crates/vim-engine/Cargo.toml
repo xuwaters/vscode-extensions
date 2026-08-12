@@ -1,0 +1,24 @@
+[package]
+name = "vim-engine"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Modal Vim editing engine — modes, motions, operators, text objects, registers — compilable to WASM for VSCode vim-ultra"
+license = "MIT"
+
+[lib]
+crate-type = [ "cdylib", "rlib" ]
+
+[dependencies]
+wasm-bindgen = "0.2"
+serde = { version = "1", features = [ "derive" ] }
+serde_json = "1"
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[lints]
+workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
