@@ -19,4 +19,4 @@ pub mod wasm_api;
 pub use buffer::{Buffer, Pos};
 pub use keys::Key;
 pub use search::{Pattern, Search};
-pub use state::{Command, Edit, Effects, Mode, Selection, Session};
+pub use state::{Command, Edit, Effects, Mode, SearchUi, Selection, Session};

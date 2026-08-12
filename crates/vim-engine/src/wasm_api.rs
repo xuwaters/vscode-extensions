@@ -1,10 +1,13 @@
-//! WASM entry points. JSON in, JSON out, matching the repo's other WASM
-//! surfaces: the TypeScript host treats the module as a black box.
+//! WASM entry points. JSON in, JSON out — except edits, which cross as one
+//! binary block: a `:%s` over a big file produces ~1 MB of them, and JSON
+//! costs several milliseconds escaping on this side and parsing on the other.
+//! The effects JSON carries an `editCount` instead; when it is non-zero the
+//! host calls `take_edits` for the block (see its layout there).
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::buffer::Pos;
+use crate::buffer::{Pos, utf16_len};
 use crate::keys::Key;
 
 #[wasm_bindgen(start)]
@@ -25,10 +28,22 @@ struct ChangeIn {
     text: String,
 }
 
+/// `Effects` as the host receives it: the effects fields (minus edits, which
+/// never serialize) plus how many edits `take_edits` is holding.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EffectsMsg<'a> {
+    #[serde(flatten)]
+    fx: &'a crate::Effects,
+    edit_count: usize,
+}
+
 /// A per-document editing session; holds modal state and the text mirror.
 #[wasm_bindgen]
 pub struct Session {
     inner: crate::Session,
+    /// Edits of the last effects, awaiting `take_edits`.
+    edits: Vec<crate::Edit>,
 }
 
 #[wasm_bindgen]
@@ -37,20 +52,46 @@ impl Session {
     pub fn new(text: &str, line: usize, col: usize) -> Session {
         let mut inner = crate::Session::new(text);
         inner.reset(text, line, col);
-        Session { inner }
+        Session { inner, edits: Vec::new() }
     }
 
     /// Replace the mirror wholesale (document reopened or desync recovery).
     pub fn reset(&mut self, text: &str, line: usize, col: usize) {
         self.inner.reset(text, line, col);
+        self.edits.clear();
     }
 
     /// Feed one key; returns `Effects` as JSON.
     pub fn key(&mut self, key: &str) -> String {
         match Key::parse(key) {
-            Some(k) => to_json(&self.inner.key(k)),
+            Some(k) => {
+                let fx = self.inner.key(k);
+                self.effects_json(fx)
+            }
             None => "null".to_string(),
         }
+    }
+
+    /// The edits of the last effects as one binary block, drained: a u32
+    /// count, then per edit `[startLine, startCol, endLine, endCol, textLen]`
+    /// as little-endian u32s, then every edit's text as one UTF-8 blob.
+    /// Columns and `textLen` are UTF-16 units, so the host decodes the blob
+    /// once and slices the string per edit.
+    pub fn take_edits(&mut self) -> Vec<u8> {
+        let edits = std::mem::take(&mut self.edits);
+        let text_bytes: usize = edits.iter().map(|e| e.text.len()).sum();
+        let mut out = Vec::with_capacity(4 + edits.len() * 20 + text_bytes);
+        out.extend_from_slice(&(edits.len() as u32).to_le_bytes());
+        for e in &edits {
+            let header = [e.start.line, e.start.col, e.end.line, e.end.col, utf16_len(&e.text)];
+            for v in header {
+                out.extend_from_slice(&(v as u32).to_le_bytes());
+            }
+        }
+        for e in &edits {
+            out.extend_from_slice(e.text.as_bytes());
+        }
+        out
     }
 
     /// Mirror external document changes: a JSON array of
@@ -72,7 +113,8 @@ impl Session {
     /// The editor cursor moved outside the engine; returns `Effects` JSON
     /// (possibly with a clamped-position correction).
     pub fn set_position(&mut self, line: usize, col: usize) -> String {
-        to_json(&self.inner.set_position(line, col))
+        let fx = self.inner.set_position(line, col);
+        self.effects_json(fx)
     }
 
     /// A non-empty selection was made outside the engine (mouse drag).
@@ -83,10 +125,11 @@ impl Session {
         active_line: usize,
         active_col: usize,
     ) -> String {
-        to_json(&self.inner.set_selection(
+        let fx = self.inner.set_selection(
             Pos::new(anchor_line, anchor_col),
             Pos::new(active_line, active_col),
-        ))
+        );
+        self.effects_json(fx)
     }
 
     /// Current mode label ("normal" | "insert" | "visual" | "visualLine").
@@ -100,6 +143,11 @@ impl Session {
     }
 }
 
-fn to_json<T: serde::Serialize>(value: &T) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
+impl Session {
+    /// Stash the edits for `take_edits` and serialize the rest.
+    fn effects_json(&mut self, mut fx: crate::Effects) -> String {
+        self.edits = std::mem::take(&mut fx.edits);
+        let msg = EffectsMsg { fx: &fx, edit_count: self.edits.len() };
+        serde_json::to_string(&msg).unwrap_or_else(|_| "null".to_string())
+    }
 }

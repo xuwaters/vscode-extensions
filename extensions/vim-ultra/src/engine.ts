@@ -26,6 +26,17 @@ export type EngineCommand =
   | { kind: 'indentLines'; startLine: number; endLine: number; dedent: boolean }
   | { kind: 'scroll'; to: 'center' | 'top' | 'bottom' };
 
+/**
+ * Incremental-search UI state, present while a `/` or `?` prompt is open and
+ * on the key that closes it. `active` carries flat [line, startCol, endCol]
+ * triples to highlight plus the match to peek at; `committed` keeps the view
+ * where the search landed; `cancelled` restores the pre-search view.
+ */
+export type EngineSearchUi =
+  | { kind: 'active'; matches: number[]; current?: [number, number, number] }
+  | { kind: 'committed' }
+  | { kind: 'cancelled' };
+
 /** One engine response (crates/vim-engine `Effects`). */
 export interface Effects {
   mode: EngineMode;
@@ -35,6 +46,8 @@ export interface Effects {
   pending: string;
   /** Status-bar report: `:s` counts, ex errors, a search that found nothing. */
   message?: string;
+  /** Search-typing UI state; absent outside a `/`/`?` prompt's lifetime. */
+  search?: EngineSearchUi;
 }
 
 export interface EngineChange {
@@ -57,10 +70,14 @@ interface WasmSession {
     activeLine: number,
     activeCol: number,
   ): string;
+  take_edits(): Uint8Array;
   mode(): string;
   text(): string;
   free(): void;
 }
+
+/** `Effects` as the wasm layer sends it: edits held back, only counted. */
+type WireEffects = Omit<Effects, 'edits'> & { editCount: number };
 
 interface WasmModule {
   Session: new (text: string, line: number, col: number) => WasmSession;
@@ -169,10 +186,42 @@ export class EngineSession {
     try {
       const json = call();
       if (!json) return null;
-      return JSON.parse(json) as Effects | null;
+      const wire = JSON.parse(json) as WireEffects | null;
+      if (!wire) return null;
+      const { editCount, ...fx } = wire;
+      return { ...fx, edits: editCount > 0 ? this.takeEdits() : [] };
     } catch (e) {
       console.error('vim-engine call failed:', e);
       return null;
     }
   }
+
+  /**
+   * Decode the binary edit block (wasm_api's `take_edits`): a u32 count,
+   * count×5 u32 header rows, then every edit's text as one UTF-8 blob. One
+   * decode plus string slices — JSON-escaping a `:%s` over a big file costs
+   * milliseconds on both sides of the boundary; this doesn't.
+   */
+  private takeEdits(): EngineEdit[] {
+    if (!this.session) return [];
+    const buf = this.session.take_edits();
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const count = view.getUint32(0, true);
+    const blob = utf8.decode(buf.subarray(4 + count * 20));
+    const edits: EngineEdit[] = new Array(count);
+    let at = 0; // UTF-16 offset into the blob, like the header lengths
+    for (let i = 0; i < count; i++) {
+      const o = 4 + i * 20;
+      const len = view.getUint32(o + 16, true);
+      edits[i] = {
+        start: { line: view.getUint32(o, true), col: view.getUint32(o + 4, true) },
+        end: { line: view.getUint32(o + 8, true), col: view.getUint32(o + 12, true) },
+        text: blob.slice(at, at + len),
+      };
+      at += len;
+    }
+    return edits;
+  }
 }
+
+const utf8 = new TextDecoder();

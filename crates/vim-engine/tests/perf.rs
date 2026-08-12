@@ -15,8 +15,10 @@
 //! to reject: 1.5 ms of matching against the crate's 0.9 ms, and 3.4 ms end
 //! to end — 12k edits, their replacement text, and the mirror brought back
 //! in step. Most of what is left is the floor printed at the bottom, deciding
-//! a line may match and decomposing it into chars, rather than the VM; the
-//! bigger number by then is handing 12k edits to the host as JSON.
+//! a line may match and decomposing it into chars, rather than the VM.
+//! Handing 12k edits to the host used to be the bigger number — ~1 MB of
+//! escaped JSON, milliseconds to write and more to `JSON.parse` — which is
+//! why wasm_api.rs now ships them as one binary block, measured below.
 //!
 //! The number worth watching is the backtracking one that no literal can
 //! filter. A backtracking VM has no linear-time guarantee to fall back on,
@@ -181,10 +183,26 @@ fn perf() {
         effects.edits.len(),
         effects.message
     );
-    // What the host is handed: the same effects as JSON (wasm_api.rs).
+    // What the host is handed (wasm_api.rs): a small JSON envelope plus the
+    // edits as one binary block — not the ~1 MB of escaped JSON it once was.
+    let mut ws = vim_engine::wasm_api::Session::new(&text, 0, 0);
+    for ch in r":%s/value_\d\+/V/g".chars() {
+        ws.key(&ch.to_string());
+    }
     let t = Instant::now();
-    let json = serde_json::to_string(&effects).expect("serializes");
-    println!("  the same effects as JSON       {} {} KB", ms(t), json.len() / 1024);
+    let envelope = ws.key("<cr>");
+    let across = ms(t); // matching + mirror + envelope, as the host waits
+    let t = Instant::now();
+    let block = ws.take_edits();
+    println!(
+        "  wasm boundary: key + envelope  {across} {} B of JSON",
+        envelope.len()
+    );
+    println!(
+        "  wasm boundary: edit block      {} {} KB binary",
+        ms(t),
+        block.len() / 1024
+    );
 
     println!("\n== per-line overhead (allocation) ==");
     let t = Instant::now();

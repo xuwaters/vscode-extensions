@@ -32,8 +32,16 @@ export function serializeSelections(sels: readonly SelectionLike[]): string {
     .join(',');
 }
 
-/** Status bar label for an engine mode, its pending keys and last message. */
+/**
+ * Status bar label for an engine mode, its pending keys and last message,
+ * following vim-vscode's design: an engine report ("match 11 of 11",
+ * ":s" counts, errors) replaces the whole label until the next key, and an
+ * open command line ("/pat", "?pat", ":cmd") replaces the mode text, shown
+ * with a `|` cursor.
+ */
 export function modeLabel(mode: string, pending: string, message = ''): string {
+  if (message) return message;
+  if (/^[/?:]/.test(pending)) return `${pending}|`;
   const base =
     mode === 'insert'
       ? '-- INSERT --'
@@ -42,5 +50,5 @@ export function modeLabel(mode: string, pending: string, message = ''): string {
         : mode === 'visualLine'
           ? '-- VISUAL LINE --'
           : '-- NORMAL --';
-  return [base, pending, message].filter(Boolean).join(' ');
+  return [base, pending].filter(Boolean).join(' ');
 }

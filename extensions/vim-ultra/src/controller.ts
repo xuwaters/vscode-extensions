@@ -4,9 +4,13 @@ import type {
   EngineBridge,
   EngineCommand,
   EngineMode,
+  EngineSearchUi,
   EngineSession,
 } from './engine';
 import { modeLabel, replaceEol, serializeSelections, typedKeys } from './util';
+
+/** How far off-screen a search match must be before peeking centers it. */
+const CENTER_PEEK_LINES = 15;
 
 /**
  * Wires the vim-engine WASM sessions to VSCode:
@@ -21,6 +25,14 @@ export class VimController implements vscode.Disposable {
   private readonly sessions = new Map<string, EngineSession>();
   private readonly status: vscode.StatusBarItem;
   private readonly disposables: vscode.Disposable[] = [];
+  /** All matches of the pattern being typed (vim's incsearch + hlsearch). */
+  private readonly searchHighlight: vscode.TextEditorDecorationType;
+  /** The match the view is peeking at — the one `<cr>` would land on. */
+  private readonly searchMatch: vscode.TextEditorDecorationType;
+  /** Top visible line when the search prompt opened; restored on cancel. */
+  private searchViewTop: number | null = null;
+  /** The editor holding search decorations, so ending clears the right one. */
+  private decoratedEditor: vscode.TextEditor | null = null;
   private applyingEdits = false;
   private lastSetSelections: string | null = null;
   private enabled: boolean;
@@ -32,8 +44,26 @@ export class VimController implements vscode.Disposable {
     enabled: boolean,
   ) {
     this.enabled = enabled;
-    this.status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    // Furthest right of the left side — after the errors/warnings item,
+    // where vim-vscode puts its command line.
+    this.status = vscode.window.createStatusBarItem(
+      'vimUltra.primary',
+      vscode.StatusBarAlignment.Left,
+      Number.MIN_SAFE_INTEGER,
+    );
     this.status.name = 'Vim Ultra';
+    this.searchHighlight = vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
+      overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.findMatchForeground'),
+      border: '1px solid',
+      borderColor: new vscode.ThemeColor('editor.findMatchHighlightBorder'),
+    });
+    this.searchMatch = vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor('editor.findMatchBackground'),
+      overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.findMatchForeground'),
+      border: '2px solid',
+      borderColor: new vscode.ThemeColor('editor.findMatchBorder'),
+    });
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((e) => this.onDocChange(e)),
       vscode.window.onDidChangeTextEditorSelection((e) => this.onSelectionChange(e)),
@@ -54,7 +84,10 @@ export class VimController implements vscode.Disposable {
     const editor = vscode.window.activeTextEditor;
     if (!enabled) {
       this.status.hide();
-      if (editor) this.setCursorStyle(editor, 'insert');
+      if (editor) {
+        this.applySearchUi(editor, { kind: 'cancelled' }, true);
+        this.setCursorStyle(editor, 'insert');
+      }
       return;
     }
     this.onActiveEditor(editor);
@@ -102,6 +135,8 @@ export class VimController implements vscode.Disposable {
     for (const s of this.sessions.values()) s.dispose();
     this.sessions.clear();
     this.status.dispose();
+    this.searchHighlight.dispose();
+    this.searchMatch.dispose();
   }
 
   // ---- key -> effects ------------------------------------------------------
@@ -123,6 +158,7 @@ export class VimController implements vscode.Disposable {
     editor: vscode.TextEditor,
     session: EngineSession,
     fx: Effects,
+    external = false,
   ): Promise<void> {
     if (fx.edits.length > 0) {
       const eol = editor.document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
@@ -147,7 +183,9 @@ export class VimController implements vscode.Disposable {
         return;
       }
     }
-    if (fx.selections.length > 0) {
+    // While a search prompt is open the cursor stays put and the *viewport*
+    // follows the matches; leave the selection alone so the two don't fight.
+    if (fx.selections.length > 0 && fx.search?.kind !== 'active') {
       const sels = fx.selections.map(
         (s) => new vscode.Selection(s.anchor.line, s.anchor.col, s.active.line, s.active.col),
       );
@@ -155,15 +193,85 @@ export class VimController implements vscode.Disposable {
         this.lastSetSelections = serializeSelections(sels);
         editor.selections = sels;
       }
-      editor.revealRange(
-        new vscode.Range(sels[0].active, sels[0].active),
-        vscode.TextEditorRevealType.Default,
-      );
+      // A cancelled search restores its own viewport below instead.
+      if (fx.search?.kind !== 'cancelled') {
+        editor.revealRange(
+          new vscode.Range(sels[0].active, sels[0].active),
+          vscode.TextEditorRevealType.Default,
+        );
+      }
     }
     for (const cmd of fx.commands) {
       await this.runCommand(editor, session, cmd);
     }
+    this.applySearchUi(editor, fx.search, external);
     this.updateUi(editor, fx.mode, fx.pending);
+  }
+
+  /**
+   * The incremental-search protocol: while the prompt is `active`, highlight
+   * the matches and scroll the peeked one into view without moving the
+   * cursor; when it closes, clear the paint and either keep the viewport
+   * (`committed`) or scroll back to where the search began (`cancelled`).
+   * A cancel caused by the user clicking elsewhere (`external`) keeps their
+   * new viewport instead of yanking it back.
+   */
+  private applySearchUi(
+    editor: vscode.TextEditor,
+    ui: EngineSearchUi | undefined,
+    external: boolean,
+  ): void {
+    if (!ui) return;
+    if (ui.kind === 'active') {
+      this.searchViewTop ??= editor.visibleRanges[0]?.start.line ?? 0;
+      this.decoratedEditor = editor;
+      const ranges: vscode.Range[] = [];
+      const m = ui.matches;
+      for (let i = 0; i + 2 < m.length; i += 3) {
+        ranges.push(new vscode.Range(m[i], m[i + 1], m[i], m[i + 2]));
+      }
+      editor.setDecorations(this.searchHighlight, ranges);
+      if (ui.current) {
+        const [line, start, end] = ui.current;
+        const current = new vscode.Range(line, start, line, end);
+        editor.setDecorations(this.searchMatch, [current]);
+        this.revealPeek(editor, current);
+      } else {
+        // Nothing to peek at (yet): drift back to where the search began.
+        editor.setDecorations(this.searchMatch, []);
+        this.revealTop(editor, this.searchViewTop);
+      }
+      return;
+    }
+    const decorated = this.decoratedEditor ?? editor;
+    decorated.setDecorations(this.searchHighlight, []);
+    decorated.setDecorations(this.searchMatch, []);
+    this.decoratedEditor = null;
+    if (ui.kind === 'cancelled' && !external && this.searchViewTop !== null) {
+      this.revealTop(editor, this.searchViewTop);
+    }
+    this.searchViewTop = null;
+  }
+
+  /** Scroll a peeked match into view: nearby scrolls minimally, a far jump
+   *  centers (vim-vscode's heuristic). */
+  private revealPeek(editor: vscode.TextEditor, range: vscode.Range): void {
+    const visible = editor.visibleRanges[0];
+    const far =
+      !visible ||
+      visible.start.line - range.start.line >= CENTER_PEEK_LINES ||
+      range.start.line - visible.end.line >= CENTER_PEEK_LINES;
+    editor.revealRange(
+      range,
+      far ? vscode.TextEditorRevealType.InCenter : vscode.TextEditorRevealType.Default,
+    );
+  }
+
+  private revealTop(editor: vscode.TextEditor, line: number): void {
+    editor.revealRange(
+      new vscode.Range(line, 0, line, 0),
+      vscode.TextEditorRevealType.AtTop,
+    );
   }
 
   private async runCommand(
@@ -239,7 +347,7 @@ export class VimController implements vscode.Disposable {
           { line: sel.anchor.line, col: sel.anchor.character },
           { line: sel.active.line, col: sel.active.character },
         );
-    if (fx) void this.applyEffects(e.textEditor, session, fx);
+    if (fx) void this.applyEffects(e.textEditor, session, fx, true);
   }
 
   private onActiveEditor(editor: vscode.TextEditor | undefined): void {
@@ -251,7 +359,7 @@ export class VimController implements vscode.Disposable {
     }
     // Re-clamp the cursor for normal mode and refresh the UI.
     const fx = session.setPosition(editor.selection.active.line, editor.selection.active.character);
-    if (fx) void this.applyEffects(editor, session, fx);
+    if (fx) void this.applyEffects(editor, session, fx, true);
   }
 
   private dropSession(doc: vscode.TextDocument): void {
@@ -283,6 +391,7 @@ export class VimController implements vscode.Disposable {
 
   private resync(editor: vscode.TextEditor, session: EngineSession): void {
     this.message = ''; // the report described edits that never landed
+    this.applySearchUi(editor, { kind: 'cancelled' }, true);
     session.reset(
       editor.document.getText(),
       editor.selection.active.line,

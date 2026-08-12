@@ -70,12 +70,38 @@ pub enum Command {
     },
 }
 
+/// Incremental-search UI state, present while a `/` or `?` prompt is open
+/// and on the key that closes it. The host paints and peeks; the engine's
+/// cursor stays put until the prompt commits.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SearchUi {
+    /// The pattern typed so far has these matches: highlight them and peek
+    /// at `current` without moving the cursor.
+    Active {
+        /// Flat `[line, startCol, endCol]` per match (UTF-16 columns), the
+        /// current match excluded, capped in search.rs.
+        matches: Vec<u32>,
+        /// The match `<cr>` would land on, to scroll into view.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        current: Option<[u32; 3]>,
+    },
+    /// Prompt closed by `<cr>`: keep the view where the search landed.
+    Committed,
+    /// Prompt abandoned (`<esc>`, `<bs>` past the start, an outside click):
+    /// restore the view the search started from.
+    Cancelled,
+}
+
 /// Result of one engine call. `selections` is what the editor selection
 /// should become (empty = leave it alone); `edits` are applied first.
 #[derive(Serialize, Debug)]
 pub struct Effects {
     pub mode: &'static str,
     pub selections: Vec<Selection>,
+    /// Not serialized: the WASM layer hands edits to the host as one binary
+    /// block (see wasm_api.rs), which is far cheaper than JSON at `:%s` size.
+    #[serde(skip_serializing)]
     pub edits: Vec<Edit>,
     pub commands: Vec<Command>,
     /// Keys buffered toward an incomplete command, for the status bar.
@@ -84,6 +110,9 @@ pub struct Effects {
     /// that found nothing. `None` leaves whatever was shown before.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Search-typing UI state; `None` outside a `/`/`?` prompt's lifetime.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search: Option<SearchUi>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -203,6 +232,8 @@ pub struct Session {
     last_visual: Option<(usize, usize)>,
     /// Report for the next `Effects`, taken when one is built.
     message: Option<String>,
+    /// Search-typing UI for the next `Effects`, taken when one is built.
+    search_ui: Option<SearchUi>,
 }
 
 impl Session {
@@ -220,6 +251,7 @@ impl Session {
             last_replacement: None,
             last_visual: None,
             message: None,
+            search_ui: None,
         }
     }
 
@@ -241,6 +273,7 @@ impl Session {
         self.buf = Buffer::from_text(text);
         self.mode = Mode::Normal;
         self.pending = Pending::default();
+        self.search_ui = None;
         self.cursor = self.clamp_normal(Pos::new(line, col));
         self.desired_col = self.cursor.col;
     }
@@ -259,6 +292,7 @@ impl Session {
     /// The editor cursor moved for a reason the engine didn't cause (mouse
     /// click, undo, host-side scrolling commands, insert-mode typing).
     pub fn set_position(&mut self, line: usize, col: usize) -> Effects {
+        let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
         self.pending = Pending::default();
         if matches!(self.mode, Mode::Visual { .. }) {
             self.mode = Mode::Normal;
@@ -281,6 +315,7 @@ impl Session {
             commands: Vec::new(),
             pending: String::new(),
             message: None,
+            search: aborted_search.then_some(SearchUi::Cancelled),
         }
     }
 
@@ -288,6 +323,7 @@ impl Session {
     /// enter charwise visual around it. Coordinates are VSCode-style
     /// (end-exclusive); the engine keeps inclusive char positions.
     pub fn set_selection(&mut self, anchor: Pos, active: Pos) -> Effects {
+        let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
         self.pending = Pending::default();
         if anchor <= active {
             self.anchor = self.clamp_normal(anchor);
@@ -305,6 +341,7 @@ impl Session {
             commands: Vec::new(),
             pending: String::new(),
             message: None,
+            search: aborted_search.then_some(SearchUi::Cancelled),
         }
     }
 
@@ -322,6 +359,7 @@ impl Session {
             commands,
             pending: self.pending.display(),
             message: self.message.take(),
+            search: self.search_ui.take(),
         }
     }
 
@@ -495,6 +533,9 @@ impl Session {
             Key::Char(c @ ('/' | '?')) => {
                 self.pending.awaiting = Awaiting::Search { backward: c == '?' };
                 self.pending.keys.push(c);
+                // An empty Active opens the session: the host snapshots the
+                // viewport it will restore if the search is abandoned.
+                self.search_ui = Some(SearchUi::Active { matches: Vec::new(), current: None });
             }
             Key::Char(':') => {
                 self.pending.awaiting = Awaiting::Ex;
@@ -837,6 +878,7 @@ impl Session {
 
     /// Collect the `/` or `?` pattern until `<cr>` runs it. `<esc>`, and
     /// `<bs>` past the start of the pattern, abort the search like Vim.
+    /// Every edit of the pattern refreshes the incremental preview.
     fn resolve_search(
         &mut self,
         backward: bool,
@@ -845,19 +887,29 @@ impl Session {
         commands: &mut Vec<Command>,
     ) {
         match key {
-            Key::Char(c) => self.pending.prompt.push(c),
+            Key::Char(c) => {
+                self.pending.prompt.push(c);
+                self.search_preview(backward);
+            }
             Key::Backspace => {
                 if self.pending.prompt.pop().is_none() {
+                    self.search_ui = Some(SearchUi::Cancelled);
                     self.clear_pending();
+                } else {
+                    self.search_preview(backward);
                 }
             }
             Key::Enter => {
                 // An empty pattern reuses the last one.
                 let pattern = match (self.pending.prompt.as_str(), &self.last_search) {
-                    ("", None) => return self.clear_pending(),
+                    ("", None) => {
+                        self.search_ui = Some(SearchUi::Cancelled);
+                        return self.clear_pending();
+                    }
                     ("", Some(last)) => last.pattern.clone(),
                     (typed, _) => typed.to_string(),
                 };
+                self.search_ui = Some(SearchUi::Committed);
                 self.pending.awaiting = Awaiting::None;
                 self.pending.prompt.clear();
                 self.last_search = Some(Search {
@@ -866,9 +918,25 @@ impl Session {
                 });
                 self.run_search(&pattern, backward, edits, commands);
             }
-            Key::Esc => self.clear_pending(),
+            Key::Esc => {
+                self.search_ui = Some(SearchUi::Cancelled);
+                self.clear_pending();
+            }
             Key::Ctrl(_) => {}
         }
+    }
+
+    /// Matches of the pattern typed so far, for the host to paint and peek
+    /// at. An empty or unparseable pattern previews as no matches — the
+    /// half-typed `\(` is on its way somewhere, not an error yet.
+    fn search_preview(&mut self, backward: bool) {
+        let (matches, current) = search::Pattern::parse(&self.pending.prompt)
+            .map(|pat| {
+                pat.budget_for(&self.buf);
+                search::preview(&self.buf, self.cursor, &pat, backward)
+            })
+            .unwrap_or_default();
+        self.search_ui = Some(SearchUi::Active { matches, current });
     }
 
     /// `*` / `#`: search for the keyword under the cursor, whole-word. Vim
@@ -890,6 +958,7 @@ impl Session {
 
     /// Move to the count-th match of `pattern`. Search is an exclusive
     /// motion, so it composes with a pending operator (`d/foo<cr>`, `dn`).
+    /// A plain search also reports "match N of M", like Vim's search count.
     fn run_search(
         &mut self,
         pattern: &str,
@@ -906,10 +975,31 @@ impl Session {
             }
         };
         pat.budget_for(&self.buf);
-        match search::find(&self.buf, self.cursor, &pat, backward, count) {
-            Some(pos) => {
+        if self.pending.op.is_some() {
+            // Feeding an operator: the early-exit find, and no report — the
+            // cursor doesn't land on the match, the operator eats up to it.
+            match search::find(&self.buf, self.cursor, &pat, backward, count) {
+                Some(pos) => {
+                    self.pending.awaiting = Awaiting::None;
+                    self.do_motion(pos, MotionKind::Exclusive, edits, commands);
+                }
+                None => {
+                    self.message = Some(gave_up_or_missing(&pat, pattern));
+                    self.clear_pending();
+                }
+            }
+            return;
+        }
+        match search::find_ranked(&self.buf, self.cursor, &pat, backward, count) {
+            Some((pos, idx, total)) => {
                 self.pending.awaiting = Awaiting::None;
                 self.do_motion(pos, MotionKind::Exclusive, edits, commands);
+                self.message = Some(if pat.gave_up() {
+                    // The scan was cut short; the numbers would lie.
+                    format!("gave up counting matches of: {pattern}")
+                } else {
+                    format!("match {} of {total}", idx + 1)
+                });
             }
             None => {
                 self.message = Some(gave_up_or_missing(&pat, pattern));

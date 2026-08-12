@@ -5,7 +5,7 @@
 
 use pretty_assertions::assert_eq;
 use vim_engine::buffer::Pos;
-use vim_engine::state::{Command, Effects, Session};
+use vim_engine::state::{Command, Effects, SearchUi, Session};
 use vim_engine::Key;
 
 fn session(text: &str) -> Session {
@@ -643,6 +643,81 @@ fn n_and_capital_n_repeat_the_search() {
     assert_eq!(s.cursor(), Pos::new(1, 4));
     feed(&mut s, "N");
     assert_eq!(s.cursor(), Pos::new(1, 4)); // only one match: wraps to itself
+}
+
+#[test]
+fn search_reports_match_rank_and_total() {
+    let mut s = session("foo bar\nbaz bar\nqux");
+    let fx = feed(&mut s, "/bar<cr>");
+    assert_eq!(fx.message.as_deref(), Some("match 1 of 2"));
+    let fx = feed(&mut s, "n");
+    assert_eq!(fx.message.as_deref(), Some("match 2 of 2"));
+    let fx = feed(&mut s, "n"); // wraps
+    assert_eq!(fx.message.as_deref(), Some("match 1 of 2"));
+    let fx = feed(&mut s, "N");
+    assert_eq!(fx.message.as_deref(), Some("match 2 of 2"));
+    // `*` reports too; an operator's search motion does not land, so not.
+    let mut s = session("one two one");
+    let fx = feed(&mut s, "*");
+    assert_eq!(fx.message.as_deref(), Some("match 2 of 2"));
+    let mut s = session("keep 123 drop");
+    let fx = feed(&mut s, r"d/\d<cr>");
+    assert_eq!(fx.message, None);
+}
+
+#[test]
+fn typing_a_search_previews_matches() {
+    let mut s = session("foo bar\nbaz bar\nqux");
+    // Opening the prompt starts an empty preview session.
+    let fx = s.key(Key::Char('/'));
+    assert_eq!(fx.search, Some(SearchUi::Active { matches: vec![], current: None }));
+    feed(&mut s, "ba");
+    let fx = s.key(Key::Char('r'));
+    assert_eq!(
+        fx.search,
+        Some(SearchUi::Active {
+            matches: vec![1, 4, 7],
+            current: Some([0, 4, 7]),
+        })
+    );
+    // The cursor has not moved: the peek is the host's business.
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+    // Editing the pattern re-previews; an unmatched pattern previews empty.
+    let fx = s.key(Key::Char('z'));
+    assert_eq!(fx.search, Some(SearchUi::Active { matches: vec![], current: None }));
+    // Enter commits; the search field says to keep the view.
+    let fx = s.key(Key::Backspace);
+    assert_eq!(fx.search.as_ref(), Some(&SearchUi::Active {
+        matches: vec![1, 4, 7],
+        current: Some([0, 4, 7]),
+    }));
+    let fx = s.key(Key::Enter);
+    assert_eq!(fx.search, Some(SearchUi::Committed));
+    assert_eq!(s.cursor(), Pos::new(0, 4));
+}
+
+#[test]
+fn abandoning_a_search_says_so() {
+    let mut s = session("alpha beta");
+    feed(&mut s, "/beta");
+    let fx = s.key(Key::Esc);
+    assert_eq!(fx.search, Some(SearchUi::Cancelled));
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+    // Backspacing past the start of the pattern abandons it too.
+    feed(&mut s, "/b");
+    let fx = s.key(Key::Backspace);
+    assert_eq!(fx.search.as_ref(), Some(&SearchUi::Active { matches: vec![], current: None }));
+    let fx = s.key(Key::Backspace);
+    assert_eq!(fx.search, Some(SearchUi::Cancelled));
+    // Enter on an empty prompt with no history closes the session as well.
+    let fx = feed(&mut s, "/<cr>");
+    assert_eq!(fx.search, Some(SearchUi::Cancelled));
+    // An outside cursor move (mouse click) while typing cancels the prompt.
+    feed(&mut s, "/beta");
+    let fx = s.set_position(0, 3);
+    assert_eq!(fx.search, Some(SearchUi::Cancelled));
+    let fx = s.set_position(0, 0);
+    assert_eq!(fx.search, None);
 }
 
 #[test]

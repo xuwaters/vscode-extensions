@@ -11,11 +11,15 @@ commands), and mirrors external document changes back into the engine.
   and pending keys; the cursor is a block outside insert mode.
 - **Motions**: `h j k l`, `0 ^ $`, `w W b B e E`, `gg G`, `{ }`, `%`,
   `f F t T` with `;`/`,`, `enter + -`, all with counts (`3w`, `2f,`).
-- **Search**: `/` and `?` (the pattern shows in the status bar; `backspace`
-  edits it, `escape` aborts, `enter` runs it), `n`/`N` to repeat, `*`/`#` for
-  the word under the cursor. Searches wrap around the buffer, take counts
-  (`3n`), an empty pattern repeats the last one, and — being exclusive
-  motions — they combine with operators (`d/foo⏎`, `dn`, `y*`).
+- **Search**: `/` and `?` (the pattern replaces the mode text in the status
+  bar while you type it; `backspace` edits it, `escape` aborts, `enter` runs
+  it), `n`/`N` to repeat, `*`/`#` for the word under the cursor. Searches
+  wrap around the buffer, take counts (`3n`), an empty pattern repeats the
+  last one, and — being exclusive motions — they combine with operators
+  (`d/foo⏎`, `dn`, `y*`). Typing a pattern highlights its matches and peeks
+  at the one `enter` would land on (vim's `incsearch`): the view scrolls
+  there without moving the cursor, comes back if you `escape`, and stays if
+  you commit. A landed search reports `match 3 of 11` in the status bar.
 - **Regular expressions** in every pattern: `. * \+ \? \{n,m}` (and the
   non-greedy `\{-}`), `\(…\)` groups with `\%(…\)` non-capturing, `\|`
   alternation, `[a-z]` and `[^…]` collections with `[:alpha:]` names, the
@@ -51,10 +55,11 @@ Pattern support stops at look-around (`\@=` and friends), `\&`, `~` for the
 previous substitute pattern, and multi-line matching: a match never spans a
 line break, so `\n` in a pattern matches nothing. Matching is case-sensitive
 unless the pattern says otherwise (`ignorecase` and `smartcase` are not
-implemented), and neither `hlsearch` nor `incsearch` is either — the cursor
-simply lands on the match. The `c` (confirm) flag on `:s` is rejected instead
-of silently replacing without asking. In a replacement, `\n` breaks the line
-like `\r` does, rather than inserting Vim's NUL.
+implemented). Match highlights show while a pattern is being typed
+(`incsearch`) but clear once it runs — there is no persistent `hlsearch`.
+The `c` (confirm) flag on `:s` is rejected instead of silently replacing
+without asking. In a replacement, `\n` breaks the line like `\r` does,
+rather than inserting Vim's NUL.
 
 Searching is bounded, not linear-time: patterns run on a backtracking VM, so
 a catastrophic one (`\%(\w*\)*\d\{9}` and relatives) is stopped by a step

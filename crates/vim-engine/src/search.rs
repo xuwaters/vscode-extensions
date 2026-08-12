@@ -25,6 +25,10 @@ const DEFAULT_BUDGET: u32 = 30_000_000;
 const STEPS_PER_BYTE: u64 = 8;
 const BUDGET_FLOOR: u64 = 4_000_000;
 
+/// Most match ranges a `preview` reports. Highlighting is a courtesy, not an
+/// enumeration; past this the host would be painting off-screen anyway.
+const PREVIEW_CAP: usize = 1000;
+
 /// The last search, replayed by `n` / `N`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Search {
@@ -283,6 +287,89 @@ fn step(buf: &Buffer, from: Pos, pat: &Pattern, backward: bool) -> Option<Pos> {
     None
 }
 
+/// Like `find` with the whole buffer enumerated: where the `count`-th match
+/// from `from` lands, plus its rank among all matches and their total, both
+/// in document order — the numbers behind "match N of M". Wrapping works the
+/// same as `find`'s; matches n would visit (overlapping starts included) are
+/// what is counted. When the pattern `gave_up` mid-scan the totals cover only
+/// what was seen.
+pub fn find_ranked(
+    buf: &Buffer,
+    from: Pos,
+    pat: &Pattern,
+    backward: bool,
+    count: usize,
+) -> Option<(Pos, usize, usize)> {
+    let mut starts: Vec<Pos> = Vec::new();
+    for line in 0..buf.line_count() {
+        for col in pat.matches(buf.line(line)) {
+            starts.push(Pos::new(line, col));
+        }
+    }
+    let total = starts.len();
+    if total == 0 {
+        return None;
+    }
+    let count = count.max(1);
+    let idx = if backward {
+        // Predecessor of the first match at-or-past the cursor, wrapping.
+        let ge = starts.partition_point(|&p| p < from);
+        (ge + total - 1 - (count - 1) % total) % total
+    } else {
+        // First match strictly past the cursor, wrapping.
+        let gt = starts.partition_point(|&p| p <= from);
+        (gt + (count - 1) % total) % total
+    };
+    Some((starts[idx], idx, total))
+}
+
+/// Incremental-search UI for a `/`/`?` prompt still being typed: up to
+/// `PREVIEW_CAP` non-overlapping match ranges as flat `[line, start, end]`
+/// triples (UTF-16 columns), plus the range the view should peek at — the
+/// nearest match in the search direction, wrapping, which is where `<cr>`
+/// would land. The peeked match is left out of the pile so the host can give
+/// it a stronger decoration.
+pub fn preview(
+    buf: &Buffer,
+    from: Pos,
+    pat: &Pattern,
+    backward: bool,
+) -> (Vec<u32>, Option<[u32; 3]>) {
+    let mut stored: Vec<[u32; 3]> = Vec::new();
+    let (mut first, mut last) = (None, None); // buffer-wide extremes, for the wrap
+    let (mut before, mut after) = (None, None); // nearest on each side of the cursor
+    let mut found = Vec::new();
+    'scan: for line in 0..buf.line_count() {
+        pat.find_all_into(buf.line(line), true, &mut found);
+        for m in &found {
+            let t = [line as u32, m.start as u32, m.end as u32];
+            if stored.len() < PREVIEW_CAP {
+                stored.push(t);
+            }
+            first.get_or_insert(t);
+            last = Some(t);
+            let p = Pos::new(line, m.start);
+            if p > from {
+                after.get_or_insert(t);
+                // Forward needs nothing from the lines below once the pile
+                // is full; backward still needs the buffer's last match.
+                if !backward && stored.len() >= PREVIEW_CAP {
+                    break 'scan;
+                }
+            } else if p < from {
+                before = Some(t);
+            }
+        }
+    }
+    let current = if backward { before.or(last) } else { after.or(first) };
+    if let Some(c) = current {
+        if let Some(i) = stored.iter().position(|&t| t == c) {
+            stored.remove(i);
+        }
+    }
+    (stored.into_iter().flatten().collect(), current)
+}
+
 /// The keyword under the cursor — or the next one on the line, per Vim — as
 /// the target of `*` / `#`. Returns where it starts and its text.
 pub fn word_under_cursor(buf: &Buffer, pos: Pos) -> Option<(Pos, String)> {
@@ -444,6 +531,81 @@ mod tests {
         let p = pat("foo");
         assert_eq!(find(&b, Pos::new(0, 2), &p, false, 1), Some(Pos::new(0, 2)));
         assert_eq!(find(&b, Pos::new(0, 2), &p, true, 1), Some(Pos::new(0, 2)));
+    }
+
+    #[test]
+    fn find_ranked_reports_document_order_ranks() {
+        let b = buf("foo bar\nbaz bar\nqux");
+        let p = pat("bar");
+        p.budget_for(&b);
+        // Forward from the top: first match is rank 1 of 2.
+        assert_eq!(
+            find_ranked(&b, Pos::new(0, 0), &p, false, 1),
+            Some((Pos::new(0, 4), 0, 2))
+        );
+        // From the first match: the second, then wrap back to the first.
+        assert_eq!(
+            find_ranked(&b, Pos::new(0, 4), &p, false, 1),
+            Some((Pos::new(1, 4), 1, 2))
+        );
+        assert_eq!(
+            find_ranked(&b, Pos::new(1, 4), &p, false, 1),
+            Some((Pos::new(0, 4), 0, 2))
+        );
+        // Backward from the top wraps to the last match.
+        assert_eq!(
+            find_ranked(&b, Pos::new(0, 0), &p, true, 1),
+            Some((Pos::new(1, 4), 1, 2))
+        );
+        // Counts step through the ring like repeated `n`.
+        assert_eq!(
+            find_ranked(&b, Pos::new(0, 0), &p, false, 2),
+            Some((Pos::new(1, 4), 1, 2))
+        );
+        assert_eq!(find_ranked(&b, Pos::new(0, 0), &pat("zzz"), false, 1), None);
+        // A lone match is its own successor after a full wrap.
+        let b = buf("a foo b");
+        assert_eq!(
+            find_ranked(&b, Pos::new(0, 2), &pat("foo"), false, 1),
+            Some((Pos::new(0, 2), 0, 1))
+        );
+    }
+
+    #[test]
+    fn find_ranked_agrees_with_find() {
+        // Same traversal, so `n` (find) and its report (find_ranked) can't
+        // drift apart — including overlapping starts.
+        let b = buf("alpha 42\nbeta 7");
+        let p = pat(r"\d\+");
+        for from in [Pos::new(0, 0), Pos::new(0, 6), Pos::new(0, 7), Pos::new(1, 5)] {
+            for backward in [false, true] {
+                assert_eq!(
+                    find(&b, from, &p, backward, 1),
+                    find_ranked(&b, from, &p, backward, 1).map(|(pos, ..)| pos),
+                    "from {from:?} backward {backward}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn preview_reports_ranges_and_peeks_ahead() {
+        let b = buf("foo bar\nbaz bar\nqux bar");
+        let p = pat("bar");
+        p.budget_for(&b);
+        // Cursor at the top: peek at line 0's match, highlight the others.
+        let (matches, current) = preview(&b, Pos::new(0, 0), &p, false);
+        assert_eq!(current, Some([0, 4, 7]));
+        assert_eq!(matches, vec![1, 4, 7, 2, 4, 7]);
+        // Past the first match: the peek moves on.
+        let (matches, current) = preview(&b, Pos::new(0, 4), &p, false);
+        assert_eq!(current, Some([1, 4, 7]));
+        assert_eq!(matches, vec![0, 4, 7, 2, 4, 7]);
+        // Backward from the top wraps to the last match.
+        let (_, current) = preview(&b, Pos::new(0, 0), &p, true);
+        assert_eq!(current, Some([2, 4, 7]));
+        // Nothing to find: nothing to show.
+        assert_eq!(preview(&b, Pos::new(0, 0), &pat("zzz"), false), (vec![], None));
     }
 
     #[test]

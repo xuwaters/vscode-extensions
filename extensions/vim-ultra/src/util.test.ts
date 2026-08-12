@@ -35,10 +35,16 @@ describe('modeLabel', () => {
     expect(modeLabel('visualLine', '')).toBe('-- VISUAL LINE --');
     expect(modeLabel('normal', '2d')).toBe('-- NORMAL -- 2d');
   });
-  it('appends engine messages', () => {
+  it('lets an open command line replace the mode text', () => {
+    expect(modeLabel('normal', '/hel')).toBe('/hel|');
+    expect(modeLabel('normal', '?back')).toBe('?back|');
+    expect(modeLabel('normal', ':s/a/b/')).toBe(':s/a/b/|');
+    expect(modeLabel('visual', ":'<,'>s/a/b/")).toBe(":'<,'>s/a/b/|");
+  });
+  it('lets an engine message replace the whole label', () => {
     expect(modeLabel('normal', '', '2 substitutions on 1 line')).toBe(
-      '-- NORMAL -- 2 substitutions on 1 line',
+      '2 substitutions on 1 line',
     );
-    expect(modeLabel('normal', ':s/a/b/', '')).toBe('-- NORMAL -- :s/a/b/');
+    expect(modeLabel('normal', '', 'match 11 of 11')).toBe('match 11 of 11');
   });
 });
