@@ -7,21 +7,27 @@
 //! ```
 //!
 //! On an M-series mac, over 20k lines / 1.1 MB, whole-buffer scans land near
-//! 0.3 ms for us against 0.6–0.9 ms for the `regex` crate: line-level
+//! 0.2 ms for us against 0.4–0.6 ms for the `regex` crate: line-level
 //! rejection by required literal (see regex.rs) does the heavy lifting, and
-//! what survives it is one line's worth of column scanning. The gap that
-//! remains is `:%s` over a buffer where most lines *do* match — ~9× the
-//! `regex` crate, since every match allocates its capture strings. That is a
-//! one-shot command, not a keystroke, so it has been left alone.
+//! what survives it is one line's worth of column scanning.
+//!
+//! `:%s` over a buffer where most lines *do* match is the case with nothing
+//! to reject: 1.5 ms of matching against the crate's 0.9 ms, and 3.4 ms end
+//! to end — 12k edits, their replacement text, and the mirror brought back
+//! in step. Most of what is left is the floor printed at the bottom, deciding
+//! a line may match and decomposing it into chars, rather than the VM; the
+//! bigger number by then is handing 12k edits to the host as JSON.
 //!
 //! The number worth watching is the backtracking one that no literal can
 //! filter. A backtracking VM has no linear-time guarantee to fall back on,
 //! so that case cost 3.7 s here — a frozen editor — until the operation
-//! budget in search.rs bounded it to ~0.1 s and an honest "gave up".
+//! budget in search.rs bounded it to a fraction of a second and an honest
+//! "gave up".
 
 use std::time::Instant;
 use vim_engine::buffer::{Buffer, Pos};
 use vim_engine::search::{self, Pattern};
+use vim_engine::{Key, Session};
 
 /// ~20k lines / ~840 KB of source-shaped text; "needle" only on the last line.
 fn corpus() -> String {
@@ -41,6 +47,14 @@ fn corpus() -> String {
 
 fn ms(t: Instant) -> String {
     format!("{:>9.3?}", t.elapsed())
+}
+
+/// Type an ex command and press Enter, as the host feeds keys.
+fn type_ex(session: &mut Session, command: &str) -> vim_engine::Effects {
+    for ch in command.chars() {
+        session.key(Key::Char(ch));
+    }
+    session.key(Key::Enter)
 }
 
 /// The pre-regex implementation: literal text scanned with `str::find`.
@@ -131,10 +145,23 @@ fn perf() {
     pat.budget_for(&buf);
     let t = Instant::now();
     let mut hits = 0;
+    let mut found = Vec::new();
     for line in 0..buf.line_count() {
-        hits += pat.find_all(buf.line(line), true).len();
+        pat.find_all_into(buf.line(line), true, &mut found);
+        hits += found.len();
     }
     println!("  vim-engine  find_all all lines {} {hits} hits", ms(t));
+    // The same scan without a repeat to count, which is what counting one
+    // costs on top of plain literal matching.
+    let pat = Pattern::parse("value_").expect("compiles");
+    pat.budget_for(&buf);
+    let t = Instant::now();
+    let mut hits = 0;
+    for line in 0..buf.line_count() {
+        pat.find_all_into(buf.line(line), true, &mut found);
+        hits += found.len();
+    }
+    println!("  vim-engine  no repeat 'value_' {} {hits} hits", ms(t));
     let re = regex::Regex::new(r"value_\d+").unwrap();
     let t = Instant::now();
     let mut hits = 0;
@@ -143,6 +170,22 @@ fn perf() {
     }
     println!("  regex crate find_iter          {} {hits} hits", ms(t));
 
+    // The command as a user runs it: matching, building one edit per line,
+    // and bringing the engine's mirror of the document back in step.
+    let mut session = Session::new(&text);
+    let t = Instant::now();
+    let effects = type_ex(&mut session, r":%s/value_\d\+/V/g");
+    println!(
+        "  :%s/value_\\d\\+/V/g end to end {} {} edits, {:?}",
+        ms(t),
+        effects.edits.len(),
+        effects.message
+    );
+    // What the host is handed: the same effects as JSON (wasm_api.rs).
+    let t = Instant::now();
+    let json = serde_json::to_string(&effects).expect("serializes");
+    println!("  the same effects as JSON       {} {} KB", ms(t), json.len() / 1024);
+
     println!("\n== per-line overhead (allocation) ==");
     let t = Instant::now();
     let mut n = 0;
@@ -150,4 +193,27 @@ fn perf() {
         n += buf.line(line).chars().count();
     }
     println!("  chars() over every line        {} {n} chars", ms(t));
+
+    // What a scan pays before the VM starts: the literal prefilter over every
+    // line, then decomposing the surviving ones and skipping to the columns a
+    // match could start at.
+    let t = Instant::now();
+    let mut n = 0;
+    for line in 0..buf.line_count() {
+        n += usize::from(buf.line(line).contains("value_"));
+    }
+    println!("  contains('value_') per line    {} {n} lines", ms(t));
+    let t = Instant::now();
+    let mut chars: Vec<char> = Vec::new();
+    let mut n = 0;
+    for line in 0..buf.line_count() {
+        let text = buf.line(line);
+        if !text.contains("value_") {
+            continue;
+        }
+        chars.clear();
+        chars.extend(text.bytes().map(char::from));
+        n += chars.iter().filter(|&&c| c == 'v').count();
+    }
+    println!("  + decompose and skip to 'v'    {} {n} columns", ms(t));
 }

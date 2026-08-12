@@ -6,7 +6,7 @@
 //! `noignorecase`) and never spans a line break, so `^` and `$` anchor to the
 //! ends of a line.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use crate::buffer::{Buffer, Pos, chars_with_cols};
 use crate::motion::{CharClass, class};
@@ -33,14 +33,81 @@ pub struct Search {
     pub backward: bool,
 }
 
-/// One match inside a line. Columns are UTF-16; `groups[0]` is the whole
-/// matched text and `groups[n]` capture group `n` (`None` if it took part in
-/// no branch of the match).
+/// One match inside a line. `start` and `end` are UTF-16 columns, the
+/// coordinates an edit is expressed in; the capture groups are kept as byte
+/// spans into the line, so reading one is a slice of text the caller already
+/// has rather than a string allocated per match.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LineMatch {
     pub start: usize,
     pub end: usize,
-    pub groups: Vec<Option<String>>,
+    /// Byte span of the whole match (0) and of capture groups 1–9; `None`
+    /// where the group took part in no branch of the match.
+    groups: [Option<(u32, u32)>; 10],
+}
+
+impl LineMatch {
+    /// Byte span of the whole match, for slicing the line it came from.
+    pub fn bytes(&self) -> (usize, usize) {
+        let (a, b) = self.groups[0].unwrap_or_default();
+        (a as usize, b as usize)
+    }
+
+    /// Text of group `n` — 0 being the whole match — taken from `line`, which
+    /// must be the line this match was found in.
+    pub fn group<'a>(&self, line: &'a str, n: usize) -> Option<&'a str> {
+        let (a, b) = (*self.groups.get(n)?)?;
+        line.get(a as usize..b as usize)
+    }
+}
+
+/// Working memory for a scan: the line decomposed for the VM, the column map
+/// its answers are reported through, and the VM's own stack. Held by the
+/// pattern and reused line to line, so `:%s` over a buffer allocates a
+/// handful of times rather than several times per match.
+#[derive(Clone, Debug, Default)]
+struct Scratch {
+    chars: Vec<char>,
+    /// UTF-16 column and byte offset of each char, plus one past the last;
+    /// empty for an ASCII line, where all three indices coincide.
+    cols: Vec<(u32, u32)>,
+    ascii: bool,
+    vm: crate::regex::Scratch,
+}
+
+impl Scratch {
+    fn load(&mut self, line: &str) {
+        let Scratch { chars, cols, ascii, .. } = self;
+        chars.clear();
+        *ascii = line.is_ascii();
+        if *ascii {
+            // No decoding, and no column map: index, column and offset agree.
+            chars.extend(line.bytes().map(char::from));
+            return;
+        }
+        chars.extend(line.chars());
+        cols.clear();
+        cols.reserve(chars.len() + 1);
+        let (mut col, mut byte) = (0u32, 0u32);
+        for ch in chars.iter() {
+            cols.push((col, byte));
+            col += ch.len_utf16() as u32;
+            byte += ch.len_utf8() as u32;
+        }
+        cols.push((col, byte));
+    }
+
+    /// UTF-16 column of char `i` (or of the line's end, at `i == len`).
+    fn col(&self, i: usize) -> usize {
+        let i = i.min(self.chars.len());
+        if self.ascii { i } else { self.cols[i].0 as usize }
+    }
+
+    /// Byte offset of char `i` (or of the line's end, at `i == len`).
+    fn byte(&self, i: usize) -> u32 {
+        let i = i.min(self.chars.len());
+        if self.ascii { i as u32 } else { self.cols[i].1 }
+    }
 }
 
 /// A compiled search pattern, with the step budget for the operation it was
@@ -49,6 +116,7 @@ pub struct LineMatch {
 pub struct Pattern {
     re: Regex,
     budget: Cell<u32>,
+    scratch: RefCell<Scratch>,
 }
 
 impl Pattern {
@@ -62,7 +130,11 @@ impl Pattern {
         if src.is_empty() {
             return Err("empty pattern".into());
         }
-        Ok(Pattern { re: Regex::new(src, ignore_case)?, budget: Cell::new(DEFAULT_BUDGET) })
+        Ok(Pattern {
+            re: Regex::new(src, ignore_case)?,
+            budget: Cell::new(DEFAULT_BUDGET),
+            scratch: RefCell::default(),
+        })
     }
 
     /// Size the step budget for one operation over `buf` — a `/` search
@@ -93,13 +165,16 @@ impl Pattern {
         if !self.re.line_may_match(line) {
             return Vec::new();
         }
-        let (chars, cols) = scan(line);
+        let s = &mut *self.scratch.borrow_mut();
+        s.load(line);
         let mut budget = self.budget.get();
         let mut out = Vec::new();
-        for i in 0..=chars.len() {
-            if let Some(caps) = self.re.match_at(&chars, i, &mut budget) {
-                out.push(cols[caps.start()]);
+        let mut i = 0;
+        while let Some(at) = self.re.next_start(&s.chars, i) {
+            if let Some(caps) = self.re.match_at(&s.chars, at, &mut budget, &mut s.vm) {
+                out.push(s.col(caps.start()));
             }
+            i = at + 1;
         }
         self.budget.set(budget);
         // `\zs` can report the same start from several attempts, and can
@@ -113,48 +188,51 @@ impl Pattern {
     /// one only, unless `global`. An empty match advances by one char so the
     /// scan always terminates.
     pub fn find_all(&self, line: &str, global: bool) -> Vec<LineMatch> {
-        if !self.re.line_may_match(line) {
-            return Vec::new();
-        }
-        let (chars, cols) = scan(line);
-        let mut budget = self.budget.get();
         let mut out = Vec::new();
+        self.find_all_into(line, global, &mut out);
+        out
+    }
+
+    /// `find_all` writing into the caller's vector, which is cleared first.
+    /// A `:%s` walking a buffer keeps one across lines and so allocates for
+    /// its matches once, not once per line.
+    pub fn find_all_into(&self, line: &str, global: bool, out: &mut Vec<LineMatch>) {
+        out.clear();
+        if !self.re.line_may_match(line) {
+            return;
+        }
+        let s = &mut *self.scratch.borrow_mut();
+        s.load(line);
+        let mut budget = self.budget.get();
         let mut i = 0;
-        while i <= chars.len() {
-            let Some(caps) = self.re.match_at(&chars, i, &mut budget) else {
-                i += 1;
+        let mut previous = usize::MAX;
+        while let Some(at) = self.re.next_start(&s.chars, i) {
+            let Some(caps) = self.re.match_at(&s.chars, at, &mut budget, &mut s.vm) else {
+                i = at + 1;
                 continue;
             };
             let (start, end) = (caps.start(), caps.end());
-            let groups = (0..=9)
-                .map(|n| {
-                    caps.group(n)
-                        .map(|(s, e)| chars[s.min(chars.len())..e.min(chars.len())].iter().collect())
-                })
-                .collect();
-            out.push(LineMatch { start: cols[start], end: cols[end], groups });
+            // An empty match where the last one ended is not a second thing
+            // to replace: `:s/x*/-/g` over "axb" gives "-a-b-", not "-a--b-".
+            if start == end && start == previous {
+                i = at + 1;
+                continue;
+            }
+            previous = end;
+            let mut groups = [None; 10];
+            for (n, span) in groups.iter_mut().take(self.re.group_count() + 1).enumerate() {
+                // `\zs` past `\ze` can invert a span; report it empty rather
+                // than slice backwards.
+                *span = caps.group(n).map(|(a, b)| (s.byte(a), s.byte(b).max(s.byte(a))));
+            }
+            out.push(LineMatch { start: s.col(start), end: s.col(end), groups });
             if !global {
                 break;
             }
-            i = if end > i { end } else { i + 1 };
+            i = if end > at { end } else { at + 1 };
         }
         self.budget.set(budget);
-        out
     }
-}
-
-/// A line's chars alongside the UTF-16 column each one starts at (plus the
-/// column just past the end, so match ends map too).
-fn scan(line: &str) -> (Vec<char>, Vec<usize>) {
-    let chars: Vec<char> = line.chars().collect();
-    let mut cols = Vec::with_capacity(chars.len() + 1);
-    let mut col = 0;
-    for ch in &chars {
-        cols.push(col);
-        col += ch.len_utf16();
-    }
-    cols.push(col);
-    (chars, cols)
 }
 
 fn is_word(ch: char) -> bool {
@@ -289,15 +367,30 @@ mod tests {
         // Empty matches step forward one char instead of spinning.
         assert_eq!(spans("x*", "ab", true), vec![(0, 0), (1, 1), (2, 2)]);
         assert_eq!(spans(r"\d\+", "a1b22c", true), vec![(1, 2), (3, 5)]);
+        // …but not where the previous match just ended: `:s/x*/-/g` over
+        // "axb" is Vim's "-a-b-", not "-a--b-".
+        assert_eq!(spans("x*", "axb", true), vec![(0, 0), (1, 2), (3, 3)]);
+        assert_eq!(spans("a*", "a", true), vec![(0, 1)]);
+        assert_eq!(spans("a*", "ba", true), vec![(0, 0), (1, 2)]);
     }
 
     #[test]
     fn find_all_reports_group_text() {
-        let m = &pat(r"\(\w\+\)=\(\d\+\)").find_all("x: size=42;", true)[0];
-        assert_eq!(m.groups[0], Some("size=42".into()));
-        assert_eq!(m.groups[1], Some("size".into()));
-        assert_eq!(m.groups[2], Some("42".into()));
-        assert_eq!(m.groups[3], None);
+        let line = "x: size=42;";
+        let m = &pat(r"\(\w\+\)=\(\d\+\)").find_all(line, true)[0];
+        assert_eq!(m.group(line, 0), Some("size=42"));
+        assert_eq!(m.group(line, 1), Some("size"));
+        assert_eq!(m.group(line, 2), Some("42"));
+        assert_eq!(m.group(line, 3), None);
+        assert_eq!(m.group(line, 10), None);
+        assert_eq!(m.bytes(), (3, 10));
+        // Group spans are bytes, columns are UTF-16: they part ways off ASCII.
+        let line = "😀 size=42;";
+        let m = &pat(r"\(\w\+\)=\(\d\+\)").find_all(line, true)[0];
+        assert_eq!(m.group(line, 0), Some("size=42"));
+        assert_eq!(m.group(line, 2), Some("42"));
+        assert_eq!((m.start, m.end), (3, 10));
+        assert_eq!(m.bytes(), (5, 12));
     }
 
     #[test]

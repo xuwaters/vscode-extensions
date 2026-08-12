@@ -21,12 +21,20 @@ impl Pos {
 
 /// UTF-16 length of a string.
 pub fn utf16_len(s: &str) -> usize {
+    if s.is_ascii() {
+        return s.len();
+    }
     s.chars().map(char::len_utf16).sum()
 }
 
 /// Byte offset for a UTF-16 column, clamped to the end of the string.
 /// A column landing inside a surrogate pair snaps to the pair's start.
 pub fn utf16_to_byte(s: &str, col: usize) -> usize {
+    // Byte, char and UTF-16 unit are the same index in ASCII, which most
+    // lines are; checking is a vector compare against a walk of the line.
+    if s.is_ascii() {
+        return col.min(s.len());
+    }
     let mut u16s = 0;
     for (byte, ch) in s.char_indices() {
         if col < u16s + ch.len_utf16() {
@@ -137,6 +145,19 @@ impl Buffer {
     /// Replace `[start, end)` with `text` (may contain newlines), mirroring a
     /// VSCode `TextDocumentContentChangeEvent`.
     pub fn apply_change(&mut self, start: Pos, end: Pos, text: &str) {
+        // A change inside one line that adds no line break — a keystroke in
+        // insert mode, one line's worth of `:s` — rewrites that line's bytes
+        // in place. The general path below splices the line vector and builds
+        // several strings to do the same thing, which a `:%s` over a large
+        // buffer pays for once per line.
+        if start.line == end.line && !text.contains(['\n', '\r']) {
+            if let Some(line) = self.lines.get_mut(start.line) {
+                let a = utf16_to_byte(line, start.col);
+                let b = utf16_to_byte(line, end.col).max(a);
+                line.replace_range(a..b, text);
+                return;
+            }
+        }
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
         let start_line = start.line.min(self.last_line());
         let end_line = end.line.min(self.last_line());

@@ -8,7 +8,7 @@
 
 use serde::Serialize;
 
-use crate::buffer::{Buffer, Pos, chars_with_cols, utf16_len, utf16_to_byte};
+use crate::buffer::{Buffer, Pos, chars_with_cols, utf16_len};
 use crate::ex;
 use crate::keys::Key;
 use crate::motion::{self, FindKind, char_before};
@@ -996,24 +996,30 @@ impl Session {
 
         let mut line_edits: Vec<Edit> = Vec::new();
         let (mut hits, mut lines) = (0usize, 0usize);
+        // One vector of matches for the whole range: `find_all_into` refills
+        // it per line rather than allocating one each time.
+        let mut found: Vec<search::LineMatch> = Vec::new();
         for line in sub.first..=sub.last.min(self.buf.last_line()) {
             let text = self.buf.line(line);
-            let found = pattern.find_all(text, sub.global);
-            let (Some(first), Some(end)) = (found.first(), found.last().map(|m| m.end)) else {
+            pattern.find_all_into(text, sub.global, &mut found);
+            let (Some(first), Some(last)) = (found.first(), found.last()) else {
                 continue;
             };
+            let (start, end) = (first.start, last.end);
             hits += found.len();
             lines += 1;
             if sub.count_only {
                 continue;
             }
-            let start = first.start;
             let mut out = String::new();
-            let mut col = start;
+            // Byte offsets, so the text between matches is a slice and not a
+            // column-to-byte walk of the line per match.
+            let mut at = first.bytes().0;
             for m in &found {
-                out.push_str(slice_cols(text, col, m.start));
-                out.push_str(&ex::expand(&replacement, m));
-                col = m.end;
+                let (from, to) = m.bytes();
+                out.push_str(&text[at..from.max(at)]);
+                out.push_str(&ex::expand(&replacement, text, m));
+                at = to;
             }
             line_edits.push(Edit {
                 start: Pos::new(line, start),
@@ -1575,13 +1581,6 @@ impl Session {
 
 fn ordered(a: Pos, b: Pos) -> (Pos, Pos) {
     if a <= b { (a, b) } else { (b, a) }
-}
-
-/// Text of one line between two UTF-16 columns.
-fn slice_cols(line: &str, from: usize, to: usize) -> &str {
-    let a = utf16_to_byte(line, from);
-    let b = utf16_to_byte(line, to);
-    &line[a..b.max(a)]
 }
 
 fn plural(n: usize) -> &'static str {

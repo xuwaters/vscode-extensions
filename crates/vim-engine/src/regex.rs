@@ -140,24 +140,44 @@ enum Item {
 struct Class {
     neg: bool,
     items: Vec<Item>,
+    /// The verdict for every ASCII character, `neg` included, settled at
+    /// compile time. Scanning `\d\+` down a line asks per character, and a
+    /// bit test beats walking the item list every time.
+    ascii: [u64; 2],
 }
 
 impl Class {
+    fn new(neg: bool, items: Vec<Item>) -> Class {
+        let mut cl = Class { neg, items, ascii: [0; 2] };
+        for c in 0u8..128 {
+            if cl.covers(char::from(c)) != neg {
+                cl.ascii[usize::from(c) / 64] |= 1 << (c % 64);
+            }
+        }
+        cl
+    }
+
     fn of_kind(kind: Kind, neg: bool) -> Class {
-        Class { neg, items: vec![Item::Kind(kind)] }
+        Class::new(neg, vec![Item::Kind(kind)])
+    }
+
+    /// Does any item cover `ch`? `neg` is the caller's business.
+    fn covers(&self, ch: char) -> bool {
+        self.items.iter().any(|item| match *item {
+            Item::Ch(x) => x == ch,
+            Item::Range(a, b) => a <= ch && ch <= b,
+            Item::Kind(k) => k.holds(ch),
+        })
     }
 
     fn holds(&self, ch: char, ignore_case: bool) -> bool {
-        let hit = |c: char| {
-            self.items.iter().any(|item| match *item {
-                Item::Ch(x) => x == c,
-                Item::Range(a, b) => a <= c && c <= b,
-                Item::Kind(k) => k.holds(c),
-            })
-        };
-        let mut found = hit(ch);
+        if ch.is_ascii() && !ignore_case {
+            return self.ascii[ch as usize / 64] >> (ch as usize % 64) & 1 == 1;
+        }
+        let mut found = self.covers(ch);
         if !found && ignore_case {
-            found = ch.to_lowercase().any(hit) || ch.to_uppercase().any(hit);
+            found = ch.to_lowercase().any(|c| self.covers(c))
+                || ch.to_uppercase().any(|c| self.covers(c));
         }
         found != self.neg
     }
@@ -582,7 +602,7 @@ impl Parser {
             self.i = open;
             return Ok(Node::Char('['));
         }
-        Ok(Node::Class(Class { neg, items }))
+        Ok(Node::Class(Class::new(neg, items)))
     }
 
     /// `[:alpha:]` and friends, positioned just after the `[`.
@@ -598,11 +618,48 @@ impl Parser {
 
 // ---- program ----------------------------------------------------------------
 
+/// A one-character atom: what a repeat's body must be for the VM to count
+/// its iterations instead of walking them.
+#[derive(Clone, Debug)]
+enum One {
+    Ch(char),
+    Any,
+    Cl(Class),
+}
+
+impl One {
+    /// The atom `node` matches, if it matches exactly one character.
+    fn of(node: &Node) -> Option<One> {
+        Some(match node {
+            Node::Char(c) => One::Ch(*c),
+            Node::Any => One::Any,
+            Node::Class(cl) => One::Cl(cl.clone()),
+            // `\%(x\)` is `x`; a capturing group is not, it saves slots.
+            Node::Group(None, inner) => One::of(inner)?,
+            _ => return None,
+        })
+    }
+
+    fn holds(&self, ch: char, ignore_case: bool) -> bool {
+        match self {
+            One::Ch(c) => chars_eq(ch, *c, ignore_case),
+            One::Any => true,
+            One::Cl(cl) => cl.holds(ch, ignore_case),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 enum Inst {
     Char(char),
     Any,
     Class(Class),
+    /// A repeat of a one-character atom, counted rather than unrolled: the VM
+    /// takes as many as it can in a loop and remembers the counts it has yet
+    /// to try as a single backtrack frame. `\d\+` and `.*` are most of what
+    /// real patterns repeat, and this is the difference between a VM step
+    /// (and a copied thread) per character and a comparison per character.
+    Rep { item: One, min: u32, max: u32, greedy: bool },
     /// Try `.0` first, keep `.1` as a backtrack point.
     Split(usize, usize),
     Jmp(usize),
@@ -668,6 +725,12 @@ fn emit(node: &Node, prog: &mut Vec<Inst>, loops: &mut usize) -> Result<(), Stri
             }
         }
         Node::Repeat { node, min, max, greedy } => {
+            // A one-character body needs no unrolling: one instruction covers
+            // any bound, `\{100,500}` included.
+            if let Some(item) = One::of(node) {
+                prog.push(Inst::Rep { item, min: *min, max: *max, greedy: *greedy });
+                return Ok(());
+            }
             for _ in 0..*min {
                 emit(node, prog, loops)?;
                 if prog.len() > MAX_PROG {
@@ -748,7 +811,7 @@ impl Captures {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Thread {
     pc: usize,
     sp: u32,
@@ -756,20 +819,42 @@ struct Thread {
     marks: [u32; MAX_LOOP_GUARDS],
 }
 
+/// A road not taken, kept for when the current one fails.
+#[derive(Clone, Copy, Debug)]
+enum Frame {
+    /// The other side of a `Split`.
+    Thread(Thread),
+    /// The counts of a `Rep` still to try, as one frame however many they
+    /// are: resume `th` at input position `next`, stepping toward `stop`
+    /// (down for a greedy repeat, which took the longest run first).
+    Repeat { th: Thread, next: u32, stop: u32, down: bool },
+}
+
+/// The VM's working memory. A match attempt needs a backtrack stack; handing
+/// the same one back on every attempt turns a per-attempt allocation into a
+/// single one per scan, which is most of what `:%s` over a buffer costs.
+#[derive(Clone, Debug, Default)]
+pub struct Scratch {
+    stack: Vec<Frame>,
+}
+
 /// A compiled Vim pattern.
 #[derive(Clone, Debug)]
 pub struct Regex {
     prog: Vec<Inst>,
     ignore_case: bool,
-    /// The character a match must start with, when the pattern opens with a
-    /// literal. Scanning a line tries every column, so rejecting most of them
-    /// with one comparison — no VM state to set up — keeps plain-text search
-    /// over a big file as cheap as it was before patterns became regular.
-    leading: Option<char>,
+    /// The atom every match must begin with, if the pattern opens with one.
+    /// Scanning a line tries every column, so skipping those that cannot
+    /// start a match — no VM state to set up — keeps search over a big file
+    /// as cheap as it was before patterns became regular.
+    lead: Option<One>,
     /// A literal every match contains, for rejecting a whole line before the
     /// column scan starts. `None` when the pattern has none, or when case is
     /// ignored and a plain substring test would not be sound.
     required: Option<String>,
+    /// Capture groups in the pattern, so a caller reading them out of a match
+    /// stops at the last one that exists.
+    groups: usize,
 }
 
 impl Regex {
@@ -795,15 +880,24 @@ impl Regex {
         prog.push(Inst::Save(1));
         prog.push(Inst::Match);
         // prog[0] is the whole-match `Save`, so prog[1] opens the pattern.
-        let leading = match prog.get(1) {
-            Some(Inst::Char(c)) => Some(*c),
+        let lead = match prog.get(1) {
+            Some(Inst::Char(c)) => Some(One::Ch(*c)),
+            Some(Inst::Any) => Some(One::Any),
+            Some(Inst::Class(cl)) => Some(One::Cl(cl.clone())),
+            Some(Inst::Rep { item, min, .. }) if *min >= 1 => Some(item.clone()),
             _ => None,
         };
-        Ok(Regex { prog, ignore_case, leading, required })
+        Ok(Regex { prog, ignore_case, lead, required, groups: p.groups })
     }
 
     pub fn ignore_case(&self) -> bool {
         self.ignore_case
+    }
+
+    /// How many capture groups the pattern has: the highest `\1`…`\9` a
+    /// caller need ask a match about.
+    pub fn group_count(&self) -> usize {
+        self.groups
     }
 
     /// Can `line` contain a match at all? One substring test, and never a
@@ -815,21 +909,46 @@ impl Regex {
         }
     }
 
+    /// The first column at or after `from` where a match could begin; `None`
+    /// when the rest of the line cannot start one. Never skips a column that
+    /// could match, so a scan may use it in place of trying every one — the
+    /// difference between a VM call per character and a `char` comparison.
+    pub fn next_start(&self, chars: &[char], from: usize) -> Option<usize> {
+        match &self.lead {
+            // No leading atom: every column is a candidate, including the one
+            // past the last char, where an empty match can land.
+            None => (from <= chars.len()).then_some(from),
+            Some(One::Ch(c)) if !self.ignore_case => {
+                chars.get(from..)?.iter().position(|x| x == c).map(|k| from + k)
+            }
+            Some(One::Any) => (from < chars.len()).then_some(from),
+            Some(lead) => (from..chars.len()).find(|&i| lead.holds(chars[i], self.ignore_case)),
+        }
+    }
+
     /// Can a match begin at `at`? A cheap reject, and never a false negative.
     fn can_start_at(&self, chars: &[char], at: usize) -> bool {
-        match self.leading {
-            Some(c) => chars.get(at).is_some_and(|&x| chars_eq(x, c, self.ignore_case)),
+        match &self.lead {
+            Some(lead) => chars.get(at).is_some_and(|&x| lead.holds(x, self.ignore_case)),
             None => true,
         }
     }
 
     /// Match starting exactly at `start`. `budget` is decremented per VM step
     /// and shared across a scan, so a whole line can never cost unboundedly.
-    pub fn match_at(&self, chars: &[char], start: usize, budget: &mut u32) -> Option<Captures> {
+    /// `scratch` is working memory only: what it holds on entry is discarded.
+    pub fn match_at(
+        &self,
+        chars: &[char],
+        start: usize,
+        budget: &mut u32,
+        scratch: &mut Scratch,
+    ) -> Option<Captures> {
         if !self.can_start_at(chars, start) {
             return None;
         }
-        let mut stack: Vec<Thread> = Vec::new();
+        let stack = &mut scratch.stack;
+        stack.clear();
         let mut th = Thread {
             pc: 0,
             sp: start as u32,
@@ -868,13 +987,42 @@ impl Regex {
                     }
                     hit
                 }
+                // Take the whole run in one step, then leave the counts that
+                // were not taken as a single frame. Charged per character, so
+                // a long run still costs the budget what it costs.
+                Inst::Rep { item, min, max, greedy } => {
+                    let room = (chars.len() - sp).min(*max as usize).min(*budget as usize);
+                    let mut run = 0;
+                    while run < room && item.holds(chars[sp + run], self.ignore_case) {
+                        run += 1;
+                    }
+                    *budget -= run as u32;
+                    let (lo, hi) = (sp + *min as usize, sp + run);
+                    let hit = lo <= hi;
+                    if hit {
+                        th.pc += 1;
+                        th.sp = if *greedy { hi as u32 } else { lo as u32 };
+                        if lo != hi {
+                            if stack.len() >= MAX_STACK {
+                                return None;
+                            }
+                            let (next, stop) = if *greedy {
+                                (hi as u32 - 1, lo as u32)
+                            } else {
+                                (lo as u32 + 1, hi as u32)
+                            };
+                            stack.push(Frame::Repeat { th, next, stop, down: *greedy });
+                        }
+                    }
+                    hit
+                }
                 Inst::Split(a, b) => {
                     if stack.len() >= MAX_STACK {
                         return None;
                     }
                     let mut alt = th;
                     alt.pc = *b;
-                    stack.push(alt);
+                    stack.push(Frame::Thread(alt));
                     th.pc = *a;
                     true
                 }
@@ -923,7 +1071,27 @@ impl Regex {
                 }
             };
             if !alive {
-                th = stack.pop()?; // nothing left to try: no match here
+                // Back up to the newest alternative; a repeat's frame stays
+                // put until its last count has been tried.
+                let Some(frame) = stack.last_mut() else {
+                    return None; // nothing left to try: no match here
+                };
+                let spent = match frame {
+                    Frame::Thread(alt) => {
+                        th = *alt;
+                        true
+                    }
+                    Frame::Repeat { th: alt, next, stop, down } => {
+                        th = *alt;
+                        th.sp = *next;
+                        let last = next == stop;
+                        *next = if *down { next.wrapping_sub(1) } else { *next + 1 };
+                        last
+                    }
+                };
+                if spent {
+                    stack.pop();
+                }
             }
         }
     }
@@ -939,8 +1107,9 @@ mod tests {
         let re = Regex::new(pattern, false).expect("compiles");
         let chars: Vec<char> = text.chars().collect();
         let mut budget = DEFAULT_BUDGET;
+        let mut scratch = Scratch::default();
         (from..=chars.len())
-            .find_map(|i| re.match_at(&chars, i, &mut budget))
+            .find_map(|i| re.match_at(&chars, i, &mut budget, &mut scratch))
             .map(|c| (c.start(), c.end()))
     }
 
@@ -953,8 +1122,9 @@ mod tests {
         let re = Regex::new(pattern, false).expect("compiles");
         let chars: Vec<char> = text.chars().collect();
         let mut budget = DEFAULT_BUDGET;
+        let mut scratch = Scratch::default();
         let caps = (0..=chars.len())
-            .find_map(|i| re.match_at(&chars, i, &mut budget))
+            .find_map(|i| re.match_at(&chars, i, &mut budget, &mut scratch))
             .expect("matches");
         (0..=9)
             .filter_map(|n| caps.group(n))
@@ -995,6 +1165,27 @@ mod tests {
         assert_eq!(matched(r"a.*b", "axxbxxb"), Some("axxbxxb".into()));
         // A leading `*` is a literal star.
         assert_eq!(matched("*x", "a*x"), Some("*x".into()));
+    }
+
+    /// A repeat of a one-character atom is counted, not unrolled, so what
+    /// follows it has to be able to take characters back off the count.
+    #[test]
+    fn counted_repeats_give_back() {
+        assert_eq!(matched(r"a\+ab", "aaab"), Some("aaab".into()));
+        assert_eq!(matched(r"a\{2,4}b", "aaaaab"), Some("aaaab".into()));
+        assert_eq!(matched(r"\d\+9", "1299 4"), Some("1299".into()));
+        assert_eq!(matched(r".*=.*;", "a = b; c = d;"), Some("a = b; c = d;".into()));
+        assert_eq!(matched(r".\{-}b", "aabab"), Some("aab".into()));
+        // Lazy repeats grow instead of giving back.
+        assert_eq!(matched(r"a\{-1,}b", "aaab"), Some("aaab".into()));
+        assert_eq!(matched(r"\d\{-2,}9", "12999"), Some("129".into()));
+        // A bound the run cannot reach fails the whole attempt.
+        assert_eq!(find(r"a\{3}", "aa", 0), None);
+        assert_eq!(matched(r"a\{3}", "aaaa"), Some("aaa".into()));
+        // `\%(x\)` is one character too, and a repeat of it stays countable.
+        assert_eq!(matched(r"\%(x\)\+y", "xxxy"), Some("xxxy".into()));
+        // Captures around a repeat still report what the repeat settled on.
+        assert_eq!(groups(r"\(a\+\)\(ab\)", "aaab"), vec!["aaab", "aa", "ab"]);
     }
 
     #[test]
@@ -1099,7 +1290,24 @@ mod tests {
         let re = Regex::new(r"\(a*\)*b", false).expect("compiles");
         let chars: Vec<char> = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaac".chars().collect();
         let mut budget = DEFAULT_BUDGET;
-        assert!(re.match_at(&chars, 0, &mut budget).is_none());
+        assert!(re.match_at(&chars, 0, &mut budget, &mut Scratch::default()).is_none());
+    }
+
+    #[test]
+    fn next_start_skips_columns_that_cannot_match() {
+        let chars: Vec<char> = "a b7 c".chars().collect();
+        let skip = |pattern: &str, from: usize| {
+            Regex::new(pattern, false).expect("compiles").next_start(&chars, from)
+        };
+        assert_eq!(skip("b", 0), Some(2));
+        assert_eq!(skip("b", 3), None);
+        assert_eq!(skip(r"\d\+", 0), Some(3));
+        assert_eq!(skip(r"[bc]", 3), Some(5));
+        assert_eq!(skip(r"\cB", 0), Some(2));
+        // No leading atom: every column stands, up to the one past the end.
+        assert_eq!(skip(r"\(a\|b\)", 4), Some(4));
+        assert_eq!(skip(r"x*", 6), Some(6));
+        assert_eq!(skip(r"x*", 7), None);
     }
 
     #[test]

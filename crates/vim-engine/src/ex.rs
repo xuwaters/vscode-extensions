@@ -164,7 +164,8 @@ fn parse_address(p: &mut Cursor, ctx: &Context) -> Result<Option<usize>, String>
 /// Build the text a match is replaced with. `&` and `\0` stand for the whole
 /// match, `\1`…`\9` for capture groups, `\r`/`\n` for a line break, and
 /// `\u \l \U \L \E` change the case of what follows (`:help sub-replace`).
-pub fn expand(replacement: &str, m: &LineMatch) -> String {
+/// `line` is the line `m` was found in, which its groups point into.
+pub fn expand(replacement: &str, line: &str, m: &LineMatch) -> String {
     /// A case conversion: for the rest of the replacement (`\U`, `\L`) or for
     /// one character (`\u`, `\l`).
     #[derive(Clone, Copy, PartialEq)]
@@ -191,14 +192,14 @@ pub fn expand(replacement: &str, m: &LineMatch) -> String {
         }
     }
 
-    let group = |n: usize| m.groups.get(n).cloned().flatten().unwrap_or_default();
+    let group = |n: usize| m.group(line, n).unwrap_or_default();
     let mut out = String::new();
     let (mut run, mut once) = (Case::Keep, Case::Keep);
     let mut chars = replacement.chars();
     let mut buf = [0u8; 4];
     while let Some(ch) = chars.next() {
         if ch == '&' {
-            push_cased(&mut out, &group(0), run, &mut once);
+            push_cased(&mut out, group(0), run, &mut once);
             continue;
         }
         if ch != '\\' {
@@ -207,7 +208,7 @@ pub fn expand(replacement: &str, m: &LineMatch) -> String {
         }
         match chars.next() {
             Some(d @ '0'..='9') => {
-                push_cased(&mut out, &group(d as usize - '0' as usize), run, &mut once);
+                push_cased(&mut out, group(d as usize - '0' as usize), run, &mut once);
             }
             // `\r` is Vim's line break; `\n` is a NUL there, which is no use
             // in a VSCode document, so it breaks the line too.
@@ -384,20 +385,20 @@ mod tests {
 
     #[test]
     fn replacements_expand_groups_and_case() {
-        let m = LineMatch {
-            start: 0,
-            end: 7,
-            groups: vec![Some("foo=bar".into()), Some("foo".into()), Some("bar".into())],
-        };
-        assert_eq!(expand("x", &m), "x");
-        assert_eq!(expand("&!", &m), "foo=bar!");
-        assert_eq!(expand(r"\0!", &m), "foo=bar!");
-        assert_eq!(expand(r"\2=\1", &m), "bar=foo");
-        assert_eq!(expand(r"\9", &m), "");
-        assert_eq!(expand(r"a\&b", &m), "a&b");
-        assert_eq!(expand(r"a\rb", &m), "a\nb");
-        assert_eq!(expand(r"\u\1", &m), "Foo");
-        assert_eq!(expand(r"\U\1\E-\1", &m), "FOO-foo");
-        assert_eq!(expand(r"\L\uFOO", &m), "Foo");
+        let line = "foo=bar";
+        let pat = crate::search::Pattern::parse(r"\(\w\+\)=\(\w\+\)").expect("compiles");
+        let found = pat.find_all(line, false);
+        let m = &found[0];
+        let expand = |replacement: &str| expand(replacement, line, m);
+        assert_eq!(expand("x"), "x");
+        assert_eq!(expand("&!"), "foo=bar!");
+        assert_eq!(expand(r"\0!"), "foo=bar!");
+        assert_eq!(expand(r"\2=\1"), "bar=foo");
+        assert_eq!(expand(r"\9"), "");
+        assert_eq!(expand(r"a\&b"), "a&b");
+        assert_eq!(expand(r"a\rb"), "a\nb");
+        assert_eq!(expand(r"\u\1"), "Foo");
+        assert_eq!(expand(r"\U\1\E-\1"), "FOO-foo");
+        assert_eq!(expand(r"\L\uFOO"), "Foo");
     }
 }
