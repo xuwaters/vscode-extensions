@@ -6,9 +6,24 @@
 //! `noignorecase`) and never spans a line break, so `^` and `$` anchor to the
 //! ends of a line.
 
+use std::cell::Cell;
+
 use crate::buffer::{Buffer, Pos, chars_with_cols};
 use crate::motion::{CharClass, class};
-use crate::regex::{DEFAULT_BUDGET, Regex};
+use crate::regex::Regex;
+
+/// Budget for a pattern compiled without a buffer in hand (tests); real
+/// operations call `budget_for` instead.
+const DEFAULT_BUDGET: u32 = 30_000_000;
+
+/// Steps allowed per byte of buffer, plus a floor for small ones. The
+/// cheapest pattern that cannot reject lines by literal — `\d\{9}` and its
+/// kind — costs about two steps per character, so this leaves several times
+/// the headroom an honest scan needs while capping a catastrophic one at a
+/// fraction of a second. Patterns *with* a literal barely touch the budget:
+/// whole lines are rejected before the VM starts.
+const STEPS_PER_BYTE: u64 = 8;
+const BUDGET_FLOOR: u64 = 4_000_000;
 
 /// The last search, replayed by `n` / `N`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,10 +43,12 @@ pub struct LineMatch {
     pub groups: Vec<Option<String>>,
 }
 
-/// A compiled search pattern.
+/// A compiled search pattern, with the step budget for the operation it was
+/// compiled for.
 #[derive(Clone, Debug)]
 pub struct Pattern {
     re: Regex,
+    budget: Cell<u32>,
 }
 
 impl Pattern {
@@ -45,20 +62,46 @@ impl Pattern {
         if src.is_empty() {
             return Err("empty pattern".into());
         }
-        Ok(Pattern { re: Regex::new(src, ignore_case)? })
+        Ok(Pattern { re: Regex::new(src, ignore_case)?, budget: Cell::new(DEFAULT_BUDGET) })
+    }
+
+    /// Size the step budget for one operation over `buf` — a `/` search
+    /// across it, a `:%s` over its lines. Call this once, before the scan:
+    /// what the operation cannot finish within it, it abandons.
+    pub fn budget_for(&self, buf: &Buffer) {
+        let bytes: u64 = (0..buf.line_count()).map(|i| buf.line(i).len() as u64).sum();
+        let steps = BUDGET_FLOOR + STEPS_PER_BYTE * bytes;
+        self.budget.set(steps.min(u32::MAX as u64) as u32);
+    }
+
+    /// Did this pattern run out of steps? Then the results so far are partial
+    /// and the caller should say so rather than report "not found".
+    pub fn gave_up(&self) -> bool {
+        self.budget.get() == 0
+    }
+
+    #[cfg(test)]
+    fn with_budget(src: &str, budget: u32) -> Pattern {
+        let pat = Pattern::parse(src).expect("valid pattern");
+        pat.budget.set(budget);
+        pat
     }
 
     /// Start columns (UTF-16) of every match in `line`, ascending. Matches
     /// may overlap, as Vim's do: `aa` hits three times in `aaaa`.
     pub fn matches(&self, line: &str) -> Vec<usize> {
+        if !self.re.line_may_match(line) {
+            return Vec::new();
+        }
         let (chars, cols) = scan(line);
-        let mut budget = DEFAULT_BUDGET;
+        let mut budget = self.budget.get();
         let mut out = Vec::new();
         for i in 0..=chars.len() {
             if let Some(caps) = self.re.match_at(&chars, i, &mut budget) {
                 out.push(cols[caps.start()]);
             }
         }
+        self.budget.set(budget);
         // `\zs` can report the same start from several attempts, and can
         // report them out of order; `step` needs them ascending and unique.
         out.sort_unstable();
@@ -70,8 +113,11 @@ impl Pattern {
     /// one only, unless `global`. An empty match advances by one char so the
     /// scan always terminates.
     pub fn find_all(&self, line: &str, global: bool) -> Vec<LineMatch> {
+        if !self.re.line_may_match(line) {
+            return Vec::new();
+        }
         let (chars, cols) = scan(line);
-        let mut budget = DEFAULT_BUDGET;
+        let mut budget = self.budget.get();
         let mut out = Vec::new();
         let mut i = 0;
         while i <= chars.len() {
@@ -92,6 +138,7 @@ impl Pattern {
             }
             i = if end > i { end } else { i + 1 };
         }
+        self.budget.set(budget);
         out
     }
 }
@@ -251,6 +298,31 @@ mod tests {
         assert_eq!(m.groups[1], Some("size".into()));
         assert_eq!(m.groups[2], Some("42".into()));
         assert_eq!(m.groups[3], None);
+    }
+
+    #[test]
+    fn the_step_budget_spans_the_whole_operation() {
+        // Exponential backtracking: one line is affordable, a buffer of them
+        // is not — which is the point of budgeting the operation, not the
+        // line. (A per-line budget times a big file is a frozen editor.)
+        // No literal in the pattern, so the line prefilter cannot help.
+        let line = "aaaaaaaa";
+        let p = Pattern::with_budget(r"\(a*\)*\d", 200_000);
+        assert!(p.matches(line).is_empty());
+        assert!(!p.gave_up());
+        let b = buf(&format!("{}\n", line).repeat(50));
+        assert_eq!(find(&b, Pos::new(0, 0), &p, false, 1), None);
+        assert!(p.gave_up());
+    }
+
+    #[test]
+    fn a_line_without_the_required_literal_is_skipped() {
+        // Same answers as an unfiltered scan, at a fraction of the work.
+        let p = pat("needle");
+        assert!(p.matches("no match here").is_empty());
+        assert_eq!(p.matches("a needle here"), vec![2]);
+        assert!(pat(r".*=.*;zz").matches("let a = b;").is_empty());
+        assert_eq!(pat(r"\cNEEDLE").matches("a needle"), vec![2]); // no filter
     }
 
     #[test]

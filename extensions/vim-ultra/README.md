@@ -56,8 +56,14 @@ simply lands on the match. The `c` (confirm) flag on `:s` is rejected instead
 of silently replacing without asking. In a replacement, `\n` breaks the line
 like `\r` does, rather than inserting Vim's NUL.
 
-A pathological pattern (`\(a*\)*b` and relatives) gives up after a fixed step
-budget and reports no match, so it can never hang the editor.
+Searching is bounded, not linear-time: patterns run on a backtracking VM, so
+a catastrophic one (`\%(\w*\)*\d\{9}` and relatives) is stopped by a step
+budget sized to the buffer — a tenth of a second or so — and reported as
+`gave up: pattern is too slow to run here` rather than passed off as "not
+found" or allowed to freeze the editor. Ordinary patterns are nowhere near
+it: most lines are rejected by a required-literal test before matching starts,
+which puts a whole-buffer search over a 1 MB file at well under a millisecond.
+See `crates/vim-engine/tests/perf.rs` for the measurements.
 
 ## Development
 

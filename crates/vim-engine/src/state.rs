@@ -898,20 +898,21 @@ impl Session {
         commands: &mut Vec<Command>,
     ) {
         let count = self.pending.count();
-        let target = match search::Pattern::parse(pattern) {
-            Ok(p) => search::find(&self.buf, self.cursor, &p, backward, count),
+        let pat = match search::Pattern::parse(pattern) {
+            Ok(p) => p,
             Err(msg) => {
                 self.message = Some(msg);
                 return self.clear_pending();
             }
         };
-        match target {
+        pat.budget_for(&self.buf);
+        match search::find(&self.buf, self.cursor, &pat, backward, count) {
             Some(pos) => {
                 self.pending.awaiting = Awaiting::None;
                 self.do_motion(pos, MotionKind::Exclusive, edits, commands);
             }
             None => {
-                self.message = Some(format!("pattern not found: {pattern}"));
+                self.message = Some(gave_up_or_missing(&pat, pattern));
                 self.clear_pending();
             }
         }
@@ -982,6 +983,7 @@ impl Session {
                 return;
             }
         };
+        pattern.budget_for(&self.buf);
         let previous = self.last_replacement.clone().unwrap_or_default();
         let replacement = ex::expand_tilde(
             sub.replacement.as_deref().unwrap_or(&previous),
@@ -1021,8 +1023,8 @@ impl Session {
         }
 
         if hits == 0 {
-            if !sub.quiet {
-                self.message = Some(format!("pattern not found: {source}"));
+            if !sub.quiet || pattern.gave_up() {
+                self.message = Some(gave_up_or_missing(&pattern, &source));
             }
             return;
         }
@@ -1584,4 +1586,15 @@ fn slice_cols(line: &str, from: usize, to: usize) -> &str {
 
 fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
+}
+
+/// Why a scan came back empty: no match, or a pattern so expensive the engine
+/// stopped rather than block the editor. Saying which keeps a partial answer
+/// from reading as a definitive one.
+fn gave_up_or_missing(pat: &search::Pattern, source: &str) -> String {
+    if pat.gave_up() {
+        format!("gave up: pattern is too slow to run here: {source}")
+    } else {
+        format!("pattern not found: {source}")
+    }
 }

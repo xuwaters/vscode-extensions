@@ -191,6 +191,45 @@ enum Node {
     },
 }
 
+/// The longest run of literal characters every match must contain, if any.
+/// A line without it cannot match, which lets a scan skip the line outright
+/// instead of trying the pattern at each of its columns. Undercounting is
+/// safe (a shorter required literal still rejects soundly), so anything not
+/// unconditionally present — an alternation, an optional repeat — just ends
+/// the run.
+fn required_literal(node: &Node) -> Option<String> {
+    fn walk(node: &Node, run: &mut String, best: &mut String) {
+        match node {
+            Node::Char(c) => run.push(*c),
+            Node::Seq(items) => {
+                for item in items {
+                    walk(item, run, best);
+                }
+            }
+            Node::Group(_, inner) => walk(inner, run, best),
+            // The body appears at least once; further copies may sit between
+            // it and whatever follows, so the run ends here.
+            Node::Repeat { node, min, .. } if *min >= 1 => {
+                walk(node, run, best);
+                flush(run, best);
+            }
+            _ => flush(run, best),
+        }
+    }
+
+    fn flush(run: &mut String, best: &mut String) {
+        if run.chars().count() > best.chars().count() {
+            best.clone_from(run);
+        }
+        run.clear();
+    }
+
+    let (mut run, mut best) = (String::new(), String::new());
+    walk(node, &mut run, &mut best);
+    flush(&mut run, &mut best);
+    (!best.is_empty()).then_some(best)
+}
+
 /// Can `node` match the empty string? Used to guard star loops that would
 /// otherwise spin forever on an empty body (`\(a*\)*`).
 fn nullable(node: &Node) -> bool {
@@ -727,6 +766,10 @@ pub struct Regex {
     /// with one comparison — no VM state to set up — keeps plain-text search
     /// over a big file as cheap as it was before patterns became regular.
     leading: Option<char>,
+    /// A literal every match contains, for rejecting a whole line before the
+    /// column scan starts. `None` when the pattern has none, or when case is
+    /// ignored and a plain substring test would not be sound.
+    required: Option<String>,
 }
 
 impl Regex {
@@ -744,6 +787,8 @@ impl Regex {
         if p.i < p.src.len() {
             return Err("unmatched ) in pattern".into());
         }
+        let ignore_case = p.force_case.unwrap_or(ignore_case);
+        let required = (!ignore_case).then(|| required_literal(&node)).flatten();
         let mut prog = vec![Inst::Save(0)];
         let mut loops = 0;
         emit(&node, &mut prog, &mut loops)?;
@@ -754,11 +799,20 @@ impl Regex {
             Some(Inst::Char(c)) => Some(*c),
             _ => None,
         };
-        Ok(Regex { prog, ignore_case: p.force_case.unwrap_or(ignore_case), leading })
+        Ok(Regex { prog, ignore_case, leading, required })
     }
 
     pub fn ignore_case(&self) -> bool {
         self.ignore_case
+    }
+
+    /// Can `line` contain a match at all? One substring test, and never a
+    /// false negative.
+    pub fn line_may_match(&self, line: &str) -> bool {
+        match &self.required {
+            Some(literal) => line.contains(literal.as_str()),
+            None => true,
+        }
     }
 
     /// Can a match begin at `at`? A cheap reject, and never a false negative.
@@ -1000,6 +1054,40 @@ mod tests {
         assert_eq!(find(r"foo\zsbar", "foobar", 0), Some((3, 6)));
         assert_eq!(find(r"foo\zebar", "foobar", 0), Some((0, 3)));
         assert_eq!(groups(r"\(foo\)\zsbar", "foobar"), vec!["bar", "foo"]);
+    }
+
+    #[test]
+    fn required_literals_reject_whole_lines() {
+        let lit = |src: &str| {
+            let mut p = Parser {
+                src: src.chars().collect(),
+                i: 0,
+                magic: Magic::Magic,
+                groups: 0,
+                force_case: None,
+            };
+            required_literal(&p.parse_alt().expect("parses"))
+        };
+        assert_eq!(lit("needle"), Some("needle".into()));
+        assert_eq!(lit("[nq]eedle"), Some("eedle".into()));
+        assert_eq!(lit(r".*=.*;zz"), Some(";zz".into()));
+        assert_eq!(lit(r"\(foo\)bar"), Some("foobar".into()));
+        assert_eq!(lit(r"a\+bc"), Some("bc".into()));
+        assert_eq!(lit(r"x\=abc"), Some("abc".into()));
+        assert_eq!(lit(r"\<foo\>"), Some("foo".into()));
+        assert_eq!(lit(r"foo\zsbar"), Some("foo".into()));
+        // Nothing is guaranteed through an alternation or a class.
+        assert_eq!(lit(r"foo\|bar"), None);
+        assert_eq!(lit(r"\w\+"), None);
+        // An alternation cuts the run short, so only `ab` is required here —
+        // weaker than it could be, but never a false negative.
+        assert_eq!(lit(r"ab\(c\|d\)e"), Some("ab".into()));
+        let re = Regex::new(r"ab\(c\|d\)e", false).expect("compiles");
+        assert!(re.line_may_match("xxabdexx"));
+        assert!(re.line_may_match("xxabxx")); // rejecting is the scan's job
+        assert!(!re.line_may_match("xxcexx"));
+        // Ignoring case makes a plain substring test unsound, so there is none.
+        assert!(Regex::new("needle", true).expect("compiles").line_may_match("NEEDLE"));
     }
 
     #[test]
