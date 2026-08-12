@@ -32,8 +32,8 @@ export function serializeSelections(sels: readonly SelectionLike[]): string {
     .join(',');
 }
 
-/** Status bar label for an engine mode. */
-export function modeLabel(mode: string, pending: string): string {
+/** Status bar label for an engine mode, its pending keys and last message. */
+export function modeLabel(mode: string, pending: string, message = ''): string {
   const base =
     mode === 'insert'
       ? '-- INSERT --'
@@ -42,5 +42,5 @@ export function modeLabel(mode: string, pending: string): string {
         : mode === 'visualLine'
           ? '-- VISUAL LINE --'
           : '-- NORMAL --';
-  return pending ? `${base} ${pending}` : base;
+  return [base, pending, message].filter(Boolean).join(' ');
 }

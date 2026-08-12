@@ -7,8 +7,10 @@
 //! status info. See state.rs for the protocol details.
 
 pub mod buffer;
+pub mod ex;
 pub mod keys;
 pub mod motion;
+pub mod regex;
 pub mod search;
 pub mod state;
 pub mod textobj;

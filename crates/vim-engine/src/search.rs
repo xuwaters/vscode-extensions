@@ -1,13 +1,14 @@
-//! Buffer search behind `/ ? n N * #`.
+//! Buffer search behind `/ ? n N * #`, and the match plumbing `:substitute`
+//! runs on.
 //!
-//! Patterns are literal text plus Vim's word-boundary atoms `\<` and `\>`;
-//! any other backslash escape stands for the character it precedes. Matching
-//! is case-sensitive (Vim's default `noignorecase`) and never spans a line
-//! break, which keeps interactive searching useful without linking a regex
-//! engine into the WASM bundle.
+//! Patterns are Vim regular expressions (see regex.rs) compiled once and then
+//! applied line by line: matching is case-sensitive by default (Vim's
+//! `noignorecase`) and never spans a line break, so `^` and `$` anchor to the
+//! ends of a line.
 
-use crate::buffer::{Buffer, Pos, byte_to_utf16, chars_with_cols};
+use crate::buffer::{Buffer, Pos, chars_with_cols};
 use crate::motion::{CharClass, class};
+use crate::regex::{DEFAULT_BUDGET, Regex};
 
 /// The last search, replayed by `n` / `N`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,66 +18,96 @@ pub struct Search {
     pub backward: bool,
 }
 
-/// A parsed pattern: literal text with optional word-boundary anchors.
+/// One match inside a line. Columns are UTF-16; `groups[0]` is the whole
+/// matched text and `groups[n]` capture group `n` (`None` if it took part in
+/// no branch of the match).
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineMatch {
+    pub start: usize,
+    pub end: usize,
+    pub groups: Vec<Option<String>>,
+}
+
+/// A compiled search pattern.
+#[derive(Clone, Debug)]
 pub struct Pattern {
-    text: String,
-    at_word_start: bool,
-    at_word_end: bool,
+    re: Regex,
 }
 
 impl Pattern {
-    /// Parse a pattern; `None` when nothing is left to match on.
-    pub fn parse(src: &str) -> Option<Pattern> {
-        let mut text = String::new();
-        let mut at_word_start = false;
-        let mut at_word_end = false;
-        let mut chars = src.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if ch != '\\' {
-                text.push(ch);
-                continue;
-            }
-            match chars.next() {
-                Some('<') if text.is_empty() => at_word_start = true,
-                Some('>') if chars.peek().is_none() => at_word_end = true,
-                Some(c) => text.push(c),
-                None => text.push('\\'),
-            }
+    /// Compile a case-sensitive pattern (`\c` in the pattern still wins).
+    pub fn parse(src: &str) -> Result<Pattern, String> {
+        Pattern::parse_case(src, false)
+    }
+
+    /// Compile with an explicit case default, as `:s///i` and `:s///I` need.
+    pub fn parse_case(src: &str, ignore_case: bool) -> Result<Pattern, String> {
+        if src.is_empty() {
+            return Err("empty pattern".into());
         }
-        (!text.is_empty()).then_some(Pattern {
-            text,
-            at_word_start,
-            at_word_end,
-        })
+        Ok(Pattern { re: Regex::new(src, ignore_case)? })
     }
 
     /// Start columns (UTF-16) of every match in `line`, ascending. Matches
-    /// may overlap, as Vim's do.
-    fn matches(&self, line: &str) -> Vec<usize> {
+    /// may overlap, as Vim's do: `aa` hits three times in `aaaa`.
+    pub fn matches(&self, line: &str) -> Vec<usize> {
+        let (chars, cols) = scan(line);
+        let mut budget = DEFAULT_BUDGET;
         let mut out = Vec::new();
-        let mut from = 0;
-        while let Some(rel) = line[from..].find(&self.text) {
-            let byte = from + rel;
-            if self.boundaries_ok(line, byte) {
-                out.push(byte_to_utf16(line, byte));
+        for i in 0..=chars.len() {
+            if let Some(caps) = self.re.match_at(&chars, i, &mut budget) {
+                out.push(cols[caps.start()]);
             }
-            from = byte + line[byte..].chars().next().map_or(1, char::len_utf8);
         }
+        // `\zs` can report the same start from several attempts, and can
+        // report them out of order; `step` needs them ascending and unique.
+        out.sort_unstable();
+        out.dedup();
         out
     }
 
-    /// Do the `\<` / `\>` anchors hold for a match starting at `byte`?
-    fn boundaries_ok(&self, line: &str, byte: usize) -> bool {
-        if self.at_word_start && line[..byte].chars().next_back().is_some_and(is_word) {
-            return false;
+    /// Non-overlapping matches in `line`, as `:s` replaces them: the first
+    /// one only, unless `global`. An empty match advances by one char so the
+    /// scan always terminates.
+    pub fn find_all(&self, line: &str, global: bool) -> Vec<LineMatch> {
+        let (chars, cols) = scan(line);
+        let mut budget = DEFAULT_BUDGET;
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i <= chars.len() {
+            let Some(caps) = self.re.match_at(&chars, i, &mut budget) else {
+                i += 1;
+                continue;
+            };
+            let (start, end) = (caps.start(), caps.end());
+            let groups = (0..=9)
+                .map(|n| {
+                    caps.group(n)
+                        .map(|(s, e)| chars[s.min(chars.len())..e.min(chars.len())].iter().collect())
+                })
+                .collect();
+            out.push(LineMatch { start: cols[start], end: cols[end], groups });
+            if !global {
+                break;
+            }
+            i = if end > i { end } else { i + 1 };
         }
-        let end = byte + self.text.len();
-        if self.at_word_end && line[end..].chars().next().is_some_and(is_word) {
-            return false;
-        }
-        true
+        out
     }
+}
+
+/// A line's chars alongside the UTF-16 column each one starts at (plus the
+/// column just past the end, so match ends map too).
+fn scan(line: &str) -> (Vec<char>, Vec<usize>) {
+    let chars: Vec<char> = line.chars().collect();
+    let mut cols = Vec::with_capacity(chars.len() + 1);
+    let mut col = 0;
+    for ch in &chars {
+        cols.push(col);
+        col += ch.len_utf16();
+    }
+    cols.push(col);
+    (chars, cols)
 }
 
 fn is_word(ch: char) -> bool {
@@ -148,40 +179,78 @@ pub fn word_under_cursor(buf: &Buffer, pos: Pos) -> Option<(Pos, String)> {
     Some((Pos::new(pos.line, cols[start].0), text))
 }
 
+/// Escape `text` so a pattern matches it literally (used by `*` and `#`).
+pub fn escape_literal(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if !ch.is_alphanumeric() && ch != '_' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
     fn pat(src: &str) -> Pattern {
-        Pattern::parse(src).expect("non-empty pattern")
+        Pattern::parse(src).expect("valid pattern")
     }
 
     fn buf(s: &str) -> Buffer {
         Buffer::from_text(s)
     }
 
+    fn spans(src: &str, line: &str, global: bool) -> Vec<(usize, usize)> {
+        pat(src)
+            .find_all(line, global)
+            .iter()
+            .map(|m| (m.start, m.end))
+            .collect()
+    }
+
     #[test]
-    fn parse_escapes_and_anchors() {
-        assert_eq!(Pattern::parse(""), None);
-        assert_eq!(Pattern::parse("\\<\\>"), None); // anchors only: nothing to match
-        assert_eq!(
-            pat("\\<foo\\>"),
-            Pattern { text: "foo".into(), at_word_start: true, at_word_end: true }
-        );
-        // A backslash elsewhere just escapes the next char.
-        assert_eq!(pat("a\\.b").text, "a.b");
-        assert_eq!(pat("a\\\\b").text, "a\\b");
-        // `\<` past the start is literal.
-        assert_eq!(pat("a\\<b").text, "a<b");
+    fn empty_and_invalid_patterns_are_rejected() {
+        assert_eq!(Pattern::parse("").err(), Some("empty pattern".into()));
+        assert!(Pattern::parse(r"\(foo").is_err());
     }
 
     #[test]
     fn matches_respect_word_boundaries() {
         assert_eq!(pat("foo").matches("foo foobar xfoo"), vec![0, 4, 12]);
-        assert_eq!(pat("\\<foo\\>").matches("foo foobar xfoo"), vec![0]);
-        assert_eq!(pat("\\<foo").matches("foo foobar xfoo"), vec![0, 4]);
+        assert_eq!(pat(r"\<foo\>").matches("foo foobar xfoo"), vec![0]);
+        assert_eq!(pat(r"\<foo").matches("foo foobar xfoo"), vec![0, 4]);
         assert_eq!(pat("aa").matches("aaaa"), vec![0, 1, 2]); // overlapping
+    }
+
+    #[test]
+    fn matches_are_regular_expressions() {
+        assert_eq!(pat(r"a.c").matches("abc a c axc"), vec![0, 4, 8]);
+        assert_eq!(pat(r"\d\+").matches("x 42 y 7"), vec![2, 3, 7]);
+        assert_eq!(pat(r"^x").matches("x x"), vec![0]);
+        assert_eq!(pat(r"x$").matches("x x"), vec![2]);
+        assert_eq!(pat(r"a\.b").matches("a.b axb"), vec![0]);
+    }
+
+    #[test]
+    fn find_all_walks_non_overlapping_matches() {
+        assert_eq!(spans("aa", "aaaaa", true), vec![(0, 2), (2, 4)]);
+        assert_eq!(spans("aa", "aaaaa", false), vec![(0, 2)]);
+        // Empty matches step forward one char instead of spinning.
+        assert_eq!(spans("x*", "ab", true), vec![(0, 0), (1, 1), (2, 2)]);
+        assert_eq!(spans(r"\d\+", "a1b22c", true), vec![(1, 2), (3, 5)]);
+    }
+
+    #[test]
+    fn find_all_reports_group_text() {
+        let m = &pat(r"\(\w\+\)=\(\d\+\)").find_all("x: size=42;", true)[0];
+        assert_eq!(m.groups[0], Some("size=42".into()));
+        assert_eq!(m.groups[1], Some("size".into()));
+        assert_eq!(m.groups[2], Some("42".into()));
+        assert_eq!(m.groups[3], None);
     }
 
     #[test]
@@ -236,5 +305,13 @@ mod tests {
     fn utf16_columns_are_reported() {
         let b = buf("a😀foo");
         assert_eq!(find(&b, Pos::new(0, 0), &pat("foo"), false, 1), Some(Pos::new(0, 3)));
+        assert_eq!(spans("foo", "a😀foo", true), vec![(3, 6)]);
+        assert_eq!(pat(".").matches("a😀b"), vec![0, 1, 3]);
+    }
+
+    #[test]
+    fn escape_literal_neutralizes_pattern_syntax() {
+        assert_eq!(escape_literal("a.b*"), r"a\.b\*");
+        assert_eq!(pat(&escape_literal("a.b")).matches("axb a.b"), vec![4]);
     }
 }

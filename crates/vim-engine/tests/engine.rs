@@ -5,7 +5,7 @@
 
 use pretty_assertions::assert_eq;
 use vim_engine::buffer::Pos;
-use vim_engine::state::{Command, Session};
+use vim_engine::state::{Command, Effects, Session};
 use vim_engine::Key;
 
 fn session(text: &str) -> Session {
@@ -18,8 +18,10 @@ fn at(text: &str, line: usize, col: usize) -> Session {
     s
 }
 
-/// Feed a key sequence; specials in angle brackets: "dw<esc>x".
-fn feed(s: &mut Session, keys: &str) {
+/// Feed a key sequence; specials in angle brackets: "dw<esc>x". Returns the
+/// last key's effects.
+fn feed(s: &mut Session, keys: &str) -> Effects {
+    let mut last = None;
     let mut chars = keys.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '<' {
@@ -30,11 +32,12 @@ fn feed(s: &mut Session, keys: &str) {
                     break;
                 }
             }
-            s.key(Key::parse(&name).expect("special key"));
+            last = Some(s.key(Key::parse(&name).expect("special key")));
         } else {
-            s.key(Key::Char(ch));
+            last = Some(s.key(Key::Char(ch)));
         }
     }
+    last.expect("at least one key")
 }
 
 /// Feed every char as itself, with no `<key>` parsing — for patterns that
@@ -715,6 +718,209 @@ fn search_pattern_escapes() {
 }
 
 #[test]
+fn search_patterns_are_regular_expressions() {
+    let mut s = session("alpha 42\nbeta 7\ngamma");
+    feed(&mut s, r"/\d\+<cr>");
+    assert_eq!(s.cursor(), Pos::new(0, 6));
+    feed(&mut s, "n"); // matches may start inside the previous one, as vim's do
+    assert_eq!(s.cursor(), Pos::new(0, 7));
+    feed(&mut s, "n");
+    assert_eq!(s.cursor(), Pos::new(1, 5));
+    // Anchors, quantifiers, classes, alternation and very magic all work.
+    let mut s = session("foo bar\nbar foo");
+    feed(&mut s, "/^bar<cr>");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    let mut s = session("ab a1b axb");
+    feed(&mut s, "/a[0-9]b<cr>");
+    assert_eq!(s.cursor(), Pos::new(0, 3));
+    let mut s = session("one two three");
+    feed(&mut s, r"/\vt(wo|hree)<cr>");
+    assert_eq!(s.cursor(), Pos::new(0, 4));
+    // `\c` ignores case for one search.
+    let mut s = session("hello HELLO");
+    feed(&mut s, r"/\cHELLO<cr>");
+    assert_eq!(s.cursor(), Pos::new(0, 6));
+    feed(&mut s, "n");
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+}
+
+#[test]
+fn regex_search_composes_with_operators_and_reports_failures() {
+    let mut s = session("keep 123 drop");
+    feed(&mut s, r"d/\d<cr>");
+    assert_eq!(s.text(), "123 drop");
+    let fx = feed(&mut s, "/nope<cr>");
+    assert_eq!(fx.message.as_deref(), Some("pattern not found: nope"));
+    // An unparseable pattern says so instead of moving.
+    let fx = feed(&mut s, r"/\(oops<cr>");
+    assert_eq!(fx.message.as_deref(), Some("unmatched ( in pattern"));
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+}
+
+#[test]
+fn substitute_on_the_current_line() {
+    let mut s = session("foo foo foo\nfoo");
+    let fx = feed(&mut s, ":s/foo/bar/<cr>");
+    assert_eq!(s.text(), "bar foo foo\nfoo");
+    assert_eq!(fx.message.as_deref(), Some("1 substitution on 1 line"));
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+    let fx = feed(&mut s, ":s/foo/bar/g<cr>");
+    assert_eq!(s.text(), "bar bar bar\nfoo");
+    assert_eq!(fx.message.as_deref(), Some("2 substitutions on 1 line"));
+    // One edit per changed line, in pre-state coordinates.
+    let mut s = session("x\ny\nx");
+    let fx = feed(&mut s, ":%s/x/zz/<cr>");
+    assert_eq!(s.text(), "zz\ny\nzz");
+    assert_eq!(fx.edits.len(), 2);
+    assert_eq!((fx.edits[1].start, fx.edits[1].end), (Pos::new(2, 0), Pos::new(2, 1)));
+    assert_eq!(fx.message.as_deref(), Some("2 substitutions on 2 lines"));
+    assert_eq!(s.cursor(), Pos::new(2, 0));
+}
+
+#[test]
+fn substitute_ranges() {
+    let mut s = session("a\na\na\na");
+    feed(&mut s, ":2,3s/a/b/<cr>");
+    assert_eq!(s.text(), "a\nb\nb\na");
+    assert_eq!(s.cursor(), Pos::new(2, 0));
+    feed(&mut s, ":%s/a/c/<cr>");
+    assert_eq!(s.text(), "c\nb\nb\nc");
+    // Relative addresses count from the cursor.
+    let mut s = at("a\na\na\na", 1, 0);
+    feed(&mut s, ":.,+1s/a/b/<cr>");
+    assert_eq!(s.text(), "a\nb\nb\na");
+    // `$` is the last line.
+    let mut s = session("a\na\na");
+    feed(&mut s, ":$s/a/z/<cr>");
+    assert_eq!(s.text(), "a\na\nz");
+    // A bare address just moves.
+    let mut s = session("one\ntwo\n  three");
+    feed(&mut s, ":3<cr>");
+    assert_eq!(s.cursor(), Pos::new(2, 2));
+}
+
+#[test]
+fn substitute_over_a_visual_selection() {
+    let mut s = session("a\na\na\na");
+    // `:` in visual mode prefills the range.
+    let fx = feed(&mut s, "Vj:");
+    assert_eq!(fx.pending, ":'<,'>");
+    feed(&mut s, "s/a/b/<cr>");
+    assert_eq!(s.text(), "b\nb\na\na");
+    assert_eq!(s.mode_label(), "normal");
+}
+
+#[test]
+fn substitute_flags() {
+    // `i` / `I` override case sensitivity, `n` only counts.
+    let mut s = session("Foo foo FOO");
+    feed(&mut s, ":s/foo/x/gi<cr>");
+    assert_eq!(s.text(), "x x x");
+    let mut s = session("Foo foo");
+    feed(&mut s, ":s/foo/x/g<cr>");
+    assert_eq!(s.text(), "Foo x");
+    let mut s = session("a a\na");
+    let fx = feed(&mut s, ":%s/a/b/gn<cr>");
+    assert_eq!(s.text(), "a a\na"); // unchanged
+    assert_eq!(fx.message.as_deref(), Some("3 matches on 2 lines"));
+    // A pattern that is not there reports it, unless `e` asks for quiet.
+    let fx = feed(&mut s, ":s/zzz/x/<cr>");
+    assert_eq!(fx.message.as_deref(), Some("pattern not found: zzz"));
+    let fx = feed(&mut s, ":s/zzz/x/e<cr>");
+    assert_eq!(fx.message, None);
+}
+
+#[test]
+fn substitute_replacement_syntax() {
+    let mut s = session("size=42");
+    feed_literal(&mut s, r":s/\(\w\+\)=\(\d\+\)/\2 is \1/");
+    s.key(Key::Enter);
+    assert_eq!(s.text(), "42 is size");
+    // `&` is the whole match, `\u` upper-cases what follows.
+    let mut s = session("one two");
+    feed(&mut s, r":s/\w\+/[&]/g<cr>");
+    assert_eq!(s.text(), "[one] [two]");
+    let mut s = session("foo bar");
+    feed(&mut s, r":s/\w\+/\u&/g<cr>");
+    assert_eq!(s.text(), "Foo Bar");
+    // `\r` breaks the line; the cursor follows to the last new line.
+    let mut s = session("a,b\nc,d");
+    feed(&mut s, r":%s/,/\r/g<cr>");
+    assert_eq!(s.text(), "a\nb\nc\nd");
+    assert_eq!(s.cursor(), Pos::new(3, 0));
+}
+
+#[test]
+fn substitute_reuses_the_last_pattern_and_replacement() {
+    let mut s = session("foo\nfoo\nfoo\nfoo");
+    feed(&mut s, ":s/foo/bar/<cr>");
+    // `&` repeats it on the current line, a bare `:s` does the same.
+    feed(&mut s, "j&");
+    assert_eq!(s.text(), "bar\nbar\nfoo\nfoo");
+    feed(&mut s, ":+1s<cr>");
+    assert_eq!(s.text(), "bar\nbar\nbar\nfoo");
+    // An empty pattern reuses the last search.
+    feed(&mut s, "/foo<cr>");
+    feed(&mut s, ":s//baz/<cr>");
+    assert_eq!(s.text(), "bar\nbar\nbar\nbaz");
+    // `~` in a replacement stands for the previous replacement.
+    let mut s = session("x");
+    feed(&mut s, ":s/x/ab/<cr>");
+    feed(&mut s, ":s/ab/~c/<cr>");
+    assert_eq!(s.text(), "abc");
+}
+
+#[test]
+fn substitute_after_search_and_star() {
+    let mut s = session("alpha beta\nalpha");
+    feed(&mut s, "*"); // sets the search to \<alpha\>
+    feed(&mut s, ":%s//A/<cr>");
+    assert_eq!(s.text(), "A beta\nA");
+    // `:s` also sets the last search pattern, so `n` follows it.
+    let mut s = session("x1\nx2\nx1");
+    feed(&mut s, ":s/x1/y/<cr>");
+    feed(&mut s, "n");
+    assert_eq!(s.cursor(), Pos::new(2, 0));
+}
+
+#[test]
+fn ex_prompt_is_editable_and_cancelable() {
+    let mut s = session("foo");
+    let fx = s.key(Key::Char(':'));
+    assert_eq!(fx.pending, ":");
+    let fx = feed(&mut s, "s/foo/bat");
+    assert_eq!(fx.pending, ":s/foo/bat");
+    let fx = feed(&mut s, "<bs>r/<cr>");
+    assert_eq!((s.text().as_str(), fx.pending.as_str()), ("bar", ""));
+    // Escape abandons the line, backspacing past the `:` too.
+    feed(&mut s, ":s/bar/zzz/<esc>");
+    assert_eq!(s.text(), "bar");
+    let fx = feed(&mut s, ":<bs>");
+    assert_eq!(fx.pending, "");
+    // Digits and operators typed into the line are just text.
+    let mut s = session("d3w");
+    feed(&mut s, ":s/d3w/ok/<cr>");
+    assert_eq!(s.text(), "ok");
+}
+
+#[test]
+fn ex_errors_are_reported() {
+    let mut s = session("abc");
+    let fx = feed(&mut s, ":w<cr>");
+    assert_eq!(fx.message.as_deref(), Some("not an editor command: w"));
+    let fx = feed(&mut s, ":s/a/b/c<cr>");
+    assert_eq!(fx.message.as_deref(), Some("the c (confirm) flag is not supported"));
+    let fx = feed(&mut s, ":s/a/b/q<cr>");
+    assert_eq!(fx.message.as_deref(), Some("unknown :s flag: q"));
+    let fx = feed(&mut s, r":s/\(a/b/<cr>");
+    assert_eq!(fx.message.as_deref(), Some("unmatched ( in pattern"));
+    assert_eq!(s.text(), "abc"); // nothing was touched
+    let mut s = session("abc");
+    let fx = feed(&mut s, ":s<cr>");
+    assert_eq!(fx.message.as_deref(), Some("no previous regular expression"));
+}
+
+#[test]
 fn search_keys_are_literal_in_the_prompt() {
     // Digits, operators and specials typed into a pattern are just text.
     let mut s = session("no match\nd3w here");
@@ -722,3 +928,4 @@ fn search_keys_are_literal_in_the_prompt() {
     assert_eq!(s.cursor(), Pos::new(1, 0));
     assert_eq!(s.text(), "no match\nd3w here");
 }
+

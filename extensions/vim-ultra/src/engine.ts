@@ -33,6 +33,8 @@ export interface Effects {
   edits: EngineEdit[];
   commands: EngineCommand[];
   pending: string;
+  /** Status-bar report: `:s` counts, ex errors, a search that found nothing. */
+  message?: string;
 }
 
 export interface EngineChange {

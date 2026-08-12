@@ -8,7 +8,8 @@
 
 use serde::Serialize;
 
-use crate::buffer::{Buffer, Pos, chars_with_cols, utf16_len};
+use crate::buffer::{Buffer, Pos, chars_with_cols, utf16_len, utf16_to_byte};
+use crate::ex;
 use crate::keys::Key;
 use crate::motion::{self, FindKind, char_before};
 use crate::search::{self, Search};
@@ -40,8 +41,11 @@ pub struct Selection {
 }
 
 /// A text edit in pre-state coordinates. When several edits are emitted for
-/// one key they touch disjoint lines and never change the line count, so the
-/// host can hand them to one `editor.edit` transaction verbatim.
+/// one key they touch disjoint lines, so the host can hand them to one
+/// `editor.edit` transaction verbatim — every range refers to the document
+/// as it was before the key. (A `:s` replacement containing `\r` does change
+/// the line count, which is why the engine applies them to its own mirror
+/// bottom-up.)
 #[derive(Serialize, Clone, Debug)]
 pub struct Edit {
     pub start: Pos,
@@ -76,6 +80,10 @@ pub struct Effects {
     pub commands: Vec<Command>,
     /// Keys buffered toward an incomplete command, for the status bar.
     pub pending: String,
+    /// A one-line report for the status bar: `:s` counts, ex errors, a search
+    /// that found nothing. `None` leaves whatever was shown before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -115,6 +123,8 @@ enum Awaiting {
     Search {
         backward: bool,
     },
+    /// Typing an ex command line after `:`, terminated by `<cr>`.
+    Ex,
 }
 
 #[derive(Default, Debug)]
@@ -124,8 +134,9 @@ struct Pending {
     op: Option<Op>,
     count2: usize,
     awaiting: Awaiting,
-    /// The search pattern typed so far (only while `awaiting` is `Search`).
-    search: String,
+    /// The `/`, `?` or `:` line typed so far (only while `awaiting` is
+    /// `Search` or `Ex`).
+    prompt: String,
 }
 
 impl Pending {
@@ -136,7 +147,7 @@ impl Pending {
     /// Keys buffered so far, as the status bar shows them.
     fn display(&self) -> String {
         let mut s = self.keys.clone();
-        s.push_str(&self.search);
+        s.push_str(&self.prompt);
         s
     }
 
@@ -186,6 +197,12 @@ pub struct Session {
     register: Register,
     last_find: Option<(FindKind, char)>,
     last_search: Option<Search>,
+    /// The replacement `:s` last used, behind a bare `:s`, `&` and `~`.
+    last_replacement: Option<String>,
+    /// Line span of the last visual selection, behind `'<` and `'>`.
+    last_visual: Option<(usize, usize)>,
+    /// Report for the next `Effects`, taken when one is built.
+    message: Option<String>,
 }
 
 impl Session {
@@ -200,6 +217,9 @@ impl Session {
             register: Register::default(),
             last_find: None,
             last_search: None,
+            last_replacement: None,
+            last_visual: None,
+            message: None,
         }
     }
 
@@ -260,6 +280,7 @@ impl Session {
             edits: Vec::new(),
             commands: Vec::new(),
             pending: String::new(),
+            message: None,
         }
     }
 
@@ -283,6 +304,7 @@ impl Session {
             edits: Vec::new(),
             commands: Vec::new(),
             pending: String::new(),
+            message: None,
         }
     }
 
@@ -299,6 +321,7 @@ impl Session {
             edits,
             commands,
             pending: self.pending.display(),
+            message: self.message.take(),
         }
     }
 
@@ -406,6 +429,7 @@ impl Session {
             Awaiting::Z => return self.resolve_z(key, commands),
             Awaiting::Object { around } => return self.resolve_object(around, key, edits, commands),
             Awaiting::Search { backward } => return self.resolve_search(backward, key, edits, commands),
+            Awaiting::Ex => return self.resolve_ex(key, edits),
             Awaiting::None => {}
         }
 
@@ -471,6 +495,14 @@ impl Session {
             Key::Char(c @ ('/' | '?')) => {
                 self.pending.awaiting = Awaiting::Search { backward: c == '?' };
                 self.pending.keys.push(c);
+            }
+            Key::Char(':') => {
+                self.pending.awaiting = Awaiting::Ex;
+                self.pending.keys.push(':');
+                // `:` in visual mode prefills the selection's range, as Vim's does.
+                if visual {
+                    self.pending.prompt.push_str("'<,'>");
+                }
             }
             _ => self.simple_key(key, edits, commands),
         }
@@ -568,6 +600,14 @@ impl Session {
             Key::Char('Y') if !visual => self.linewise_yank(count),
             Key::Char('S') if !visual => self.linewise_change(cur.line, count, edits),
             Key::Char('~') if !visual => self.toggle_case(count, edits),
+            // `&`: the last `:s` again, on this line, without its flags.
+            Key::Char('&') if !visual => {
+                let line = cur.line;
+                self.substitute(
+                    &ex::Substitute { first: line, last: line, ..ex::Substitute::default() },
+                    edits,
+                );
+            }
             Key::Char('J') => self.join_lines(count, edits),
             Key::Char('p') => self.paste(false, count, edits),
             Key::Char('P') => self.paste(true, count, edits),
@@ -805,21 +845,21 @@ impl Session {
         commands: &mut Vec<Command>,
     ) {
         match key {
-            Key::Char(c) => self.pending.search.push(c),
+            Key::Char(c) => self.pending.prompt.push(c),
             Key::Backspace => {
-                if self.pending.search.pop().is_none() {
+                if self.pending.prompt.pop().is_none() {
                     self.clear_pending();
                 }
             }
             Key::Enter => {
                 // An empty pattern reuses the last one.
-                let pattern = match (self.pending.search.as_str(), &self.last_search) {
+                let pattern = match (self.pending.prompt.as_str(), &self.last_search) {
                     ("", None) => return self.clear_pending(),
                     ("", Some(last)) => last.pattern.clone(),
                     (typed, _) => typed.to_string(),
                 };
                 self.pending.awaiting = Awaiting::None;
-                self.pending.search.clear();
+                self.pending.prompt.clear();
                 self.last_search = Some(Search {
                     pattern: pattern.clone(),
                     backward,
@@ -840,7 +880,7 @@ impl Session {
         };
         self.cursor = start;
         self.desired_col = start.col;
-        let pattern = format!("\\<{word}\\>");
+        let pattern = format!("\\<{}\\>", search::escape_literal(&word));
         self.last_search = Some(Search {
             pattern: pattern.clone(),
             backward,
@@ -858,15 +898,160 @@ impl Session {
         commands: &mut Vec<Command>,
     ) {
         let count = self.pending.count();
-        let target = search::Pattern::parse(pattern)
-            .and_then(|p| search::find(&self.buf, self.cursor, &p, backward, count));
+        let target = match search::Pattern::parse(pattern) {
+            Ok(p) => search::find(&self.buf, self.cursor, &p, backward, count),
+            Err(msg) => {
+                self.message = Some(msg);
+                return self.clear_pending();
+            }
+        };
         match target {
             Some(pos) => {
                 self.pending.awaiting = Awaiting::None;
                 self.do_motion(pos, MotionKind::Exclusive, edits, commands);
             }
-            None => self.clear_pending(),
+            None => {
+                self.message = Some(format!("pattern not found: {pattern}"));
+                self.clear_pending();
+            }
         }
+    }
+
+    // ---- ex command line -----------------------------------------------------
+
+    /// Collect the `:` command line until `<cr>` runs it; `<esc>`, and `<bs>`
+    /// past the start of the line, abandon it like Vim.
+    fn resolve_ex(&mut self, key: Key, edits: &mut Vec<Edit>) {
+        match key {
+            Key::Char(c) => self.pending.prompt.push(c),
+            Key::Backspace => {
+                if self.pending.prompt.pop().is_none() {
+                    self.clear_pending();
+                }
+            }
+            Key::Enter => {
+                let line = std::mem::take(&mut self.pending.prompt);
+                self.clear_pending();
+                self.run_ex(&line, edits);
+            }
+            Key::Esc => self.clear_pending(),
+            Key::Ctrl(_) => {}
+        }
+    }
+
+    fn run_ex(&mut self, line: &str, edits: &mut Vec<Edit>) {
+        // A selection in play becomes `'<`/`'>`, and running the command
+        // leaves visual mode, as `:'<,'>s/…` does in Vim.
+        if let Mode::Visual { .. } = self.mode {
+            let (s, e) = ordered(self.anchor, self.cursor);
+            self.last_visual = Some((s.line, e.line));
+            self.mode = Mode::Normal;
+            self.cursor = self.clamp_normal(s);
+            self.desired_col = self.cursor.col;
+        }
+        let ctx = ex::Context {
+            current: self.cursor.line,
+            last: self.buf.last_line(),
+            visual: self.last_visual,
+        };
+        match ex::parse(line, &ctx) {
+            Ok(ex::Command::Nothing) => {}
+            Ok(ex::Command::Goto(target)) => {
+                let target = target.min(self.buf.last_line());
+                self.cursor = Pos::new(target, self.buf.first_non_blank(target));
+                self.desired_col = self.cursor.col;
+            }
+            Ok(ex::Command::Substitute(sub)) => self.substitute(&sub, edits),
+            Err(msg) => self.message = Some(msg),
+        }
+    }
+
+    /// Run `:s` over its line range: at most one edit per line, spanning that
+    /// line's first match start to its last match end.
+    fn substitute(&mut self, sub: &ex::Substitute, edits: &mut Vec<Edit>) {
+        self.clear_pending();
+        let last_used = self.last_search.as_ref().map(|s| s.pattern.clone());
+        let Some(source) = sub.pattern.clone().or(last_used) else {
+            self.message = Some("no previous regular expression".into());
+            return;
+        };
+        let pattern = match search::Pattern::parse_case(&source, sub.ignore_case.unwrap_or(false)) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.message = Some(msg);
+                return;
+            }
+        };
+        let previous = self.last_replacement.clone().unwrap_or_default();
+        let replacement = ex::expand_tilde(
+            sub.replacement.as_deref().unwrap_or(&previous),
+            &previous,
+        );
+        self.last_search = Some(Search { pattern: source.clone(), backward: false });
+        if !sub.count_only {
+            self.last_replacement = Some(replacement.clone());
+        }
+
+        let mut line_edits: Vec<Edit> = Vec::new();
+        let (mut hits, mut lines) = (0usize, 0usize);
+        for line in sub.first..=sub.last.min(self.buf.last_line()) {
+            let text = self.buf.line(line);
+            let found = pattern.find_all(text, sub.global);
+            let (Some(first), Some(end)) = (found.first(), found.last().map(|m| m.end)) else {
+                continue;
+            };
+            hits += found.len();
+            lines += 1;
+            if sub.count_only {
+                continue;
+            }
+            let start = first.start;
+            let mut out = String::new();
+            let mut col = start;
+            for m in &found {
+                out.push_str(slice_cols(text, col, m.start));
+                out.push_str(&ex::expand(&replacement, m));
+                col = m.end;
+            }
+            line_edits.push(Edit {
+                start: Pos::new(line, start),
+                end: Pos::new(line, end),
+                text: out,
+            });
+        }
+
+        if hits == 0 {
+            if !sub.quiet {
+                self.message = Some(format!("pattern not found: {source}"));
+            }
+            return;
+        }
+        if sub.count_only {
+            self.message = Some(format!(
+                "{hits} match{} on {lines} line{}",
+                if hits == 1 { "" } else { "es" },
+                plural(lines)
+            ));
+            return;
+        }
+        // Bottom-up, so each edit's pre-state coordinates still hold when it
+        // reaches the mirror. The host applies them all to one snapshot.
+        for e in line_edits.iter().rev() {
+            self.buf.apply_change(e.start, e.end, &e.text);
+        }
+        // Vim leaves the cursor on the last line it changed; a replacement
+        // that broke lines pushes that line further down.
+        let added: usize = line_edits.iter().map(|e| e.text.matches('\n').count()).sum();
+        let target = line_edits.last().map_or(self.cursor.line, |e| e.start.line) + added;
+        let target = target.min(self.buf.last_line());
+        self.cursor = Pos::new(target, self.buf.first_non_blank(target));
+        self.desired_col = self.cursor.col;
+        edits.extend(line_edits);
+        self.message = Some(format!(
+            "{hits} substitution{} on {lines} line{}",
+            plural(hits),
+            plural(lines)
+        ));
     }
 
     fn resolve_replace(&mut self, key: Key, edits: &mut Vec<Edit>) {
@@ -1388,4 +1573,15 @@ impl Session {
 
 fn ordered(a: Pos, b: Pos) -> (Pos, Pos) {
     if a <= b { (a, b) } else { (b, a) }
+}
+
+/// Text of one line between two UTF-16 columns.
+fn slice_cols(line: &str, from: usize, to: usize) -> &str {
+    let a = utf16_to_byte(line, from);
+    let b = utf16_to_byte(line, to);
+    &line[a..b.max(a)]
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
 }

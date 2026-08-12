@@ -24,6 +24,8 @@ export class VimController implements vscode.Disposable {
   private applyingEdits = false;
   private lastSetSelections: string | null = null;
   private enabled: boolean;
+  /** The engine's last report; shown until the next key produces one. */
+  private message = '';
 
   constructor(
     private readonly bridge: EngineBridge,
@@ -110,7 +112,11 @@ export class VimController implements vscode.Disposable {
     key: string,
   ): Promise<void> {
     const fx = session.key(key);
-    if (fx) await this.applyEffects(editor, session, fx);
+    if (!fx) return;
+    // Only keys refresh the message, so an incidental cursor sync (or the
+    // selection change our own edit causes) does not wipe it.
+    this.message = fx.message ?? '';
+    await this.applyEffects(editor, session, fx);
   }
 
   private async applyEffects(
@@ -276,6 +282,7 @@ export class VimController implements vscode.Disposable {
   }
 
   private resync(editor: vscode.TextEditor, session: EngineSession): void {
+    this.message = ''; // the report described edits that never landed
     session.reset(
       editor.document.getText(),
       editor.selection.active.line,
@@ -285,7 +292,7 @@ export class VimController implements vscode.Disposable {
   }
 
   private updateUi(editor: vscode.TextEditor, mode: EngineMode, pending: string): void {
-    this.status.text = modeLabel(mode, pending);
+    this.status.text = modeLabel(mode, pending, this.message);
     this.status.show();
     this.setCursorStyle(editor, mode);
     void vscode.commands.executeCommand('setContext', 'vimUltra.mode', mode);

@@ -35,4 +35,10 @@ describe('modeLabel', () => {
     expect(modeLabel('visualLine', '')).toBe('-- VISUAL LINE --');
     expect(modeLabel('normal', '2d')).toBe('-- NORMAL -- 2d');
   });
+  it('appends engine messages', () => {
+    expect(modeLabel('normal', '', '2 substitutions on 1 line')).toBe(
+      '-- NORMAL -- 2 substitutions on 1 line',
+    );
+    expect(modeLabel('normal', ':s/a/b/', '')).toBe('-- NORMAL -- :s/a/b/');
+  });
 });
