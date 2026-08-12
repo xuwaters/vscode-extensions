@@ -11,6 +11,11 @@ commands), and mirrors external document changes back into the engine.
   and pending keys; the cursor is a block outside insert mode.
 - **Motions**: `h j k l`, `0 ^ $`, `w W b B e E`, `gg G`, `{ }`, `%`,
   `f F t T` with `;`/`,`, `enter + -`, all with counts (`3w`, `2f,`).
+- **Search**: `/` and `?` (the pattern shows in the status bar; `backspace`
+  edits it, `escape` aborts, `enter` runs it), `n`/`N` to repeat, `*`/`#` for
+  the word under the cursor. Searches wrap around the buffer, take counts
+  (`3n`), an empty pattern repeats the last one, and — being exclusive
+  motions — they combine with operators (`d/foo⏎`, `dn`, `y*`).
 - **Operators**: `d c y > <` with any motion (`d2w`, `ci"`, `y$`, `>j`),
   doubled for lines (`dd`, `3yy`, `cc`, `>>`), and on visual selections.
 - **Text objects**: `iw aw iW aW`, `i" a" i' a' i\` a\``,
@@ -23,10 +28,15 @@ commands), and mirrors external document changes back into the engine.
 
 ## Not yet implemented
 
-Search (`/ ? n N * #`), ex commands (`:`), marks, macros, dot-repeat,
-named registers, replace mode (`R`), block visual (`ctrl+v`), jumplist,
-and multi-cursor integration (with multiple cursors the extension steps
-aside and lets VSCode behave natively).
+Ex commands (`:`), marks, macros, dot-repeat, named registers, replace mode
+(`R`), block visual (`ctrl+v`), jumplist, and multi-cursor integration (with
+multiple cursors the extension steps aside and lets VSCode behave natively).
+
+Search patterns are **literal text**, not regular expressions: no `.`, `*`,
+`\(…\)` or friends. The only pattern syntax is Vim's word-boundary atoms
+`\<` and `\>` (what `*` and `#` use), and `\x` for a literal `x`. Matching is
+case-sensitive and never spans a line break, and neither `hlsearch` nor
+`incsearch` is implemented — the cursor simply lands on the match.
 
 ## Development
 

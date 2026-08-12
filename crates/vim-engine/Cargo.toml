@@ -2,7 +2,7 @@
 name = "vim-engine"
 version = "0.1.0"
 edition = { workspace = true }
-description = "Modal Vim editing engine — modes, motions, operators, text objects, registers — compilable to WASM for VSCode vim-ultra"
+description = "Modal Vim editing engine — modes, motions, operators, text objects, registers, search — compilable to WASM for VSCode vim-ultra"
 license = "MIT"
 
 [lib]

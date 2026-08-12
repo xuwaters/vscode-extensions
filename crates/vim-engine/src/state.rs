@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::buffer::{Buffer, Pos, chars_with_cols, utf16_len};
 use crate::keys::Key;
 use crate::motion::{self, FindKind, char_before};
+use crate::search::{self, Search};
 use crate::textobj::{self, TextObject};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -110,6 +111,10 @@ enum Awaiting {
     Object {
         around: bool,
     },
+    /// Typing a `/` or `?` pattern, terminated by `<cr>`.
+    Search {
+        backward: bool,
+    },
 }
 
 #[derive(Default, Debug)]
@@ -119,11 +124,20 @@ struct Pending {
     op: Option<Op>,
     count2: usize,
     awaiting: Awaiting,
+    /// The search pattern typed so far (only while `awaiting` is `Search`).
+    search: String,
 }
 
 impl Pending {
     fn is_empty(&self) -> bool {
         self.keys.is_empty()
+    }
+
+    /// Keys buffered so far, as the status bar shows them.
+    fn display(&self) -> String {
+        let mut s = self.keys.clone();
+        s.push_str(&self.search);
+        s
     }
 
     fn count(&self) -> usize {
@@ -171,6 +185,7 @@ pub struct Session {
     pending: Pending,
     register: Register,
     last_find: Option<(FindKind, char)>,
+    last_search: Option<Search>,
 }
 
 impl Session {
@@ -184,6 +199,7 @@ impl Session {
             pending: Pending::default(),
             register: Register::default(),
             last_find: None,
+            last_search: None,
         }
     }
 
@@ -282,7 +298,7 @@ impl Session {
             selections: self.current_selections(),
             edits,
             commands,
-            pending: self.pending.keys.clone(),
+            pending: self.pending.display(),
         }
     }
 
@@ -389,6 +405,7 @@ impl Session {
             Awaiting::G => return self.resolve_g(key, edits, commands),
             Awaiting::Z => return self.resolve_z(key, commands),
             Awaiting::Object { around } => return self.resolve_object(around, key, edits, commands),
+            Awaiting::Search { backward } => return self.resolve_search(backward, key, edits, commands),
             Awaiting::None => {}
         }
 
@@ -450,6 +467,10 @@ impl Session {
             Key::Char('r') => {
                 self.pending.awaiting = Awaiting::Replace;
                 self.pending.keys.push('r');
+            }
+            Key::Char(c @ ('/' | '?')) => {
+                self.pending.awaiting = Awaiting::Search { backward: c == '?' };
+                self.pending.keys.push(c);
             }
             _ => self.simple_key(key, edits, commands),
         }
@@ -524,6 +545,15 @@ impl Session {
                 Some(target) => self.do_motion(target, MotionKind::Inclusive, edits, commands),
                 None => self.clear_pending(),
             },
+            // -- search motions
+            Key::Char(c @ ('n' | 'N')) => match self.last_search.clone() {
+                Some(last) => {
+                    let backward = last.backward != (c == 'N');
+                    self.run_search(&last.pattern, backward, edits, commands);
+                }
+                None => self.clear_pending(),
+            },
+            Key::Char(c @ ('*' | '#')) => self.search_word(c == '#', edits, commands),
 
             // A pending operator combines only with the motions above; any
             // other key aborts it, like Vim.
@@ -760,6 +790,80 @@ impl Session {
                 };
                 self.pending.awaiting = Awaiting::None;
                 self.do_motion(pos, mk, edits, commands);
+            }
+            None => self.clear_pending(),
+        }
+    }
+
+    /// Collect the `/` or `?` pattern until `<cr>` runs it. `<esc>`, and
+    /// `<bs>` past the start of the pattern, abort the search like Vim.
+    fn resolve_search(
+        &mut self,
+        backward: bool,
+        key: Key,
+        edits: &mut Vec<Edit>,
+        commands: &mut Vec<Command>,
+    ) {
+        match key {
+            Key::Char(c) => self.pending.search.push(c),
+            Key::Backspace => {
+                if self.pending.search.pop().is_none() {
+                    self.clear_pending();
+                }
+            }
+            Key::Enter => {
+                // An empty pattern reuses the last one.
+                let pattern = match (self.pending.search.as_str(), &self.last_search) {
+                    ("", None) => return self.clear_pending(),
+                    ("", Some(last)) => last.pattern.clone(),
+                    (typed, _) => typed.to_string(),
+                };
+                self.pending.awaiting = Awaiting::None;
+                self.pending.search.clear();
+                self.last_search = Some(Search {
+                    pattern: pattern.clone(),
+                    backward,
+                });
+                self.run_search(&pattern, backward, edits, commands);
+            }
+            Key::Esc => self.clear_pending(),
+            Key::Ctrl(_) => {}
+        }
+    }
+
+    /// `*` / `#`: search for the keyword under the cursor, whole-word. Vim
+    /// first parks the cursor on the keyword's first char, which is what
+    /// keeps the search from matching the keyword the cursor sits in.
+    fn search_word(&mut self, backward: bool, edits: &mut Vec<Edit>, commands: &mut Vec<Command>) {
+        let Some((start, word)) = search::word_under_cursor(&self.buf, self.cursor) else {
+            return self.clear_pending();
+        };
+        self.cursor = start;
+        self.desired_col = start.col;
+        let pattern = format!("\\<{word}\\>");
+        self.last_search = Some(Search {
+            pattern: pattern.clone(),
+            backward,
+        });
+        self.run_search(&pattern, backward, edits, commands);
+    }
+
+    /// Move to the count-th match of `pattern`. Search is an exclusive
+    /// motion, so it composes with a pending operator (`d/foo<cr>`, `dn`).
+    fn run_search(
+        &mut self,
+        pattern: &str,
+        backward: bool,
+        edits: &mut Vec<Edit>,
+        commands: &mut Vec<Command>,
+    ) {
+        let count = self.pending.count();
+        let target = search::Pattern::parse(pattern)
+            .and_then(|p| search::find(&self.buf, self.cursor, &p, backward, count));
+        match target {
+            Some(pos) => {
+                self.pending.awaiting = Awaiting::None;
+                self.do_motion(pos, MotionKind::Exclusive, edits, commands);
             }
             None => self.clear_pending(),
         }

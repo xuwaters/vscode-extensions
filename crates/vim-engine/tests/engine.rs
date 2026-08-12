@@ -37,6 +37,14 @@ fn feed(s: &mut Session, keys: &str) {
     }
 }
 
+/// Feed every char as itself, with no `<key>` parsing — for patterns that
+/// contain angle brackets.
+fn feed_literal(s: &mut Session, keys: &str) {
+    for ch in keys.chars() {
+        s.key(Key::Char(ch));
+    }
+}
+
 /// Simulate insert-mode typing as the host delivers it.
 fn type_ins(s: &mut Session, text: &str) {
     assert_eq!(s.mode_label(), "insert", "typing requires insert mode");
@@ -567,4 +575,150 @@ fn dj_deletes_two_lines() {
     let mut s = session("a\nb\nc");
     feed(&mut s, "dj");
     assert_eq!(s.text(), "c");
+}
+
+#[test]
+fn search_forward_and_backward() {
+    let mut s = session("foo bar\nbaz bar\nqux");
+    feed(&mut s, "/bar<cr>");
+    assert_eq!(s.cursor(), Pos::new(0, 4));
+    feed(&mut s, "/bar<cr>");
+    assert_eq!(s.cursor(), Pos::new(1, 4));
+    feed(&mut s, "/bar<cr>"); // wraps
+    assert_eq!(s.cursor(), Pos::new(0, 4));
+    feed(&mut s, "?baz<cr>");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    // A missing pattern leaves the cursor put.
+    feed(&mut s, "/nope<cr>");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+}
+
+#[test]
+fn search_prompt_is_editable_and_cancelable() {
+    let mut s = session("alpha beta");
+    let fx = s.key(Key::Char('/'));
+    assert_eq!(fx.pending, "/");
+    feed(&mut s, "bex");
+    let fx = s.key(Key::Char('t'));
+    assert_eq!(fx.pending, "/bext");
+    let fx = s.key(Key::Backspace); // fix the typo
+    assert_eq!(fx.pending, "/bex");
+    feed(&mut s, "<bs>t<cr>");
+    assert_eq!(s.cursor(), Pos::new(0, 6));
+    // Escape abandons the pattern; the buffer is untouched.
+    feed(&mut s, "0/alpha<esc>");
+    assert_eq!((s.cursor(), s.text().as_str()), (Pos::new(0, 0), "alpha beta"));
+    // Backspacing past the prompt abandons it too.
+    let fx = s.key(Key::Char('/'));
+    assert_eq!(fx.pending, "/");
+    let fx = s.key(Key::Backspace);
+    assert_eq!(fx.pending, "");
+}
+
+#[test]
+fn search_takes_a_count_and_an_empty_pattern_repeats() {
+    let mut s = session("x a x a x a x");
+    feed(&mut s, "3/a<cr>");
+    assert_eq!(s.cursor(), Pos::new(0, 10));
+    feed(&mut s, "0/<cr>"); // empty pattern reuses "a"
+    assert_eq!(s.cursor(), Pos::new(0, 2));
+}
+
+#[test]
+fn n_and_capital_n_repeat_the_search() {
+    let mut s = session("one two\none three\none four");
+    feed(&mut s, "/one<cr>");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    feed(&mut s, "n");
+    assert_eq!(s.cursor(), Pos::new(2, 0));
+    feed(&mut s, "N");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    feed(&mut s, "2n");
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+    // After `?`, `n` keeps going backward and `N` reverses.
+    feed(&mut s, "?three<cr>");
+    assert_eq!(s.cursor(), Pos::new(1, 4));
+    feed(&mut s, "N");
+    assert_eq!(s.cursor(), Pos::new(1, 4)); // only one match: wraps to itself
+}
+
+#[test]
+fn n_without_a_previous_search_does_nothing() {
+    let mut s = session("abc");
+    feed(&mut s, "n");
+    assert_eq!((s.cursor(), s.text().as_str()), (Pos::new(0, 0), "abc"));
+}
+
+#[test]
+fn star_and_hash_match_whole_words() {
+    let mut s = session("foo foobar\nxfoo foo\nfoo");
+    feed(&mut s, "*");
+    assert_eq!(s.cursor(), Pos::new(1, 5)); // skips "foobar" and "xfoo"
+    feed(&mut s, "*");
+    assert_eq!(s.cursor(), Pos::new(2, 0));
+    feed(&mut s, "#");
+    assert_eq!(s.cursor(), Pos::new(1, 5));
+    // `n` after `#` keeps the backward direction.
+    feed(&mut s, "n");
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+}
+
+#[test]
+fn star_uses_the_word_the_cursor_sits_in() {
+    let mut s = at("alpha beta\nbeta gamma", 0, 8); // inside "beta"
+    feed(&mut s, "*");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    // On a non-keyword char, the next keyword on the line is used.
+    let mut s = at("a + beta\nbeta", 0, 2);
+    feed(&mut s, "*");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    // No keyword on the line at all: nothing happens.
+    let mut s = session("  + -");
+    feed(&mut s, "*");
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+}
+
+#[test]
+fn search_is_an_exclusive_operator_motion() {
+    let mut s = session("foo bar baz");
+    feed(&mut s, "d/baz<cr>");
+    assert_eq!(s.text(), "baz");
+    let mut s = at("foo bar baz", 0, 8);
+    feed(&mut s, "d?bar<cr>"); // backward: deletes [match, cursor)
+    assert_eq!(s.text(), "foo baz");
+    let mut s = session("one two one two");
+    feed(&mut s, "*"); // to the second "one"
+    assert_eq!(s.cursor(), Pos::new(0, 8));
+    feed(&mut s, "0dn"); // operator + repeat
+    assert_eq!(s.text(), "one two");
+}
+
+#[test]
+fn search_extends_a_visual_selection() {
+    let mut s = session("hello brave world");
+    // Visual mode is inclusive: the match's first char goes too.
+    feed(&mut s, "v/world<cr>d");
+    assert_eq!(s.text(), "orld");
+}
+
+#[test]
+fn search_pattern_escapes() {
+    // `\<`/`\>` anchor to word boundaries, other escapes are literal.
+    let mut s = session("about a bat");
+    feed_literal(&mut s, "/\\<a\\>");
+    s.key(Key::Enter);
+    assert_eq!(s.cursor(), Pos::new(0, 6));
+    let mut s = session("a.b axb");
+    feed_literal(&mut s, "/a\\.b");
+    s.key(Key::Enter);
+    assert_eq!(s.cursor(), Pos::new(0, 0)); // literal dot, wrapped to itself
+}
+
+#[test]
+fn search_keys_are_literal_in_the_prompt() {
+    // Digits, operators and specials typed into a pattern are just text.
+    let mut s = session("no match\nd3w here");
+    feed(&mut s, "/d3w<cr>");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    assert_eq!(s.text(), "no match\nd3w here");
 }
