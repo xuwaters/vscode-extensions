@@ -2,7 +2,7 @@
   "name": "wx-vsce-vim-ultra",
   "displayName": "Vim Ultra",
   "description": "Modal Vim editing on a Rust/WASM engine — motions, operators, text objects, counts, registers, visual modes, regex search (/ ? n N * #) and search-and-replace (:s). Partial Vim: no other ex commands, macros, marks, dot-repeat, named registers, replace mode, or block visual.",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -82,6 +82,56 @@
         "command": "vimUltra.scroll",
         "args": { "dir": "up", "by": "page" },
         "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
+      },
+      {
+        "key": "j",
+        "command": "list.focusDown",
+        "when": "vimUltra.active && listFocus && !inputFocus"
+      },
+      {
+        "key": "k",
+        "command": "list.focusUp",
+        "when": "vimUltra.active && listFocus && !inputFocus"
+      },
+      {
+        "key": "h",
+        "command": "list.collapse",
+        "when": "vimUltra.active && listFocus && !inputFocus"
+      },
+      {
+        "key": "l",
+        "command": "list.select",
+        "when": "vimUltra.active && listFocus && !inputFocus"
+      },
+      {
+        "key": "o",
+        "command": "list.toggleExpand",
+        "when": "vimUltra.active && listFocus && !inputFocus"
+      },
+      {
+        "key": "g g",
+        "command": "list.focusFirst",
+        "when": "vimUltra.active && listFocus && !inputFocus"
+      },
+      {
+        "key": "shift+g",
+        "command": "list.focusLast",
+        "when": "vimUltra.active && listFocus && !inputFocus"
+      },
+      {
+        "key": "ctrl+d",
+        "command": "list.focusPageDown",
+        "when": "vimUltra.active && listFocus && !inputFocus"
+      },
+      {
+        "key": "ctrl+u",
+        "command": "list.focusPageUp",
+        "when": "vimUltra.active && listFocus && !inputFocus"
+      },
+      {
+        "key": "/",
+        "command": "list.find",
+        "when": "vimUltra.active && listFocus && !inputFocus && listSupportsFind"
       }
     ],
     "configuration": {
