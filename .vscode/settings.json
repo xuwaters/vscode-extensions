@@ -2,5 +2,21 @@
   "deno.enable": true,
   "deno.enablePaths": [
     "./scripts"
-  ]
+  ],
+  // `temp/` is a farm of symlinks to large external checkouts (microsoft/vscode,
+  // vim, diesel, microsoft-fast, ...) and `target` points at the shared Rust
+  // build cache. Following those reaches ~8.3M files. Extensions call
+  // `workspace.findFiles`, which runs ripgrep with `--no-ignore --follow`, so
+  // .gitignore does NOT protect us here — only these settings do.
+  "search.followSymlinks": false,
+  "search.exclude": {
+    "temp": true,
+    "target": true,
+    "**/node_modules": true
+  },
+  "files.watcherExclude": {
+    "**/temp/**": true,
+    "**/target/**": true,
+    "**/node_modules/**": true
+  }
 }
