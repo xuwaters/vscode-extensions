@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A position in the buffer. `col` is in UTF-16 code units.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 pub struct Pos {
     pub line: usize,
     pub col: usize,

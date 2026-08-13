@@ -86,6 +86,40 @@ describe.skipIf(!built)('engine session', () => {
     session.dispose();
   });
 
+  it('runs a key at every cursor of a multi-cursor selection', () => {
+    const session = open('  one\nfour\n    six');
+    // What cmd+alt+down twice leaves behind, mirrored by the controller.
+    const at = (line: number, col: number) => ({
+      anchor: { line, col },
+      active: { line, col },
+    });
+    session.setCursors([at(0, 2), at(1, 2), at(2, 2)]);
+    const fx = session.key('I');
+    expect(fx?.mode).toBe('insert');
+    expect(fx?.selections.map((s) => s.active)).toEqual([
+      { line: 0, col: 2 },
+      { line: 1, col: 0 },
+      { line: 2, col: 4 },
+    ]);
+    session.dispose();
+  });
+
+  it('splits the line under every cursor on r<cr>', () => {
+    const session = open('a-b\na-b');
+    session.setCursors([
+      { anchor: { line: 0, col: 1 }, active: { line: 0, col: 1 } },
+      { anchor: { line: 1, col: 1 }, active: { line: 1, col: 1 } },
+    ]);
+    feed(session, 'r');
+    const fx = session.key('<cr>');
+    expect(fx?.edits).toEqual([
+      { start: { line: 1, col: 1 }, end: { line: 1, col: 2 }, text: '\n' },
+      { start: { line: 0, col: 1 }, end: { line: 0, col: 2 }, text: '\n' },
+    ]);
+    expect(session.text()).toBe('a\nb\na\nb');
+    session.dispose();
+  });
+
   it('reports ex errors instead of editing', () => {
     const session = open('abc');
     feed(session, ':s/a/b/c');

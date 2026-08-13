@@ -37,9 +37,15 @@ export function serializeSelections(sels: readonly SelectionLike[]): string {
  * following vim-vscode's design: an engine report ("match 11 of 11",
  * ":s" counts, errors) replaces the whole label until the next key, and an
  * open command line ("/pat", "?pat", ":cmd") replaces the mode text, shown
- * with a `|` cursor.
+ * with a `|` cursor. More than one cursor says so, since every key runs at
+ * all of them.
  */
-export function modeLabel(mode: string, pending: string, message = ''): string {
+export function modeLabel(
+  mode: string,
+  pending: string,
+  message = '',
+  cursors = 1,
+): string {
   if (message) return message;
   if (/^[/?:]/.test(pending)) return `${pending}|`;
   const base =
@@ -50,5 +56,6 @@ export function modeLabel(mode: string, pending: string, message = ''): string {
         : mode === 'visualLine'
           ? '-- VISUAL LINE --'
           : '-- NORMAL --';
-  return [base, pending].filter(Boolean).join(' ');
+  const multi = cursors > 1 ? `(${cursors} cursors)` : '';
+  return [base, pending, multi].filter(Boolean).join(' ');
 }

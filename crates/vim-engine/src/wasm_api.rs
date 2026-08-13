@@ -28,6 +28,19 @@ struct ChangeIn {
     text: String,
 }
 
+/// One editor selection, as the host sends the multi-cursor set.
+#[derive(Deserialize)]
+struct SelectionIn {
+    #[serde(rename = "anchorLine")]
+    anchor_line: usize,
+    #[serde(rename = "anchorCol")]
+    anchor_col: usize,
+    #[serde(rename = "activeLine")]
+    active_line: usize,
+    #[serde(rename = "activeCol")]
+    active_col: usize,
+}
+
 /// `Effects` as the host receives it: the effects fields (minus edits, which
 /// never serialize) plus how many edits `take_edits` is holding.
 #[derive(Serialize)]
@@ -129,6 +142,27 @@ impl Session {
             Pos::new(anchor_line, anchor_col),
             Pos::new(active_line, active_col),
         );
+        self.effects_json(fx)
+    }
+
+    /// The editor's whole selection set, primary first: a JSON array of
+    /// `{anchorLine, anchorCol, activeLine, activeCol}`. Used when the editor
+    /// has more than one cursor; one selection behaves like `set_position` /
+    /// `set_selection`.
+    pub fn set_cursors(&mut self, selections_json: &str) -> String {
+        let Ok(sels) = serde_json::from_str::<Vec<SelectionIn>>(selections_json) else {
+            return "null".to_string();
+        };
+        let sels: Vec<(Pos, Pos)> = sels
+            .iter()
+            .map(|s| {
+                (
+                    Pos::new(s.anchor_line, s.anchor_col),
+                    Pos::new(s.active_line, s.active_col),
+                )
+            })
+            .collect();
+        let fx = self.inner.set_cursors(&sels);
         self.effects_json(fx)
     }
 

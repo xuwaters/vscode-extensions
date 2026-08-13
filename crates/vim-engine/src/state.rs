@@ -156,7 +156,7 @@ enum Awaiting {
     Ex,
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 struct Pending {
     keys: String,
     count1: usize,
@@ -215,6 +215,18 @@ enum MotionKind {
 /// Sticky column for `j`/`k`; `usize::MAX` means end-of-line (`$`).
 const STICKY_EOL: usize = usize::MAX;
 
+/// Everything one cursor owns. The primary cursor lives in `Session`'s own
+/// fields (so the single-cursor paths read exactly as they always did); the
+/// extra cursors of a multi-cursor session are swapped through them one at a
+/// time by `key_multi`.
+#[derive(Clone, Default, Debug)]
+struct CursorState {
+    pos: Pos,
+    anchor: Pos,
+    desired_col: usize,
+    pending: Pending,
+}
+
 pub struct Session {
     buf: Buffer,
     mode: Mode,
@@ -223,6 +235,9 @@ pub struct Session {
     anchor: Pos,
     desired_col: usize,
     pending: Pending,
+    /// Extra cursors, in the host's order after the primary. Empty unless the
+    /// editor has a multi-cursor selection.
+    secondaries: Vec<CursorState>,
     register: Register,
     last_find: Option<(FindKind, char)>,
     last_search: Option<Search>,
@@ -234,6 +249,11 @@ pub struct Session {
     message: Option<String>,
     /// Search-typing UI for the next `Effects`, taken when one is built.
     search_ui: Option<SearchUi>,
+    /// Set while `key_multi` runs a cursor whose status output is dropped
+    /// anyway: the whole-buffer work behind it (the incremental-search
+    /// preview, the `match N of M` count) is skipped rather than repeated
+    /// once per cursor.
+    quiet: bool,
 }
 
 impl Session {
@@ -245,6 +265,7 @@ impl Session {
             anchor: Pos::new(0, 0),
             desired_col: 0,
             pending: Pending::default(),
+            secondaries: Vec::new(),
             register: Register::default(),
             last_find: None,
             last_search: None,
@@ -252,6 +273,7 @@ impl Session {
             last_visual: None,
             message: None,
             search_ui: None,
+            quiet: false,
         }
     }
 
@@ -273,6 +295,7 @@ impl Session {
         self.buf = Buffer::from_text(text);
         self.mode = Mode::Normal;
         self.pending = Pending::default();
+        self.secondaries.clear();
         self.search_ui = None;
         self.cursor = self.clamp_normal(Pos::new(line, col));
         self.desired_col = self.cursor.col;
@@ -282,10 +305,11 @@ impl Session {
     /// reflected and must not be passed back in).
     pub fn apply_change(&mut self, start: Pos, end: Pos, text: &str) {
         self.buf.apply_change(start, end, text);
-        if self.mode != Mode::Insert {
-            self.cursor = self.clamp_normal(self.cursor);
-        } else {
-            self.cursor = self.clamp_insert(self.cursor);
+        self.cursor = self.clamp_to_mode(self.cursor);
+        for i in 0..self.secondaries.len() {
+            let (pos, anchor) = (self.secondaries[i].pos, self.secondaries[i].anchor);
+            self.secondaries[i].pos = self.clamp_to_mode(pos);
+            self.secondaries[i].anchor = self.clamp_to_mode(anchor);
         }
     }
 
@@ -294,14 +318,12 @@ impl Session {
     pub fn set_position(&mut self, line: usize, col: usize) -> Effects {
         let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
         self.pending = Pending::default();
+        self.secondaries.clear();
         if matches!(self.mode, Mode::Visual { .. }) {
             self.mode = Mode::Normal;
         }
         let requested = Pos::new(line, col);
-        self.cursor = match self.mode {
-            Mode::Insert => self.clamp_insert(requested),
-            _ => self.clamp_normal(requested),
-        };
+        self.cursor = self.clamp_to_mode(requested);
         self.desired_col = self.cursor.col;
         let selections = if self.cursor != requested {
             self.current_selections()
@@ -325,6 +347,7 @@ impl Session {
     pub fn set_selection(&mut self, anchor: Pos, active: Pos) -> Effects {
         let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
         self.pending = Pending::default();
+        self.secondaries.clear();
         if anchor <= active {
             self.anchor = self.clamp_normal(anchor);
             self.cursor = self.clamp_normal(char_before(&self.buf, active));
@@ -345,7 +368,78 @@ impl Session {
         }
     }
 
+    /// The editor's whole selection set changed: extra cursors were added
+    /// (`cmd+alt+arrow`, `cmd+d`), removed, or moved as a group. Selections
+    /// are VSCode-style (end-exclusive) with the primary first; one of them
+    /// takes the single-cursor paths above.
+    pub fn set_cursors(&mut self, sels: &[(Pos, Pos)]) -> Effects {
+        match sels {
+            [] => self.set_position(self.cursor.line, self.cursor.col),
+            [(anchor, active)] if anchor == active => self.set_position(active.line, active.col),
+            [(anchor, active)] => self.set_selection(*anchor, *active),
+            _ => self.set_multi_cursors(sels),
+        }
+    }
+
+    fn set_multi_cursors(&mut self, sels: &[(Pos, Pos)]) -> Effects {
+        let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
+        self.pending = Pending::default();
+        // Several selections with a body (`cmd+d` on a word, a multi-cursor
+        // drag) are visual mode at every cursor; bare cursors are not.
+        let visual = sels.iter().any(|(a, c)| a != c);
+        self.mode = match self.mode {
+            _ if visual => Mode::Visual { linewise: false },
+            Mode::Insert => Mode::Insert,
+            _ => Mode::Normal,
+        };
+        let mut states = Vec::with_capacity(sels.len());
+        let mut clamped = false;
+        for &(anchor, active) in sels {
+            let (a, c) = if anchor == active {
+                let p = self.clamp_to_mode(active);
+                clamped |= p != active;
+                (p, p)
+            } else if anchor <= active {
+                (
+                    self.clamp_normal(anchor),
+                    self.clamp_normal(char_before(&self.buf, active)),
+                )
+            } else {
+                (
+                    self.clamp_normal(char_before(&self.buf, anchor)),
+                    self.clamp_normal(active),
+                )
+            };
+            states.push(CursorState {
+                pos: c,
+                anchor: a,
+                desired_col: c.col,
+                pending: Pending::default(),
+            });
+        }
+        self.put_cursor(states.remove(0));
+        self.secondaries = states;
+        Effects {
+            mode: self.mode.label(),
+            // Only a normal-mode cursor sitting past the last char needs
+            // correcting; otherwise don't fight the editor for its selection.
+            selections: if clamped && !visual {
+                self.current_selections()
+            } else {
+                Vec::new()
+            },
+            edits: Vec::new(),
+            commands: Vec::new(),
+            pending: String::new(),
+            message: None,
+            search: aborted_search.then_some(SearchUi::Cancelled),
+        }
+    }
+
     pub fn key(&mut self, key: Key) -> Effects {
+        if !self.secondaries.is_empty() {
+            return self.key_multi(key);
+        }
         let mut edits = Vec::new();
         let mut commands = Vec::new();
         match self.mode {
@@ -360,6 +454,127 @@ impl Session {
             pending: self.pending.display(),
             message: self.message.take(),
             search: self.search_ui.take(),
+        }
+    }
+
+    /// One key at every cursor.
+    ///
+    /// Cursors run bottom-up, because an edit never moves the text above it:
+    /// every edit the pass emits still refers to the document the host is
+    /// holding, so they all fit in one `editor.edit` transaction. The reverse
+    /// is not free — an edit *does* move everything below it — so each
+    /// cursor's edits shift the positions already recorded under them.
+    ///
+    /// Modal state other than the cursors is shared: one mode, one register
+    /// (the cursors yank into it in turn, so `p` pastes the same text at all
+    /// of them), and the primary's report is the one the status bar shows.
+    fn key_multi(&mut self, key: Key) -> Effects {
+        // Esc with nothing pending leaves multi-cursor editing, the way it
+        // drops the extra cursors in VSCode. From insert or visual mode it
+        // returns to normal mode first, keeping them.
+        if key == Key::Esc && self.mode == Mode::Normal && self.pending.is_empty() {
+            self.secondaries.clear();
+            return Effects {
+                mode: self.mode.label(),
+                selections: self.current_selections(),
+                edits: Vec::new(),
+                commands: Vec::new(),
+                pending: String::new(),
+                message: None,
+                search: None,
+            };
+        }
+
+        let n = 1 + self.secondaries.len();
+        let mut states = Vec::with_capacity(n);
+        states.push(self.take_cursor());
+        states.append(&mut self.secondaries);
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| states[b].pos.cmp(&states[a].pos).then(b.cmp(&a)));
+
+        let start_mode = self.mode;
+        let mut end_mode = start_mode;
+        let mut edits: Vec<Edit> = Vec::new();
+        let mut commands: Vec<Command> = Vec::new();
+        let mut done: Vec<Option<CursorState>> = vec![None; n];
+        let (mut message, mut search) = (None, None);
+
+        // An ex command carries its own range, so running it once is running
+        // it everywhere; N cursors would just repeat the same edits. The rest
+        // sit the key out — recorded up front, so that the one command's
+        // edits carry them along wherever in the document they land.
+        if key == Key::Enter && matches!(states[0].pending.awaiting, Awaiting::Ex) {
+            for i in 1..n {
+                let state = std::mem::take(&mut states[i]);
+                done[i] = Some(CursorState { pending: Pending::default(), ..state });
+            }
+            order.retain(|&i| i == 0);
+        }
+
+        for &i in &order {
+            let state = std::mem::take(&mut states[i]);
+            self.mode = start_mode;
+            self.quiet = i != 0;
+            self.put_cursor(state);
+            let (first_edit, first_command) = (edits.len(), commands.len());
+            match self.mode {
+                Mode::Insert => self.key_insert(key),
+                _ => self.key_normal(key, &mut edits, &mut commands),
+            }
+            end_mode = self.mode;
+            if i == 0 {
+                message = self.message.take();
+                search = self.search_ui.take();
+            } else {
+                self.message = None;
+                self.search_ui = None;
+                // Undo, redo and scrolling are document-wide: one cursor's
+                // worth is the whole story, and N undos would undo N times.
+                let mine: Vec<Command> = commands.split_off(first_command);
+                commands.extend(
+                    mine.into_iter()
+                        .filter(|c| matches!(c, Command::IndentLines { .. })),
+                );
+            }
+            for edit in &edits[first_edit..] {
+                for other in done.iter_mut().flatten() {
+                    other.pos = shifted(other.pos, edit);
+                    other.anchor = shifted(other.anchor, edit);
+                }
+            }
+            done[i] = Some(self.take_cursor());
+        }
+
+        self.mode = end_mode;
+        self.quiet = false;
+        let mut states: Vec<CursorState> = done.into_iter().flatten().collect();
+        for state in &mut states {
+            // Another cursor's edit may have shortened the line under this one.
+            state.pos = self.clamp_to_mode(state.pos);
+            state.anchor = self.clamp_to_mode(state.anchor);
+        }
+        // Cursors that met are one cursor, as they are in VSCode. What counts
+        // is the selection they produce: outside visual mode two cursors on
+        // the same char are the same cursor whatever their anchors say.
+        let mut seen: Vec<(Pos, Pos)> = Vec::with_capacity(states.len());
+        states.retain(|s| {
+            let sel = self.selection_at(s.anchor, s.pos);
+            let key = (sel.anchor, sel.active);
+            !seen.contains(&key) && {
+                seen.push(key);
+                true
+            }
+        });
+        self.put_cursor(states.remove(0));
+        self.secondaries = states;
+        Effects {
+            mode: self.mode.label(),
+            selections: self.current_selections(),
+            edits,
+            commands,
+            pending: self.pending.display(),
+            message,
+            search,
         }
     }
 
@@ -378,6 +593,33 @@ impl Session {
     fn clamp_insert(&self, p: Pos) -> Pos {
         let line = p.line.min(self.buf.last_line());
         Pos::new(line, p.col.min(self.buf.line_len(line)))
+    }
+
+    /// Clamp for the current mode: insert may sit past the last char, the
+    /// others may not.
+    fn clamp_to_mode(&self, p: Pos) -> Pos {
+        match self.mode {
+            Mode::Insert => self.clamp_insert(p),
+            _ => self.clamp_normal(p),
+        }
+    }
+
+    /// Swap the primary cursor out of / into the fields the single-cursor
+    /// code works on.
+    fn take_cursor(&mut self) -> CursorState {
+        CursorState {
+            pos: self.cursor,
+            anchor: self.anchor,
+            desired_col: self.desired_col,
+            pending: std::mem::take(&mut self.pending),
+        }
+    }
+
+    fn put_cursor(&mut self, state: CursorState) {
+        self.cursor = state.pos;
+        self.anchor = state.anchor;
+        self.desired_col = state.desired_col;
+        self.pending = state.pending;
     }
 
     /// Column of the last char on a line (0 when empty).
@@ -400,31 +642,42 @@ impl Session {
         self.pending = Pending::default();
     }
 
+    /// The editor selection of every cursor, primary first.
     fn current_selections(&self) -> Vec<Selection> {
+        std::iter::once(self.selection_at(self.anchor, self.cursor))
+            .chain(
+                self.secondaries
+                    .iter()
+                    .map(|c| self.selection_at(c.anchor, c.pos)),
+            )
+            .collect()
+    }
+
+    /// One cursor's editor selection in the current mode.
+    fn selection_at(&self, anchor: Pos, cursor: Pos) -> Selection {
         match self.mode {
-            Mode::Normal | Mode::Insert => vec![Selection {
-                anchor: self.cursor,
-                active: self.cursor,
-            }],
+            Mode::Normal | Mode::Insert => Selection {
+                anchor: cursor,
+                active: cursor,
+            },
             Mode::Visual { linewise: false } => {
-                let (a, c) = (self.anchor, self.cursor);
-                if a <= c {
-                    vec![Selection {
-                        anchor: a,
-                        active: motion::right(&self.buf, c, 1),
-                    }]
+                if anchor <= cursor {
+                    Selection {
+                        anchor,
+                        active: motion::right(&self.buf, cursor, 1),
+                    }
                 } else {
-                    vec![Selection {
-                        anchor: motion::right(&self.buf, a, 1),
-                        active: c,
-                    }]
+                    Selection {
+                        anchor: motion::right(&self.buf, anchor, 1),
+                        active: cursor,
+                    }
                 }
             }
             Mode::Visual { linewise: true } => {
-                let (top, bottom, forward) = if self.anchor.line <= self.cursor.line {
-                    (self.anchor.line, self.cursor.line, true)
+                let (top, bottom, forward) = if anchor.line <= cursor.line {
+                    (anchor.line, cursor.line, true)
                 } else {
-                    (self.cursor.line, self.anchor.line, false)
+                    (cursor.line, anchor.line, false)
                 };
                 let start = Pos::new(top, 0);
                 let end = if bottom + 1 < self.buf.line_count() {
@@ -433,9 +686,9 @@ impl Session {
                     Pos::new(bottom, self.buf.line_len(bottom))
                 };
                 if forward {
-                    vec![Selection { anchor: start, active: end }]
+                    Selection { anchor: start, active: end }
                 } else {
-                    vec![Selection { anchor: end, active: start }]
+                    Selection { anchor: end, active: start }
                 }
             }
         }
@@ -930,6 +1183,9 @@ impl Session {
     /// at. An empty or unparseable pattern previews as no matches — the
     /// half-typed `\(` is on its way somewhere, not an error yet.
     fn search_preview(&mut self, backward: bool) {
+        if self.quiet {
+            return; // one preview per key, painted from the primary cursor
+        }
         let (matches, current) = search::Pattern::parse(&self.pending.prompt)
             .map(|pat| {
                 pat.budget_for(&self.buf);
@@ -975,9 +1231,11 @@ impl Session {
             }
         };
         pat.budget_for(&self.buf);
-        if self.pending.op.is_some() {
+        if self.pending.op.is_some() || self.quiet {
             // Feeding an operator: the early-exit find, and no report — the
             // cursor doesn't land on the match, the operator eats up to it.
+            // A secondary cursor takes the same path: it moves, but nothing
+            // shows its count.
             match search::find(&self.buf, self.cursor, &pat, backward, count) {
                 Some(pos) => {
                     self.pending.awaiting = Awaiting::None;
@@ -1154,8 +1412,14 @@ impl Session {
 
     fn resolve_replace(&mut self, key: Key, edits: &mut Vec<Edit>) {
         let count = self.pending.count();
-        let Key::Char(ch) = key else {
-            return self.clear_pending();
+        let ch = match key {
+            Key::Char(c) => c,
+            // `r<cr>` is Vim's line-splitting special case: the characters go
+            // away and *one* line break takes their place, however many the
+            // count asked for. Visual `r` fills the selection with the char
+            // instead, which a line break cannot do, so it cancels there.
+            Key::Enter if !matches!(self.mode, Mode::Visual { .. }) => '\n',
+            _ => return self.clear_pending(),
         };
         if let Mode::Visual { linewise } = self.mode {
             self.visual_replace(ch, linewise, edits);
@@ -1172,12 +1436,22 @@ impl Session {
             .map_or(Pos::new(cur.line, self.buf.line_len(cur.line)), |&(c, _)| {
                 Pos::new(cur.line, c)
             });
-        let replacement: String = std::iter::repeat_n(ch, count).collect();
-        self.emit_edit(Pos::new(cur.line, cols[idx].0), end, &replacement, edits);
-        self.cursor = self.clamp_normal(Pos::new(
-            cur.line,
-            cols[idx].0 + ch.len_utf16() * (count - 1),
-        ));
+        let start = Pos::new(cur.line, cols[idx].0);
+        let replacement: String = if ch == '\n' {
+            "\n".to_string()
+        } else {
+            std::iter::repeat_n(ch, count).collect()
+        };
+        self.emit_edit(start, end, &replacement, edits);
+        self.cursor = if ch == '\n' {
+            // The rest of the line became the next one; land on its first char.
+            self.clamp_normal(Pos::new(cur.line + 1, 0))
+        } else {
+            self.clamp_normal(Pos::new(
+                cur.line,
+                cols[idx].0 + ch.len_utf16() * (count - 1),
+            ))
+        };
         self.desired_col = self.cursor.col;
         self.clear_pending();
     }
@@ -1671,6 +1945,31 @@ impl Session {
 
 fn ordered(a: Pos, b: Pos) -> (Pos, Pos) {
     if a <= b { (a, b) } else { (b, a) }
+}
+
+/// Where a position recorded before `edit` ends up once it is applied — the
+/// transform VSCode runs on its own selections, used by `key_multi` to carry
+/// the cursors below an edit along with it. A position inside the replaced
+/// range lands at its end.
+fn shifted(p: Pos, edit: &Edit) -> Pos {
+    if p <= edit.start {
+        return p;
+    }
+    let breaks = edit.text.matches('\n').count();
+    let tail = edit.text.rsplit('\n').next().unwrap_or("");
+    let new_end = if breaks == 0 {
+        Pos::new(edit.start.line, edit.start.col + utf16_len(tail))
+    } else {
+        Pos::new(edit.start.line + breaks, utf16_len(tail))
+    };
+    if p <= edit.end {
+        return new_end;
+    }
+    if p.line == edit.end.line {
+        Pos::new(new_end.line, new_end.col + (p.col - edit.end.col))
+    } else {
+        Pos::new(p.line - edit.end.line + new_end.line, p.col)
+    }
 }
 
 fn plural(n: usize) -> &'static str {

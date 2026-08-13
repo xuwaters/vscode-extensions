@@ -41,6 +41,12 @@ describe('modeLabel', () => {
     expect(modeLabel('normal', ':s/a/b/')).toBe(':s/a/b/|');
     expect(modeLabel('visual', ":'<,'>s/a/b/")).toBe(":'<,'>s/a/b/|");
   });
+  it('says when a key runs at more than one cursor', () => {
+    expect(modeLabel('normal', '', '', 1)).toBe('-- NORMAL --');
+    expect(modeLabel('normal', '', '', 3)).toBe('-- NORMAL -- (3 cursors)');
+    expect(modeLabel('insert', '', '', 2)).toBe('-- INSERT -- (2 cursors)');
+    expect(modeLabel('normal', 'd', '', 2)).toBe('-- NORMAL -- d (2 cursors)');
+  });
   it('lets an engine message replace the whole label', () => {
     expect(modeLabel('normal', '', '2 substitutions on 1 line')).toBe(
       '2 substitutions on 1 line',

@@ -5,12 +5,23 @@ import type {
   EngineCommand,
   EngineMode,
   EngineSearchUi,
+  EngineSelection,
   EngineSession,
 } from './engine';
 import { modeLabel, replaceEol, serializeSelections, typedKeys } from './util';
 
 /** How far off-screen a search match must be before peeking centers it. */
 const CENTER_PEEK_LINES = 15;
+
+type IndentCommand = Extract<EngineCommand, { kind: 'indentLines' }>;
+
+/** Editor selections as the engine takes them; both count UTF-16 columns. */
+function enginePositions(sels: readonly vscode.Selection[]): EngineSelection[] {
+  return sels.map((s) => ({
+    anchor: { line: s.anchor.line, col: s.anchor.character },
+    active: { line: s.active.line, col: s.active.character },
+  }));
+}
 
 /**
  * Wires the vim-engine WASM sessions to VSCode:
@@ -173,6 +184,11 @@ export class VimController implements vscode.Disposable {
             );
           }
         });
+      } catch {
+        // Overlapping ranges are rejected outright — two cursors reaching
+        // for the same text is the way to produce them. Treated like any
+        // other refusal: nothing landed, so rebuild the mirror.
+        ok = false;
       } finally {
         this.applyingEdits = false;
       }
@@ -201,11 +217,15 @@ export class VimController implements vscode.Disposable {
         );
       }
     }
+    // An indent operator emits one command per cursor; VSCode indents all of
+    // a multi-selection at once, so they run as a single, undoable step.
+    const indents = fx.commands.filter((c) => c.kind === 'indentLines');
+    if (indents.length > 0) await this.indentLines(editor, session, indents);
     for (const cmd of fx.commands) {
-      await this.runCommand(editor, session, cmd);
+      if (cmd.kind !== 'indentLines') await this.runCommand(editor, cmd);
     }
     this.applySearchUi(editor, fx.search, external);
-    this.updateUi(editor, fx.mode, fx.pending);
+    this.updateUi(editor, fx.mode, fx.pending, editor.selections.length);
   }
 
   /**
@@ -274,38 +294,12 @@ export class VimController implements vscode.Disposable {
     );
   }
 
-  private async runCommand(
-    editor: vscode.TextEditor,
-    session: EngineSession,
-    cmd: EngineCommand,
-  ): Promise<void> {
+  private async runCommand(editor: vscode.TextEditor, cmd: EngineCommand): Promise<void> {
     switch (cmd.kind) {
       case 'undo':
       case 'redo':
         await vscode.commands.executeCommand(cmd.kind);
         break;
-      case 'indentLines': {
-        const doc = editor.document;
-        const endLine = Math.min(cmd.endLine, doc.lineCount - 1);
-        const span = new vscode.Selection(
-          cmd.startLine,
-          0,
-          endLine,
-          doc.lineAt(endLine).text.length,
-        );
-        this.lastSetSelections = serializeSelections([span]);
-        editor.selections = [span];
-        await vscode.commands.executeCommand(
-          cmd.dedent ? 'editor.action.outdentLines' : 'editor.action.indentLines',
-        );
-        // Land like vim: first non-blank of the first affected line.
-        const col = doc.lineAt(cmd.startLine).firstNonWhitespaceCharacterIndex;
-        const cursor = new vscode.Selection(cmd.startLine, col, cmd.startLine, col);
-        this.lastSetSelections = serializeSelections([cursor]);
-        editor.selections = [cursor];
-        session.setPosition(cmd.startLine, col);
-        break;
-      }
       case 'scroll':
         await vscode.commands.executeCommand('revealLine', {
           lineNumber: editor.selection.active.line,
@@ -313,6 +307,36 @@ export class VimController implements vscode.Disposable {
         });
         break;
     }
+  }
+
+  /**
+   * `>`/`<`: hand the affected line spans to VSCode's indenter as one
+   * multi-selection, then land each cursor on the first non-blank of its
+   * first line, like vim. One key never mixes indent with dedent, so the
+   * first command's direction is the direction.
+   */
+  private async indentLines(
+    editor: vscode.TextEditor,
+    session: EngineSession,
+    cmds: readonly IndentCommand[],
+  ): Promise<void> {
+    const doc = editor.document;
+    const spans = cmds.map((c) => {
+      const endLine = Math.min(c.endLine, doc.lineCount - 1);
+      return new vscode.Selection(c.startLine, 0, endLine, doc.lineAt(endLine).text.length);
+    });
+    this.lastSetSelections = serializeSelections(spans);
+    editor.selections = spans;
+    await vscode.commands.executeCommand(
+      cmds[0].dedent ? 'editor.action.outdentLines' : 'editor.action.indentLines',
+    );
+    const cursors = cmds.map((c) => {
+      const col = doc.lineAt(c.startLine).firstNonWhitespaceCharacterIndex;
+      return new vscode.Selection(c.startLine, col, c.startLine, col);
+    });
+    this.lastSetSelections = serializeSelections(cursors);
+    editor.selections = cursors;
+    session.setCursors(enginePositions(cursors));
   }
 
   // ---- event mirroring -----------------------------------------------------
@@ -334,19 +358,14 @@ export class VimController implements vscode.Disposable {
 
   private onSelectionChange(e: vscode.TextEditorSelectionChangeEvent): void {
     if (!this.enabled || e.textEditor !== vscode.window.activeTextEditor) return;
-    if (e.selections.length !== 1) return; // native multi-cursor: stand back
     const session = this.usableSession(e.textEditor);
     if (!session) return;
     const ser = serializeSelections(e.selections);
     if (ser === this.lastSetSelections) return; // our own write, engine knows
     this.lastSetSelections = null;
-    const sel = e.selections[0];
-    const fx = sel.isEmpty
-      ? session.setPosition(sel.active.line, sel.active.character)
-      : session.setSelection(
-          { line: sel.anchor.line, col: sel.anchor.character },
-          { line: sel.active.line, col: sel.active.character },
-        );
+    // Every selection, not just the primary: extra cursors (cmd+alt+arrow,
+    // cmd+d) are cursors the engine drives too.
+    const fx = session.setCursors(enginePositions(e.selections));
     if (fx) void this.applyEffects(e.textEditor, session, fx, true);
   }
 
@@ -357,8 +376,8 @@ export class VimController implements vscode.Disposable {
       this.status.hide();
       return;
     }
-    // Re-clamp the cursor for normal mode and refresh the UI.
-    const fx = session.setPosition(editor.selection.active.line, editor.selection.active.character);
+    // Re-clamp the cursors for normal mode and refresh the UI.
+    const fx = session.setCursors(enginePositions(editor.selections));
     if (fx) void this.applyEffects(editor, session, fx, true);
   }
 
@@ -397,11 +416,20 @@ export class VimController implements vscode.Disposable {
       editor.selection.active.line,
       editor.selection.active.character,
     );
-    this.updateUi(editor, session.mode(), '');
+    // The rebuild is single-cursor; hand the extra ones back.
+    if (editor.selections.length > 1) {
+      session.setCursors(enginePositions(editor.selections));
+    }
+    this.updateUi(editor, session.mode(), '', editor.selections.length);
   }
 
-  private updateUi(editor: vscode.TextEditor, mode: EngineMode, pending: string): void {
-    this.status.text = modeLabel(mode, pending, this.message);
+  private updateUi(
+    editor: vscode.TextEditor,
+    mode: EngineMode,
+    pending: string,
+    cursors: number,
+  ): void {
+    this.status.text = modeLabel(mode, pending, this.message, cursors);
     this.status.show();
     this.setCursorStyle(editor, mode);
     void vscode.commands.executeCommand('setContext', 'vimUltra.mode', mode);

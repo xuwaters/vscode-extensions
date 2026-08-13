@@ -1004,3 +1004,221 @@ fn search_keys_are_literal_in_the_prompt() {
     assert_eq!(s.text(), "no match\nd3w here");
 }
 
+
+// ---- multi-cursor ----------------------------------------------------------
+
+/// Mirror a multi-cursor selection change from the host: bare cursors, in
+/// VSCode order with the primary first.
+fn cursors(s: &mut Session, at: &[(usize, usize)]) {
+    let sels: Vec<(Pos, Pos)> = at
+        .iter()
+        .map(|&(line, col)| (Pos::new(line, col), Pos::new(line, col)))
+        .collect();
+    s.set_cursors(&sels);
+}
+
+/// Where every cursor ended up.
+fn actives(fx: &Effects) -> Vec<(usize, usize)> {
+    fx.selections
+        .iter()
+        .map(|s| (s.active.line, s.active.col))
+        .collect()
+}
+
+#[test]
+fn multi_cursor_shift_i_inserts_at_every_line_start() {
+    // cmd+alt+down twice, then I: insert at each line's first non-blank.
+    let mut s = at("  one\nfour\n    six", 0, 2);
+    cursors(&mut s, &[(0, 2), (1, 2), (2, 2)]);
+    let fx = feed(&mut s, "I");
+    assert_eq!(fx.mode, "insert");
+    assert_eq!(actives(&fx), [(0, 2), (1, 0), (2, 4)]);
+
+    // The host types at all three natively; the engine only mirrors it.
+    for (line, col) in [(2, 4), (1, 0), (0, 2)] {
+        s.apply_change(Pos::new(line, col), Pos::new(line, col), "X");
+    }
+    cursors(&mut s, &[(0, 3), (1, 1), (2, 5)]);
+    assert_eq!(s.text(), "  Xone\nXfour\n    Xsix");
+
+    // Escape leaves insert mode with the cursors intact; escape again drops
+    // back to one cursor.
+    let fx = feed(&mut s, "<esc>");
+    assert_eq!(fx.mode, "normal");
+    assert_eq!(actives(&fx), [(0, 2), (1, 0), (2, 4)]);
+    let fx = feed(&mut s, "<esc>");
+    assert_eq!(actives(&fx), [(0, 2)]);
+}
+
+#[test]
+fn multi_cursor_edits_stay_in_pre_state_coordinates() {
+    let mut s = session("abc\nabc\nabc");
+    cursors(&mut s, &[(0, 1), (1, 1), (2, 1)]);
+    let fx = feed(&mut s, "x");
+    assert_eq!(s.text(), "ac\nac\nac");
+    assert_eq!(actives(&fx), [(0, 1), (1, 1), (2, 1)]);
+    // One edit per cursor, each against the document the host still holds.
+    let ranges: Vec<_> = fx
+        .edits
+        .iter()
+        .map(|e| (e.start.line, e.start.col, e.end.line, e.end.col))
+        .collect();
+    assert_eq!(ranges, [(2, 1, 2, 2), (1, 1, 1, 2), (0, 1, 0, 2)]);
+}
+
+#[test]
+fn multi_cursor_edits_on_one_line_shift_the_ones_after_them() {
+    let mut s = session("abcdef");
+    cursors(&mut s, &[(0, 1), (0, 3)]);
+    let fx = feed(&mut s, "x");
+    assert_eq!(s.text(), "acef");
+    // The second cursor sat on 'd'; after both deletions it sits on 'e'.
+    assert_eq!(actives(&fx), [(0, 1), (0, 2)]);
+}
+
+#[test]
+fn multi_cursor_o_carries_the_cursors_below_it() {
+    let mut s = session("a\nb\nc");
+    cursors(&mut s, &[(0, 0), (1, 0), (2, 0)]);
+    let fx = feed(&mut s, "o");
+    assert_eq!(s.text(), "a\n\nb\n\nc\n");
+    assert_eq!(fx.mode, "insert");
+    assert_eq!(actives(&fx), [(1, 0), (3, 0), (5, 0)]);
+}
+
+#[test]
+fn multi_cursor_operators_and_the_shared_register() {
+    let mut s = session("foo one\nfoo two");
+    cursors(&mut s, &[(0, 0), (1, 0)]);
+    feed(&mut s, "dw");
+    assert_eq!(s.text(), "one\ntwo");
+    // One register for all cursors, so p pastes the same text everywhere.
+    let mut s = session("ab\ncd");
+    cursors(&mut s, &[(0, 0), (1, 0)]);
+    feed(&mut s, "ylp");
+    assert_eq!(s.text(), "aab\ncad");
+}
+
+#[test]
+fn multi_cursor_linewise_delete() {
+    let mut s = session("one\ntwo\nthree\nfour");
+    cursors(&mut s, &[(0, 0), (2, 0)]);
+    let fx = feed(&mut s, "dd");
+    assert_eq!(s.text(), "two\nfour");
+    assert_eq!(actives(&fx), [(0, 0), (1, 0)]);
+}
+
+#[test]
+fn multi_cursor_selections_are_visual_mode() {
+    // cmd+d style: two selections with a body.
+    let mut s = session("foo\nfoo");
+    s.set_cursors(&[
+        (Pos::new(0, 0), Pos::new(0, 3)),
+        (Pos::new(1, 0), Pos::new(1, 3)),
+    ]);
+    assert_eq!(s.mode_label(), "visual");
+    feed(&mut s, "d");
+    assert_eq!(s.text(), "\n");
+    assert_eq!(s.mode_label(), "normal");
+}
+
+#[test]
+fn multi_cursor_runs_document_wide_things_once() {
+    let mut s = session("a\nb");
+    cursors(&mut s, &[(0, 0), (1, 0)]);
+    let fx = feed(&mut s, "u");
+    assert!(matches!(fx.commands[..], [Command::Undo]));
+    // An ex command already spans a range; running it per cursor would
+    // double every substitution.
+    let mut s = session("aa\naa");
+    cursors(&mut s, &[(0, 0), (1, 0)]);
+    let fx = feed(&mut s, ":%s/a/b/g<cr>");
+    assert_eq!(s.text(), "bb\nbb");
+    assert_eq!(fx.message.as_deref(), Some("4 substitutions on 2 lines"));
+}
+
+#[test]
+fn multi_cursor_ex_edits_carry_the_cursors_that_sat_it_out() {
+    // The primary is below the cursor the substitution moves, and the
+    // replacement breaks a line: the other cursor still has to follow.
+    let mut s = session("a\nb\nc\nd");
+    cursors(&mut s, &[(3, 0), (2, 0)]);
+    let fx = feed(&mut s, ":1s/a/x\\rY/<cr>");
+    assert_eq!(s.text(), "x\nY\nb\nc\nd");
+    assert_eq!(actives(&fx), [(1, 0), (3, 0)]);
+}
+
+#[test]
+fn multi_cursor_indent_reaches_every_line() {
+    let mut s = session("a\nb\nc");
+    cursors(&mut s, &[(0, 0), (2, 0)]);
+    let fx = feed(&mut s, ">>");
+    assert!(matches!(
+        fx.commands[..],
+        [
+            Command::IndentLines { start_line: 2, end_line: 2, dedent: false },
+            Command::IndentLines { start_line: 0, end_line: 0, dedent: false },
+        ]
+    ));
+}
+
+#[test]
+fn multi_cursor_search_moves_every_cursor() {
+    let mut s = session("x foo\nx foo\nx foo");
+    cursors(&mut s, &[(0, 0), (1, 0)]);
+    let fx = feed(&mut s, "/foo<cr>");
+    assert_eq!(actives(&fx), [(0, 2), (1, 2)]);
+    // The primary's report is the one the status bar gets.
+    assert_eq!(fx.message.as_deref(), Some("match 1 of 3"));
+}
+
+#[test]
+fn multi_cursor_collapses_when_two_cursors_meet() {
+    let mut s = session("abc");
+    cursors(&mut s, &[(0, 0), (0, 1)]);
+    let fx = feed(&mut s, "$");
+    assert_eq!(actives(&fx), [(0, 2)]);
+}
+
+// ---- r<cr> -----------------------------------------------------------------
+
+#[test]
+fn r_with_enter_breaks_the_line() {
+    let mut s = at("abcdef", 0, 2);
+    feed(&mut s, "r<cr>");
+    assert_eq!(s.text(), "ab\ndef");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    // A count replaces that many chars with a single break, not with count
+    // of them.
+    let mut s = at("abcdef", 0, 1);
+    feed(&mut s, "3r<cr>");
+    assert_eq!(s.text(), "a\nef");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    // On the last char of a line: the break lands at its end.
+    let mut s = at("ab", 0, 1);
+    feed(&mut s, "r<cr>");
+    assert_eq!(s.text(), "a\n");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    // Not enough characters left for the count: r does nothing, as always.
+    let mut s = at("ab", 0, 1);
+    feed(&mut s, "3r<cr>");
+    assert_eq!(s.text(), "ab");
+}
+
+#[test]
+fn r_with_enter_cancels_in_visual_mode() {
+    let mut s = session("hello");
+    let fx = feed(&mut s, "vllr<cr>");
+    assert_eq!(s.text(), "hello");
+    assert_eq!(fx.pending, "");
+    assert_eq!(s.mode_label(), "visual");
+}
+
+#[test]
+fn multi_cursor_r_with_enter_splits_every_line() {
+    let mut s = session("a-b\na-b");
+    cursors(&mut s, &[(0, 1), (1, 1)]);
+    let fx = feed(&mut s, "r<cr>");
+    assert_eq!(s.text(), "a\nb\na\nb");
+    assert_eq!(actives(&fx), [(1, 0), (3, 0)]);
+}

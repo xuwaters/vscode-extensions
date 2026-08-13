@@ -70,6 +70,7 @@ interface WasmSession {
     activeLine: number,
     activeCol: number,
   ): string;
+  set_cursors(selectionsJson: string): string;
   take_edits(): Uint8Array;
   mode(): string;
   text(): string;
@@ -155,6 +156,21 @@ export class EngineSession {
     return this.parse(() =>
       this.session?.set_selection(anchor.line, anchor.col, active.line, active.col),
     );
+  }
+
+  /**
+   * The editor's whole selection set, primary first. One selection behaves
+   * like `setPosition`/`setSelection`; more put the engine in multi-cursor
+   * editing, where every key runs at every cursor.
+   */
+  setCursors(selections: readonly EngineSelection[]): Effects | null {
+    const wire = selections.map((s) => ({
+      anchorLine: s.anchor.line,
+      anchorCol: s.anchor.col,
+      activeLine: s.active.line,
+      activeCol: s.active.col,
+    }));
+    return this.parse(() => this.session?.set_cursors(JSON.stringify(wire)));
   }
 
   mode(): EngineMode {

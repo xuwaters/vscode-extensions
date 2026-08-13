@@ -38,18 +38,37 @@ commands), and mirrors external document changes back into the engine.
 - **Text objects**: `iw aw iW aW`, `i" a" i' a' i\` a\``,
   `i( a( i[ a[ i{ a{ i< a<` (aliases `b`/`B`).
 - **Actions**: `x X s S D C Y r ~ J p P o O`, `u` / `ctrl+r` (delegates to
-  VSCode undo/redo), `zz zt zb`, `ctrl+d/u/f/b` scrolling.
+  VSCode undo/redo), `zz zt zb`, `ctrl+d/u/f/b` scrolling. `r<CR>` is vim's
+  line-splitting special case: the characters go away and a single line
+  break takes their place, however many the count asked for.
 - **Registers**: the unnamed register, charwise and linewise, with counted
   pastes.
+- **Multiple cursors**: make them the VSCode way — `cmd+alt+up/down` for a
+  column, `cmd+d` for the next occurrence, alt-click — and every key runs at
+  all of them. `I` opens insert mode at each line's first non-blank, `A` at
+  each end, `i a o O` where you'd expect; motions, operators, text objects,
+  `x`, `p` and `r` all work per cursor, and the status bar counts them.
+  Escape leaves insert mode with the cursors intact; escape again drops back
+  to one. Selections made with `cmd+d` come in as visual mode at every
+  cursor, so `c` changes each occurrence. What is shared is the mode, the
+  register (`p` pastes the same text everywhere) and the search history;
+  what runs once is `:` commands and undo, which already cover the document.
 - Mouse clicks and drags work: a drag enters visual mode.
 
 ## Not yet implemented
 
 Marks, macros, dot-repeat, named registers, replace mode (`R`), block visual
-(`ctrl+v`), jumplist, and multi-cursor integration (with multiple cursors the
-extension steps aside and lets VSCode behave natively). `:s` is the only ex
-command: no `:w`, `:g`, `:sort`, … — an unknown one says so in the status bar
-rather than doing something surprising.
+(`ctrl+v` — the column editing it is for is what multiple cursors do here)
+and the jumplist. `:s` is the only ex command: no `:w`, `:g`, `:sort`, … —
+an unknown one says so in the status bar rather than doing something
+surprising.
+
+Multiple cursors edit one document, so two of them reaching for the same
+text (`dd` on adjoining lines, `d/foo⏎` across a neighbour) is a conflict:
+the editor rejects the whole transaction, the key does nothing, and the
+engine rebuilds its mirror from the document rather than guessing. Each
+cursor also reads the buffer as the cursors below it have already left it,
+so a motion that runs *down* past another cursor's edit sees the new text.
 
 Pattern support stops at look-around (`\@=` and friends), `\&`, `~` for the
 previous substitute pattern, and multi-line matching: a match never spans a
