@@ -8,6 +8,7 @@ import {
 } from './customEditor';
 import { resolveMode, toggleEditPreview, type PreviewMode } from './modeState';
 import { PreviewManager, canPreview } from './previewManager';
+import type { PreviewPromoter } from './promote';
 
 export type { PreviewMode };
 
@@ -58,6 +59,7 @@ export class ModeManager implements vscode.Disposable {
   constructor(
     private readonly manager: PreviewManager,
     private readonly editors: MarkdownEditorProvider,
+    private readonly promoter: PreviewPromoter,
   ) {
     this.statusBar = vscode.window.createStatusBarItem(
       'markdownPreviewUltra.mode',
@@ -133,6 +135,9 @@ export class ModeManager implements vscode.Disposable {
         const sourceColumn = this.manager.sourceColumn;
         const readTo = this.manager.closePreview();
         if (document) {
+          // Asked for by name, so the promoter must not read the source coming
+          // forward as a markdown file arriving and send it back.
+          this.promoter.settle(document.uri);
           // From split the source editor is already open beside the panel;
           // reveal *that* one. Without an explicit column `showTextDocument`
           // targets the active column — the panel's — and opens a second copy
@@ -155,6 +160,9 @@ export class ModeManager implements vscode.Disposable {
       }
       case 'split': {
         if (!document) return this.noDocument();
+        // Split puts the source back on screen, which is this extension placing
+        // it and not the reader opening it.
+        this.promoter.settle(document.uri);
         if (this.manager.hasPreview) {
           // Preview → Split: move the panel out of the source column, locking
           // the group it lands in before taking focus off it — the lock is
@@ -217,6 +225,9 @@ export class ModeManager implements vscode.Disposable {
     // The reader's place in the page, so the source opens on the passage they
     // were reading rather than wherever the editor was parked before.
     const line = this.editors.takeLine(uri);
+    // Both remaining modes go through the source, and neither of them means
+    // "open this file", which is the only thing the promoter should act on.
+    this.promoter.settle(uri);
     // The source takes over the preview's tab rather than opening in front of
     // it, so the tab bar is the same width either side of the switch.
     await openSource(uri, column, line === undefined ? undefined : { line });

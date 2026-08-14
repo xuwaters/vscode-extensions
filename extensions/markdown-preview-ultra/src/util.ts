@@ -9,6 +9,14 @@ export function getNonce(): string {
 /** File extensions this extension treats as markdown. */
 const MARKDOWN_EXTENSIONS = /\.(md|markdown|mdx|copilotmd)$/i;
 
+/**
+ * File extensions the preview *editor* is bound to — the `customEditors`
+ * selector in `package.json`, which is narrower than the set we can render:
+ * VSCode resolves a custom editor by filename, and asking it to open a name the
+ * manifest never claimed fails rather than falling back.
+ */
+const PREVIEW_EDITOR_EXTENSIONS = /\.(md|markdown|copilotmd)$/i;
+
 /** Whether a document should be previewable as markdown. */
 export function isMarkdownDocument(document: vscode.TextDocument): boolean {
   return (
@@ -31,4 +39,9 @@ export function visibleEditorFor(
 /** Whether a link target names a markdown file (no document needed). */
 export function isMarkdownPath(fsPath: string): boolean {
   return MARKDOWN_EXTENSIONS.test(fsPath);
+}
+
+/** Whether the preview editor can be opened on `fsPath`. */
+export function isPreviewEditorPath(fsPath: string): boolean {
+  return PREVIEW_EDITOR_EXTENSIONS.test(fsPath);
 }

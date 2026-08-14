@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { MarkdownEditorProvider, isPreviewable } from './customEditor';
 import { ModeManager } from './modes';
 import { PreviewManager, canPreview } from './previewManager';
+import { PreviewPromoter } from './promote';
 import { PreviewRenderer } from './renderer';
 import { ThemeOverrideStore } from './themeStore';
 
@@ -20,11 +21,15 @@ export function activate(context: vscode.ExtensionContext): void {
   // Shared by both surfaces, so the WASM engine is loaded at most once.
   const renderer = new PreviewRenderer(context.extensionUri, themes);
   const manager = new PreviewManager(renderer);
+  // Sends markdown files on to the preview as they are opened — which is how a
+  // reader gets there, now that the file itself is what opens rather than a
+  // contributed editor association.
+  const promoter = new PreviewPromoter(manager);
   // The provider reads the panel's placement: a markdown file opened while the
   // reader is in Split belongs in the source column, not in a preview tab.
-  const editors = new MarkdownEditorProvider(renderer, manager);
-  const modes = new ModeManager(manager, editors);
-  context.subscriptions.push(themes, manager, modes);
+  const editors = new MarkdownEditorProvider(renderer, manager, promoter);
+  const modes = new ModeManager(manager, editors, promoter);
+  context.subscriptions.push(themes, manager, promoter, modes);
 
   /**
    * Resolve what to preview. The explorer and tab context menus pass the
@@ -94,9 +99,10 @@ export function activate(context: vscode.ExtensionContext): void {
       deserializeWebviewPanel: (panel, state) =>
         manager.restorePanel(panel, state as { uri?: string } | undefined),
     }),
-    // The full-tab preview: what Preview mode swaps the source editor for, and
-    // — via the `workbench.editorAssociations` default this extension ships —
-    // what a markdown file opens as, with no flash of source first.
+    // The full-tab preview: what Preview mode swaps the source editor for, what
+    // the promoter hands a newly-opened markdown file over to, and — for a
+    // reader who points `workbench.editorAssociations` at it — what such a file
+    // opens as outright, with no flash of source first.
     vscode.window.registerCustomEditorProvider(
       MarkdownEditorProvider.viewType,
       editors,
