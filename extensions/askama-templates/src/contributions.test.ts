@@ -81,6 +81,7 @@ describe('language contributions', () => {
       'askama-jsx',
       'askama-md',
       'askama-rust',
+      'askama-swift',
       'askama-toml',
       'askama-ts',
       'askama-tsx',

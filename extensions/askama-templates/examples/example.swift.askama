@@ -1,0 +1,67 @@
+{# This is a comment #}
+import Foundation
+{% for dep in imports %}
+import {{ dep.module }}
+{% endfor %}
+
+{# Variable declarations #}
+{% let type_name = format!("{}Model", entity_name) %}
+public struct {{ type_name }}: Codable {
+  {% for field in fields %}
+  public let {{ field.name }}: {{ field.ty }}{% if field.optional %}?{% endif %}
+  {% endfor %}
+
+  {# Conditional members #}
+  {% if generate_init %}
+  public init({% for field in fields %}{{ field.name }}: {{ field.ty }}{% if not loop.last %}, {% endif %}{% endfor %}) {
+    {% for field in fields %}
+    self.{{ field.name }} = {{ field.name }}
+    {% endfor %}
+  }
+  {% endif %}
+
+  {# String interpolation and escapes stay highlighted #}
+  public var summary: String {
+    "\({{ fields | first }}) of {{ total_count }} — {{ app_name | capitalize }}"
+  }
+}
+
+extension {{ type_name }} {
+  {# Pattern matching #}
+  {% match status %}
+    {% when Status::Active %}
+  public static let state = "active"
+    {% when Status::Pending %}
+  public static let state = "pending"
+    {% when _ %}
+  public static let state = "unknown"
+  {% endmatch %}
+
+  {# Loop over template data #}
+  public static let allCases: [String] = [
+    {% for item in items %}
+    "{{ item.label | lower }}",
+    {% endfor %}
+  ]
+
+  {# Attributes, generics, and trailing closures #}
+  @available(iOS {{ min_ios }}, *)
+  public func load<T: Decodable>(_ type: T.Type) async throws -> [T] {
+    try await client.fetch("{{ endpoint }}") { data in
+      try JSONDecoder().decode([T].self, from: data)
+    }
+  }
+
+  {# Raw block - no template processing #}
+  {% raw %}
+  public let literal = "{{ this_stays_literal }}"
+  {% endraw %}
+
+  {# Macro usage #}
+  {% import "macros.swift" as m %}
+  {{ m.render_case(name="preview", body="EmptyView()") }}
+}
+
+{% include "partials/extensions.swift" %}
+
+{% block extra %}{% endblock %}

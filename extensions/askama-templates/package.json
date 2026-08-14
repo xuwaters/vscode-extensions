@@ -2,7 +2,7 @@
   "name": "wx-vsce-askama-templates",
   "displayName": "Askama Templates",
   "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -248,6 +248,20 @@
           ".env.*.jinja2"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-swift",
+        "aliases": [
+          "Askama Swift",
+          "askama-swift"
+        ],
+        "extensions": [
+          ".swift.askama",
+          ".swift.j2",
+          ".swift.jinja",
+          ".swift.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -326,6 +340,11 @@
         "path": "./syntaxes/askama-env.tmLanguage.json"
       },
       {
+        "language": "askama-swift",
+        "scopeName": "source.swift.askama",
+        "path": "./syntaxes/askama-swift.tmLanguage.json"
+      },
+      {
         "scopeName": "askama.injection",
         "path": "./syntaxes/askama-injection.tmLanguage.json",
         "injectTo": [
@@ -341,7 +360,8 @@
           "source.tsx.askama",
           "source.yaml.askama",
           "source.ignore.askama",
-          "source.dotenv.askama"
+          "source.dotenv.askama",
+          "source.swift.askama"
         ]
       }
     ],
@@ -400,6 +420,10 @@
       },
       {
         "language": "askama-env",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-swift",
         "path": "./snippets/askama.json"
       }
     ],
