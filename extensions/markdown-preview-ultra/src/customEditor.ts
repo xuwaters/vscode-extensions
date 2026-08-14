@@ -4,7 +4,6 @@ import type { EngineSession } from './engine';
 import { isWebviewToHost, type WebviewToHost } from './messages';
 import { shouldHandOffToSource } from './modeState';
 import type { PreviewManager } from './previewManager';
-import type { PreviewPromoter } from './promote';
 import { NO_HISTORY, PreviewRenderer } from './renderer';
 import { firstSearchMatch, type SearchMatch } from './searchMatches';
 import { isPreviewEditorPath, visibleEditorFor } from './util';
@@ -29,20 +28,20 @@ const REOPEN_ACTIVE_EDITOR_WITH = 'reopenActiveEditorWith';
 const GET_SEARCH_RESULTS = 'search.action.getSearchResults';
 
 /**
- * Opens a markdown file *straight into* the preview. Switching to Preview mode
- * lands here, as does the promoter that hands newly-opened markdown over.
- *
- * A reader can also point VSCode's own editor association at this editor:
+ * Opens a markdown file *straight into* the preview: no text editor is created
+ * first, so there is no flash of source and no tab switch on open. Switching to
+ * Preview mode lands here, and it owns the file from the moment it is opened —
+ * the extension ships that association as a contributed default:
  *
  * ```jsonc
  * "workbench.editorAssociations": { "*.md": "markdownPreviewUltra.editor" }
  * ```
  *
- * which opens the preview with no flash of source at all, since no text editor
- * is created first. The extension does not set that itself — it routes *every*
- * markdown file here, including two that do not belong: a reader in Split has
- * already said where the source goes (`handOffToSource`), and a search result
- * names a match VSCode drops on the way in (`revealSearchMatch`).
+ * That association routes *every* markdown file here, which is two files too
+ * many: a reader in Split has already said where the source goes, and a file
+ * opened from the search view was opened *at* a match that VSCode drops on the
+ * way in. Both kinds of tab are handed straight back to the text editor — see
+ * `handOffToSource` and `revealSearchMatch`.
  *
  * VSCode owns these webviews, one per tab, and binds each to its document for
  * the tab's life. So unlike the following panel there is nothing to retarget:
@@ -71,7 +70,6 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
   constructor(
     private readonly renderer: PreviewRenderer,
     private readonly manager: PreviewManager,
-    private readonly promoter: PreviewPromoter,
   ) {}
 
   /** Hand the preview editor a line to open at; set before `vscode.openWith`. */
@@ -195,7 +193,6 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     );
     if (!claim) return false;
     this.handingOff.add(key);
-    this.promoter.settle(document.uri);
     // This tab is still being resolved; swapping what is inside it from in here
     // would re-enter the editor service, so let the resolve return first.
     setTimeout(() => {
@@ -219,14 +216,18 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
    * Give the tab back to the text editor, on the match, when this file was
    * opened from the search view.
    *
-   * Only reached with the editor association in play, because that is the only
-   * way a search result gets here — and, just as importantly, because the
-   * results it reads carry no clock. They are whatever the search view is still
-   * showing, which may be a query from an hour ago that happens to name this
-   * file; against that the association is the standing evidence that the reader
-   * did not choose this preview, file by file, themselves. What the results do
-   * carry is the line as it read when they were found, so a result the file has
-   * since moved past is dropped rather than jumped to.
+   * A search result names the line and column to reveal, and VSCode drops both
+   * on the way into a custom editor: the page opens at the top of the file with
+   * nothing to say where the keyword was. Nothing in the API reports the query,
+   * the match, or even that the open came from search — only the search view's
+   * own results are readable, and they carry no clock. They are whatever it is
+   * still showing, which may be a query from an hour ago that happens to name
+   * this file. What they do carry is the line as it read when it was found, so
+   * a result the file has since moved past is dropped rather than jumped to.
+   *
+   * Only tabs the association opened reach this: a preview asked for by name —
+   * Preview mode, a link followed from a page — is not a search result however
+   * the results read (see `deliberate`).
    *
    * The search runs while the page renders behind it: an answer that never
    * comes, or comes back empty, costs a reader who was not searching nothing.
@@ -239,7 +240,6 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     if (column === undefined) return;
     const key = document.uri.toString();
     if (this.handingOff.has(key)) return;
-    if (!associationOpensPreview()) return;
     this.handingOff.add(key);
     let closed = false;
     const watch = panel.onDidDispose(() => {
@@ -250,7 +250,6 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
         // The tab can be shut while the search is still answering. Opening a
         // file the reader has just closed is worse than not answering at all.
         if (!match || closed) return;
-        this.promoter.settle(document.uri);
         await openSource(document.uri, column, match);
       })
       .catch((err: unknown) => {
@@ -324,7 +323,6 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
         // passage being read. Acting on this panel's own document rather than
         // on whatever is active is what the click actually meant.
         const line = this.takeLine(document.uri);
-        this.promoter.settle(document.uri);
         await openSource(
           document.uri,
           panel.viewColumn ?? vscode.ViewColumn.One,
@@ -365,9 +363,9 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       }
       const target = resolveLink(document, href);
       // Browsing to another markdown file opens its own preview tab, the way
-      // following a link in a browser opens a page, not an editor. Named
-      // outright rather than left to the promoter: a link followed from a page
-      // never wanted the source, not even for the moment it would show.
+      // following a link in a browser opens a page, not an editor. Opened by
+      // name rather than left to the association, so that the tab is not read
+      // as a search result on its way in.
       if (isPreviewEditorPath(target.fsPath)) {
         const column = panel.viewColumn ?? vscode.ViewColumn.One;
         await openPreviewEditor(target, column);
@@ -394,18 +392,6 @@ const deliberate = new Set<string>();
 
 function takeDeliberate(uri: vscode.Uri): boolean {
   return deliberate.delete(uri.toString());
-}
-
-/**
- * Whether the reader has pointed VSCode's editor association at this editor, in
- * which case markdown files reach it without passing through the promoter — and
- * search results reach it with their match already discarded.
- */
-function associationOpensPreview(): boolean {
-  const associations = vscode.workspace
-    .getConfiguration('workbench')
-    .get<Record<string, string>>('editorAssociations', {});
-  return Object.values(associations).includes(MarkdownEditorProvider.viewType);
 }
 
 /** The match in `document` the search view is still showing, if it has one. */
@@ -467,47 +453,22 @@ function editorShowing(
 }
 
 /**
- * Whether `uri` is what the active tab of the active group is already showing.
- *
- * Reopen With acts on the active editor, and inherits the options that editor
- * was opened with — including whether opening it took focus. So a tab that is
- * already in front is best left exactly as it is: restating the open would
- * overwrite those options with this extension's own.
- */
-function isActiveTab(uri: vscode.Uri, column: vscode.ViewColumn): boolean {
-  const group = vscode.window.tabGroups.activeTabGroup;
-  if (group.viewColumn !== column) return false;
-  const active = group.activeTab;
-  return (
-    active !== undefined &&
-    tabEditor(active)?.uri.toString() === uri.toString()
-  );
-}
-
-/**
  * Show `uri` in `column` under the editor `editorId`, taking over the tab that
  * already shows the file rather than opening in front of it.
  *
  * The symbolic columns are left to VSCode: `Beside` and `Active` match no group,
  * so they open a tab of their own the way a jump to the source should.
- *
- * `inPlace` says the tab is already where the reader is looking and only its
- * contents are to change — see `openPreviewEditor`.
  */
 async function showWith(
   uri: vscode.Uri,
   column: vscode.ViewColumn,
   editorId: string,
-  inPlace = false,
 ): Promise<void> {
   const current = editorShowing(uri, column);
   if (current !== undefined && current !== editorId) {
     // Reopen With acts on the active editor, so the tab has to come forward as
-    // it stands before VSCode is asked to swap what is inside it — unless it is
-    // already in front and the caller asked for it to be left that way.
-    if (!(inPlace && isActiveTab(uri, column))) {
-      await openWith(uri, column, current);
-    }
+    // it stands before VSCode is asked to swap what is inside it.
+    await openWith(uri, column, current);
     await vscode.commands.executeCommand(REOPEN_ACTIVE_EDITOR_WITH, editorId);
     return;
   }
@@ -568,33 +529,21 @@ export async function openSource(
  * Open a markdown file *in* the preview editor — the mirror of `openSource`.
  * The tab holding the source becomes the preview, rather than gaining a second
  * tab in front of it.
- *
- * `inPlace` is the promoter's, whose tab has only just opened and is already in
- * front: revealing it first would restate how it was opened in this extension's
- * terms, and Reopen With inherits those terms — so a file the explorer opened
- * without taking focus would have focus taken from it on the way to the
- * preview, and the reader would lose their place in the tree.
  */
 export async function openPreviewEditor(
   uri: vscode.Uri,
   column: vscode.ViewColumn,
-  inPlace = false,
 ): Promise<void> {
   const key = uri.toString();
   deliberate.add(key);
   try {
-    await showWith(uri, column, MarkdownEditorProvider.viewType, inPlace);
+    await showWith(uri, column, MarkdownEditorProvider.viewType);
   } finally {
     // Normally taken by the resolve this triggered. A resolve that never came —
     // the tab was already showing the preview, say — leaves it to be cleared
     // here, so a later association-opened tab is not read as this one.
     deliberate.delete(key);
   }
-}
-
-/** The file a tab is showing, for the two kinds of tab this extension opens. */
-export function tabResource(tab: vscode.Tab): vscode.Uri | undefined {
-  return tabEditor(tab)?.uri;
 }
 
 /**

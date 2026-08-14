@@ -1,13 +1,12 @@
 /**
- * Recovering the match behind a search result, for the one configuration that
- * loses it.
+ * Recovering the match behind a search result, which opening the preview loses.
  *
  * The search view opens a result by asking for the file *and* the range to
  * reveal. VSCode drops that range when the editor it resolves to is a custom
- * editor, so with `workbench.editorAssociations` pointing markdown at the
- * preview, clicking a result renders the page from the top and never says where
- * the keyword was. Nothing in the extension API reports the query, the match,
- * or even that the open came from search.
+ * editor, and the editor association this extension ships makes that every
+ * markdown file: clicking a result renders the page from the top and never says
+ * where the keyword was. Nothing in the extension API reports the query, the
+ * match, or even that the open came from search.
  *
  * One thing does report the match: `search.action.getSearchResults`, the
  * command behind the search view's own Copy All. It is not API — it is read

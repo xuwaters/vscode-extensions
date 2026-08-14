@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -37,6 +37,13 @@
         ]
       }
     ],
+    "configurationDefaults": {
+      "workbench.editorAssociations": {
+        "*.md": "markdownPreviewUltra.editor",
+        "*.markdown": "markdownPreviewUltra.editor",
+        "*.copilotmd": "markdownPreviewUltra.editor"
+      }
+    },
     "languages": [
       {
         "id": "markdown",
@@ -258,11 +265,6 @@
     "configuration": {
       "title": "Markdown Preview Ultra",
       "properties": {
-        "markdownPreviewUltra.openInPreview": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Open Markdown files in the preview rather than as source. Files opened *at* a place — a search result, Go to Definition, a problem — stay in the text editor, so the match is still where you left it. Set `#workbench.editorAssociations#` to `markdownPreviewUltra.editor` instead to open the preview with no flash of source first."
-        },
         "markdownPreviewUltra.scrollSync": {
           "type": "boolean",
           "default": true,

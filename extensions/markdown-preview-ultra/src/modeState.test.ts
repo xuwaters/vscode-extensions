@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveMode,
   shouldHandOffToSource,
-  shouldPromoteToPreview,
   toggleEditPreview,
 } from './modeState';
 
@@ -93,46 +92,6 @@ describe('shouldHandOffToSource', () => {
         1,
       ),
     ).toBe(false);
-  });
-});
-
-describe('shouldPromoteToPreview', () => {
-  /** Nothing else on screen: the reader just opened a file. */
-  const alone = { hasPanel: false };
-  /** Source in column 1, preview panel beside it in column 2. */
-  const split = { hasPanel: true, panelColumn: 2, sourceColumn: 1 };
-  const opened = { column: 1, hasSelection: false };
-
-  it('sends a plain open on to the preview', () => {
-    expect(shouldPromoteToPreview(alone, opened, true)).toBe(true);
-  });
-
-  it('leaves a file opened at a search match on the source', () => {
-    expect(
-      shouldPromoteToPreview(alone, { column: 1, hasSelection: true }, true),
-    ).toBe(false);
-  });
-
-  it('leaves the source column of a split alone', () => {
-    expect(shouldPromoteToPreview(split, opened, true)).toBe(false);
-  });
-
-  it('still sends a file opened elsewhere than the split on', () => {
-    expect(shouldPromoteToPreview(split, { ...opened, column: 3 }, true)).toBe(
-      true,
-    );
-  });
-
-  it('sends nothing on when the reader has turned it off', () => {
-    expect(shouldPromoteToPreview(alone, opened, false)).toBe(false);
-  });
-
-  it('never contradicts the claim the source column makes', () => {
-    for (const column of [1, 2, 3]) {
-      const promote = shouldPromoteToPreview(split, { ...opened, column }, true);
-      const handOff = shouldHandOffToSource(split, column);
-      expect(promote && handOff).toBe(false);
-    }
   });
 });
 
