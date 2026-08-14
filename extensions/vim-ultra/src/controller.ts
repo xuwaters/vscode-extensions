@@ -306,6 +306,16 @@ export class VimController implements vscode.Disposable {
           at: cmd.to,
         });
         break;
+      // `o`/`O`. VSCode's own line-insert is the one that knows the
+      // language's indent rules — it is what `<cr>` in insert mode runs — so
+      // the new line lands indented instead of at column 0. It opens a line
+      // at every cursor, which is why the engine emits it once. The edit and
+      // the cursor move it makes mirror back like any other outside change.
+      case 'openLine':
+        await vscode.commands.executeCommand(
+          cmd.above ? 'editor.action.insertLineBefore' : 'editor.action.insertLineAfter',
+        );
+        break;
     }
   }
 

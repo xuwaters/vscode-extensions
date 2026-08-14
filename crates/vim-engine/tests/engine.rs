@@ -216,15 +216,45 @@ fn insert_entries() {
     assert_eq!(s.cursor(), Pos::new(0, 0));
 }
 
+/// Simulate the host's line-insert command: the split plus whatever indent
+/// the language configuration chose, delivered as an outside change.
+fn host_open_line(s: &mut Session, line: usize, above: bool, indent: &str) {
+    let text = s.text();
+    let width = indent.encode_utf16().count();
+    let at = if above {
+        Pos::new(line, 0)
+    } else {
+        let len = text.lines().nth(line).map_or(0, |l| l.encode_utf16().count());
+        Pos::new(line, len)
+    };
+    let inserted = if above {
+        format!("{indent}\n")
+    } else {
+        format!("\n{indent}")
+    };
+    s.apply_change(at, at, &inserted);
+    s.set_position(if above { line } else { line + 1 }, width);
+}
+
 #[test]
-fn open_lines() {
-    let mut s = session("one\ntwo");
-    feed(&mut s, "o");
-    assert_eq!(s.text(), "one\n\ntwo");
-    assert_eq!((s.mode_label(), s.cursor()), ("insert", Pos::new(1, 0)));
-    feed(&mut s, "<esc>O");
-    assert_eq!(s.text(), "one\n\n\ntwo");
-    assert_eq!(s.cursor(), Pos::new(1, 0));
+fn open_lines_leave_the_split_to_the_host() {
+    let mut s = session("fn f() {\n}");
+    let fx = feed(&mut s, "o");
+    // No edit: only the host knows this language wants a deeper indent
+    // inside the braces, so the split travels as its line-insert command.
+    assert!(fx.edits.is_empty());
+    assert!(matches!(fx.commands[..], [Command::OpenLine { above: false }]));
+    assert_eq!((fx.mode, s.cursor()), ("insert", Pos::new(0, 0)));
+
+    host_open_line(&mut s, 0, false, "    ");
+    assert_eq!(s.text(), "fn f() {\n    \n}");
+    assert_eq!((s.mode_label(), s.cursor()), ("insert", Pos::new(1, 4)));
+
+    let fx = feed(&mut s, "<esc>O");
+    assert!(matches!(fx.commands[..], [Command::OpenLine { above: true }]));
+    host_open_line(&mut s, 1, true, "    ");
+    assert_eq!(s.text(), "fn f() {\n    \n    \n}");
+    assert_eq!((s.mode_label(), s.cursor()), ("insert", Pos::new(1, 4)));
 }
 
 #[test]
@@ -1077,13 +1107,16 @@ fn multi_cursor_edits_on_one_line_shift_the_ones_after_them() {
 }
 
 #[test]
-fn multi_cursor_o_carries_the_cursors_below_it() {
+fn multi_cursor_o_is_one_command_for_every_cursor() {
     let mut s = session("a\nb\nc");
     cursors(&mut s, &[(0, 0), (1, 0), (2, 0)]);
     let fx = feed(&mut s, "o");
-    assert_eq!(s.text(), "a\n\nb\n\nc\n");
+    // The host's line-insert opens a line under each of its cursors on its
+    // own, so the engine asks once and lets the changes mirror back.
+    assert!(matches!(fx.commands[..], [Command::OpenLine { above: false }]));
+    assert!(fx.edits.is_empty());
     assert_eq!(fx.mode, "insert");
-    assert_eq!(actives(&fx), [(1, 0), (3, 0), (5, 0)]);
+    assert_eq!(actives(&fx), [(0, 0), (1, 0), (2, 0)]);
 }
 
 #[test]

@@ -68,6 +68,15 @@ pub enum Command {
     Scroll {
         to: &'static str, // "center" | "top" | "bottom"
     },
+    /// `o` / `O`: split a line open and leave the cursor on the new one.
+    /// The indent it gets follows the language's rules, which only the host
+    /// knows, so this travels as a command rather than an edit: the host runs
+    /// its own line-insert — what `<cr>` in insert mode does — and the change
+    /// mirrors back like any other edit the engine did not make. With several
+    /// cursors it is emitted once; the host's command opens a line at each.
+    OpenLine {
+        above: bool,
+    },
 }
 
 /// Incremental-search UI state, present while a `/` or `?` prompt is open
@@ -528,8 +537,9 @@ impl Session {
             } else {
                 self.message = None;
                 self.search_ui = None;
-                // Undo, redo and scrolling are document-wide: one cursor's
-                // worth is the whole story, and N undos would undo N times.
+                // Undo, redo, scrolling and opening a line are commands the
+                // host runs over the whole selection set: one cursor's worth
+                // is the whole story, and N undos would undo N times.
                 let mine: Vec<Command> = commands.split_off(first_command);
                 commands.extend(
                     mine.into_iter()
@@ -930,16 +940,8 @@ impl Session {
             Key::Char('A') if !visual => {
                 self.enter_insert_cleared(Pos::new(cur.line, self.buf.line_len(cur.line)))
             }
-            Key::Char('o') if !visual => {
-                let eol = Pos::new(cur.line, self.buf.line_len(cur.line));
-                self.emit_edit(eol, eol, "\n", edits);
-                self.enter_insert_cleared(Pos::new(cur.line + 1, 0));
-            }
-            Key::Char('O') if !visual => {
-                let bol = Pos::new(cur.line, 0);
-                self.emit_edit(bol, bol, "\n", edits);
-                self.enter_insert_cleared(Pos::new(cur.line, 0));
-            }
+            Key::Char('o') if !visual => self.open_line(false, commands),
+            Key::Char('O') if !visual => self.open_line(true, commands),
 
             // -- visual mode entry / manipulation
             Key::Char('v') => self.toggle_visual(false),
@@ -974,6 +976,17 @@ impl Session {
     fn enter_insert_cleared(&mut self, at: Pos) {
         self.clear_pending();
         self.enter_insert(at);
+    }
+
+    /// `o` / `O`: hand the line split to the host so the new line is indented
+    /// the way the language wants it. The cursor stays put — the host's
+    /// document change and cursor move come back through `apply_change` and
+    /// `set_cursors` and land it — but the mode switches now, so the keys
+    /// after this one go straight to the editor as insert-mode typing.
+    fn open_line(&mut self, above: bool, commands: &mut Vec<Command>) {
+        self.clear_pending();
+        self.mode = Mode::Insert;
+        commands.push(Command::OpenLine { above });
     }
 
     fn toggle_visual(&mut self, linewise: bool) {

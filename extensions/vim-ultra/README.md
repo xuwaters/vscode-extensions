@@ -40,7 +40,10 @@ commands), and mirrors external document changes back into the engine.
 - **Actions**: `x X s S D C Y r ~ J p P o O`, `u` / `ctrl+r` (delegates to
   VSCode undo/redo), `zz zt zb`, `ctrl+d/u/f/b` scrolling. `r<CR>` is vim's
   line-splitting special case: the characters go away and a single line
-  break takes their place, however many the count asked for.
+  break takes their place, however many the count asked for. `o`/`O` open
+  the new line through VSCode's own line-insert — the same thing `enter` in
+  insert mode runs — so it arrives indented by the language's rules rather
+  than at column 0.
 - **Registers**: the unnamed register, charwise and linewise, with counted
   pastes.
 - **Multiple cursors**: make them the VSCode way — `cmd+alt+up/down` for a
