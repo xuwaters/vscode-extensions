@@ -1,7 +1,17 @@
 import * as vscode from 'vscode';
 import { EngineBridge, EngineSession, type EngineOptions } from './engine';
-import type { HostToWebview, PreviewSettings, PreviewTheme } from './messages';
-import { configuredTheme, type ThemeOverrideStore } from './themeStore';
+import type {
+  HostToWebview,
+  PreviewFont,
+  PreviewOverrides,
+  PreviewSettings,
+  PreviewTheme,
+} from './messages';
+import {
+  configuredFont,
+  configuredTheme,
+  type OverrideStore,
+} from './overrideStore';
 import { getNonce } from './util';
 
 /** Preview-local link history; drives the webview toolbar's ← / → buttons. */
@@ -21,17 +31,30 @@ export const NO_HISTORY: NavState = { canGoBack: false, canGoForward: false };
  *
  * One instance is shared, so the WASM module is loaded at most once per window.
  */
-export class PreviewRenderer {
+export class PreviewRenderer implements vscode.Disposable {
   private readonly engine: EngineBridge;
-  /** Fires when the in-page light/dark switch is flipped or retired. */
-  public readonly onDidChangeThemeOverride: vscode.Event<void>;
+  private readonly emitter = new vscode.EventEmitter<void>();
+  /** Fires when either in-page switch is flipped or retired. */
+  public readonly onDidChangeOverrides = this.emitter.event;
+  private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly themes: ThemeOverrideStore,
+    private readonly themes: OverrideStore<PreviewTheme>,
+    private readonly fonts: OverrideStore<PreviewFont>,
   ) {
     this.engine = new EngineBridge(extensionUri.fsPath);
-    this.onDidChangeThemeOverride = themes.onDidChange;
+    // Both switches mean the same thing to a page — restyle — so the surfaces
+    // watching them get one event rather than one each.
+    this.disposables.push(
+      this.emitter,
+      themes.onDidChange(() => this.emitter.fire()),
+      fonts.onDidChange(() => this.emitter.fire()),
+    );
+  }
+
+  public dispose(): void {
+    for (const d of this.disposables) d.dispose();
   }
 
   /** A fresh per-document render session (block hashes for diffing). */
@@ -62,9 +85,18 @@ export class PreviewRenderer {
     this.themes.set(theme);
   }
 
-  /** Hand a page the switch's current value. */
-  public postThemeOverride(webview: vscode.Webview): void {
-    this.post(webview, { type: 'themeOverride', theme: this.themes.override });
+  /** Flip the window-wide prose/monospace switch; see `setThemeOverride`. */
+  public setFontOverride(font: PreviewFont): void {
+    this.fonts.set(font);
+  }
+
+  /** Hand a page where both switches currently stand. */
+  public postOverrides(webview: vscode.Webview): void {
+    this.post(webview, { type: 'overrides', overrides: this.overrides() });
+  }
+
+  private overrides(): PreviewOverrides {
+    return { theme: this.themes.override, font: this.fonts.override };
   }
 
   /**
@@ -97,7 +129,7 @@ export class PreviewRenderer {
       baseHref: this.baseHref(webview, document),
       customStyles: this.customStyles(webview, document),
       settings: this.readSettings(),
-      themeOverride: this.themes.override,
+      overrides: this.overrides(),
       canGoBack: nav.canGoBack,
       canGoForward: nav.canGoForward,
     });
@@ -135,6 +167,7 @@ export class PreviewRenderer {
         'card',
       ),
       theme: configuredTheme(),
+      font: configuredFont(),
       tocVisible: cfg.get<boolean>('toc.visible', false),
       tocWidth: cfg.get<number>('toc.width', 240),
       taskToggle: cfg.get<boolean>('taskLists.toggleFromPreview', false),
@@ -199,12 +232,16 @@ export class PreviewRenderer {
     const styleUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'style.css'),
     );
-    // Stamp a fixed theme onto <body> up front so the preview doesn't flash the
-    // editor's colors before the first settings message reaches the webview.
-    // The switch is part of that: a page that opens while it is flipped is
-    // painted in the theme it is about to be told to show anyway.
-    const theme = this.themes.theme;
-    const bodyClass = theme === 'auto' ? '' : ` class="theme-${theme}"`;
+    // Stamp the theme and the font onto <body> up front so the preview doesn't
+    // flash the editor's colors, or a page of the wrong font, before the first
+    // settings message reaches the webview. The switches are part of that: a
+    // page that opens while one is flipped is painted the way it is about to be
+    // told to show anyway.
+    const theme = this.themes.value;
+    const classes: string[] = [];
+    if (theme !== 'auto') classes.push(`theme-${theme}`);
+    if (this.fonts.value === 'monospace') classes.push('font-mono');
+    const bodyClass = classes.length ? ` class="${classes.join(' ')}"` : '';
     const nonce = getNonce();
     const csp = [
       `default-src 'none'`,

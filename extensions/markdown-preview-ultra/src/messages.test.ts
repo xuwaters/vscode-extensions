@@ -12,6 +12,10 @@ describe('isWebviewToHost', () => {
     );
     expect(isWebviewToHost({ type: 'openSource' })).toBe(true);
     expect(isWebviewToHost({ type: 'openLink', href: 'https://x' })).toBe(true);
+    expect(isWebviewToHost({ type: 'setTheme', theme: 'github-dark' })).toBe(
+      true,
+    );
+    expect(isWebviewToHost({ type: 'setFont', font: 'monospace' })).toBe(true);
     expect(
       isWebviewToHost({ type: 'toggleTask', line: 4, checked: true }),
     ).toBe(true);
@@ -32,6 +36,11 @@ describe('isWebviewToHost', () => {
       false,
     );
     expect(isWebviewToHost({ type: 'openLink' })).toBe(false);
+    expect(isWebviewToHost({ type: 'setTheme', theme: 'solarized' })).toBe(
+      false,
+    );
+    expect(isWebviewToHost({ type: 'setFont' })).toBe(false);
+    expect(isWebviewToHost({ type: 'setFont', font: 'comic-sans' })).toBe(false);
     expect(isWebviewToHost({ type: 'toggleTask', line: 1 })).toBe(false);
     expect(isWebviewToHost({ type: 'error', message: 'm' })).toBe(false);
   });

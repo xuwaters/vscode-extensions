@@ -5,7 +5,7 @@
  * setting is never written. The override is held by the host for the whole
  * window, so it carries across files and both preview surfaces, and it is
  * dropped as soon as the user changes the configured theme (see
- * `src/themeOverride.ts`).
+ * `src/override.ts`).
  */
 export class ThemeToggle {
   private readonly button: HTMLButtonElement;

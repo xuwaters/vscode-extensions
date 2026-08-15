@@ -31,6 +31,17 @@ export interface Frontmatter {
 
 export type PreviewTheme = 'auto' | 'github-light' | 'github-dark';
 export type MermaidTheme = 'auto' | 'default' | 'dark' | 'forest' | 'neutral';
+/** Font the page's prose is set in; code stays monospace either way. */
+export type PreviewFont = 'proportional' | 'monospace';
+
+/**
+ * The in-page switches, each `null` while the setting it deviates from is in
+ * force. The host holds them for the window — see `overrideStore.ts`.
+ */
+export interface PreviewOverrides {
+  theme: PreviewTheme | null;
+  font: PreviewFont | null;
+}
 
 /** Presentation settings forwarded to the webview. */
 export interface PreviewSettings {
@@ -40,6 +51,7 @@ export interface PreviewSettings {
   mermaidTheme: MermaidTheme;
   frontmatterDisplay: 'card' | 'hidden';
   theme: PreviewTheme;
+  font: PreviewFont;
   tocVisible: boolean;
   /** Default sidebar width in px; a dragged width overrides it per preview. */
   tocWidth: number;
@@ -66,8 +78,8 @@ export interface UpdateMessage {
   /** Webview URIs of user customCss files, applied in order. */
   customStyles: string[];
   settings: PreviewSettings;
-  /** In-page light/dark switch, or `null` while the configured theme is in force. */
-  themeOverride: PreviewTheme | null;
+  /** The in-page switches, each `null` while its setting is in force. */
+  overrides: PreviewOverrides;
   /** Preview-local link history (drives the toolbar's ← / → buttons). */
   canGoBack: boolean;
   canGoForward: boolean;
@@ -97,13 +109,12 @@ export interface VisibilityMessage {
 }
 
 /**
- * The in-page light/dark switch was flipped — here or in another preview. The
- * host holds it for the whole window, so every open page follows along.
+ * An in-page switch was flipped — here or in another preview. The host holds
+ * them for the whole window, so every open page follows along.
  */
-export interface ThemeOverrideMessage {
-  type: 'themeOverride';
-  /** `null` → no override; the configured theme applies. */
-  theme: PreviewTheme | null;
+export interface OverridesMessage {
+  type: 'overrides';
+  overrides: PreviewOverrides;
 }
 
 /** The WASM engine is not built; show a friendly hint instead of content. */
@@ -115,7 +126,7 @@ export type HostToWebview =
   | UpdateMessage
   | ScrollMessage
   | ThemeMessage
-  | ThemeOverrideMessage
+  | OverridesMessage
   | VisibilityMessage
   | NoEngineMessage;
 
@@ -167,6 +178,16 @@ export interface SetThemeMessage {
   theme: PreviewTheme;
 }
 
+/**
+ * The in-page font switch was flipped. Held by the host for the window like the
+ * light/dark one, and like it the `markdownPreviewUltra.font` setting is left
+ * alone.
+ */
+export interface SetFontMessage {
+  type: 'setFont';
+  font: PreviewFont;
+}
+
 /** Task checkbox clicked (only when `taskLists.toggleFromPreview` is on). */
 export interface ToggleTaskMessage {
   type: 'toggleTask';
@@ -189,6 +210,7 @@ export type WebviewToHost =
   | NavigateMessage
   | OpenLinkMessage
   | SetThemeMessage
+  | SetFontMessage
   | ToggleTaskMessage
   | ErrorMessage;
 
@@ -200,6 +222,10 @@ function isFiniteNumber(v: unknown): v is number {
 
 function isPreviewTheme(v: unknown): v is PreviewTheme {
   return v === 'auto' || v === 'github-light' || v === 'github-dark';
+}
+
+function isPreviewFont(v: unknown): v is PreviewFont {
+  return v === 'proportional' || v === 'monospace';
 }
 
 /**
@@ -222,6 +248,8 @@ export function isWebviewToHost(msg: unknown): msg is WebviewToHost {
       return typeof m.href === 'string';
     case 'setTheme':
       return isPreviewTheme(m.theme);
+    case 'setFont':
+      return isPreviewFont(m.font);
     case 'toggleTask':
       return (
         isFiniteNumber(m.line) && m.line >= 0 && typeof m.checked === 'boolean'

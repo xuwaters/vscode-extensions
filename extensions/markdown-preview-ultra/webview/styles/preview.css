@@ -18,6 +18,16 @@ body {
   line-height: var(--vscode-markdown-line-height, 1.6);
 }
 
+/*
+ * The mono switch (`markdownPreviewUltra.font`, or the toolbar's `Aa` button):
+ * set the whole page in the editor's own font, for readers who want the
+ * rendered page to read the way the file does. Code was monospace already and
+ * keeps its own rule — only the prose around it changes.
+ */
+body.font-mono {
+  font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
 .markdown-preview {
   max-width: var(--content-width);
   margin: 0 auto;
@@ -285,8 +295,22 @@ body {
   cursor: default;
 }
 
-/* Diverging from the configured theme is worth a hint. */
-#theme-toggle.overridden {
+/* The font button is its own preview: it is set in the font a click brings. */
+#font-toggle {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+#font-toggle.to-mono {
+  font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
+#font-toggle.to-prose {
+  font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+}
+
+/* Diverging from the configured theme or font is worth a hint. */
+#preview-toolbar button.overridden {
   opacity: 0.85;
   border-color: var(--vscode-textLink-foreground, #4493f8);
 }

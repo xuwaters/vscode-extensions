@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -354,6 +354,19 @@
           ],
           "default": "github-light",
           "description": "Preview theme. `auto` follows the VSCode color theme."
+        },
+        "markdownPreviewUltra.font": {
+          "type": "string",
+          "enum": [
+            "proportional",
+            "monospace"
+          ],
+          "enumDescriptions": [
+            "The theme's reading font.",
+            "The editor's font (`editor.fontFamily`)."
+          ],
+          "default": "proportional",
+          "description": "Font the rendered text is set in; code blocks are monospace either way. The preview toolbar's `Aa` button switches this for the window without writing the setting. For a font of your own, point `markdownPreviewUltra.customCss` at a file that sets `body { font-family: … }`."
         },
         "markdownPreviewUltra.customCss": {
           "type": "array",

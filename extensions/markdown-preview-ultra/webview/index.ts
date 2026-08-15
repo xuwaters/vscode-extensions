@@ -9,6 +9,8 @@ import 'katex/dist/katex.min.css';
 
 import type {
   HostToWebview,
+  PreviewFont,
+  PreviewOverrides,
   PreviewSettings,
   PreviewTheme,
   UpdateMessage,
@@ -27,6 +29,7 @@ import { renderMath } from './postprocess/katex';
 import { renderMermaid, type ResolvedMermaidTheme } from './postprocess/mermaid';
 import { addCopyButtons, installCopyHandler } from './ui/copyCode';
 import { installEditButton } from './ui/editButton';
+import { FontToggle } from './ui/fontToggle';
 import { renderFrontmatter } from './ui/frontmatter';
 import { installLightbox } from './ui/lightbox';
 import { NavButtons } from './ui/nav';
@@ -237,6 +240,66 @@ function setThemeOverride(theme: PreviewTheme | null): void {
   if (themeKind() !== before) rerenderAllMermaid();
 }
 
+// ── Font ─────────────────────────────────────────────────────────────
+
+/**
+ * The in-page prose/monospace switch. Held by the host for the window exactly
+ * as the light/dark one is, so a reader who asks for the editor's font gets it
+ * in the next file too.
+ */
+let fontOverride: PreviewFont | null = null;
+
+/** The font the host stamped onto <body> when it built the page. */
+const stampedFont: PreviewFont = document.body.classList.contains('font-mono')
+  ? 'monospace'
+  : 'proportional';
+
+function effectiveFont(): PreviewFont {
+  return fontOverride ?? settings?.font ?? stampedFont;
+}
+
+function applyFontClass(): void {
+  const font = effectiveFont();
+  const mono = font === 'monospace';
+  fontToggle.update(font, fontOverride !== null);
+  if (mono === document.body.classList.contains('font-mono')) return;
+  // Every offset on the page is measured against the font it is set in, and
+  // swapping the font moves all of them: hold the line being read across the
+  // reflow rather than letting the page slide out from under it.
+  const line = hostVisible
+    ? lineForOffset(getScrollMap(), window.scrollY + 8)
+    : null;
+  document.body.classList.toggle('font-mono', mono);
+  invalidateScrollMap();
+  if (line !== null) queueScroll(() => scrollToLine(line, 0));
+}
+
+/** Flip the page between the reading font and the editor's own. */
+function toggleFont(): void {
+  const next: PreviewFont =
+    effectiveFont() === 'monospace' ? 'proportional' : 'monospace';
+  // As with the theme, the host owns the switch: it decides whether this is an
+  // override or a return to the configured font, records it for the window, and
+  // tells every open preview. Painting it here first only keeps the click
+  // instant — its answer lands on top.
+  fontOverride = next;
+  applyFontClass();
+  vscode.postMessage({ type: 'setFont', font: next });
+}
+
+/** The host's word on the switch: our own flip echoed, or another page's. */
+function setFontOverride(font: PreviewFont | null): void {
+  if (font === fontOverride) return;
+  fontOverride = font;
+  applyFontClass();
+}
+
+/** Where both switches stand, as the host holds them. */
+function setOverrides(overrides: PreviewOverrides): void {
+  setThemeOverride(overrides.theme);
+  setFontOverride(overrides.font);
+}
+
 // ── Document chrome (base href, custom styles) ───────────────────────
 
 function ensureBase(href: string): void {
@@ -281,6 +344,8 @@ installEditButton(toolbar, () => vscode.postMessage({ type: 'openSource' }));
 
 const themeToggle = new ThemeToggle(toolbar, toggleTheme);
 
+const fontToggle = new FontToggle(toolbar, toggleFont);
+
 const toc = new TocSidebar(
   toolbar,
   (entry) => {
@@ -304,8 +369,9 @@ installZoom(content, state.zoom ?? 1, (zoom) => {
 });
 
 // A restored override must land before the first paint; the host stamped the
-// *configured* theme onto <body> when it built the document.
+// *configured* theme and font onto <body> when it built the document.
 applyThemeClasses();
+applyFontClass();
 
 // ── Updates ──────────────────────────────────────────────────────────
 
@@ -313,11 +379,12 @@ function handleUpdate(msg: UpdateMessage): void {
   if (msg.seq <= lastSeq && !msg.reset) return;
   lastSeq = msg.seq;
   settings = msg.settings;
-  setThemeOverride(msg.themeOverride);
+  setOverrides(msg.overrides);
 
   ensureBase(msg.baseHref);
   ensureCustomStyles(msg.customStyles);
   applyThemeClasses();
+  applyFontClass();
   nav.update(msg.canGoBack, msg.canGoForward);
   const sameDocument = state.uri === msg.uri;
   if (!sameDocument) parkedScrollY = null;
@@ -434,8 +501,8 @@ window.addEventListener('message', (event) => {
       applyThemeClasses();
       rerenderAllMermaid();
       break;
-    case 'themeOverride':
-      setThemeOverride(msg.theme);
+    case 'overrides':
+      setOverrides(msg.overrides);
       break;
     case 'noEngine':
       showNoEngine();

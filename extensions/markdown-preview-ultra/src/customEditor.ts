@@ -140,11 +140,11 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       vscode.window.onDidChangeActiveColorTheme((theme) =>
         this.renderer.postTheme(panel.webview, theme),
       ),
-      // The light/dark switch belongs to the window, not to this tab: flipping
-      // it in any preview restyles this one too, and the next file opened comes
-      // up already flipped.
-      this.renderer.onDidChangeThemeOverride(() =>
-        this.renderer.postThemeOverride(panel.webview),
+      // The in-page switches belong to the window, not to this tab: flipping
+      // one in any preview restyles this one too, and the next file opened
+      // comes up already flipped.
+      this.renderer.onDidChangeOverrides(() =>
+        this.renderer.postOverrides(panel.webview),
       ),
       panel.onDidChangeViewState(() => {
         // A hidden webview is kept alive but has no layout; the page stops
@@ -338,6 +338,9 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
         break;
       case 'setTheme':
         this.renderer.setThemeOverride(msg.theme);
+        break;
+      case 'setFont':
+        this.renderer.setFontOverride(msg.font);
         break;
       case 'toggleTask':
         await applyTaskToggle(document, msg);

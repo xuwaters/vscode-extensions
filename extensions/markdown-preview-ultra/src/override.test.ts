@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseOverride, reconcileOverride, sameOverride } from './themeOverride';
+import { chooseOverride, reconcileOverride, sameOverride } from './override';
 
 describe('reconcileOverride', () => {
   it('keeps an override while its configured theme is unchanged', () => {
@@ -20,6 +20,12 @@ describe('reconcileOverride', () => {
     expect(reconcileOverride({}, 'github-light')).toEqual({});
     expect(reconcileOverride({ base: 'github-light' }, 'auto')).toEqual({});
   });
+
+  it('holds the font switch to the same rule', () => {
+    const stored = { override: 'monospace', base: 'proportional' } as const;
+    expect(reconcileOverride(stored, 'proportional')).toEqual(stored);
+    expect(reconcileOverride(stored, 'monospace')).toEqual({});
+  });
 });
 
 describe('chooseOverride', () => {
@@ -32,6 +38,14 @@ describe('chooseOverride', () => {
 
   it('retires the override on landing back at the configured theme', () => {
     expect(chooseOverride('github-light', 'github-light')).toEqual({});
+  });
+
+  it('records a font choice the same way', () => {
+    expect(chooseOverride('monospace', 'proportional')).toEqual({
+      override: 'monospace',
+      base: 'proportional',
+    });
+    expect(chooseOverride('monospace', 'monospace')).toEqual({});
   });
 });
 
