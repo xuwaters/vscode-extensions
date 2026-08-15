@@ -2,7 +2,7 @@
   "name": "wx-vsce-cloudflare-ai-models",
   "displayName": "Cloudflare AI Models",
   "description": "Registers Cloudflare Workers AI / AI Gateway models as VS Code chat language models, so GitHub Copilot Chat and any other LM-aware extension can call them. Streams chat completions over the OpenAI-compatible API with tool calling, ships a guided setup preset for curated models (DeepSeek V4, GLM 5.2, Kimi K2.6/K2.7, Qwen3) plus any custom model id, keeps the API key in SecretStorage, and supports per-model URL and header overrides — so self-hosted vLLM/LiteLLM/Together/Groq endpoints work too.",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -62,7 +62,7 @@
         "wxCloudflareAi.models": {
           "type": "array",
           "default": [],
-          "markdownDescription": "List of models served by the configured endpoint. The API key is stored in VS Code's SecretStorage — set it with the `Cloudflare AI: Set API Key` command.",
+          "markdownDescription": "Extra models served by the configured endpoint. Optional: the curated Cloudflare presets are always offered once `wxCloudflareAi.url` is set — use this to add other model ids, or to override a preset's metadata by repeating its id. The API key is stored in VS Code's SecretStorage — set it with the `Cloudflare AI: Set API Key` command.",
           "items": {
             "type": "object",
             "required": ["id"],

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { catalogWithUserModels } from './catalog.js';
 import {
   effectiveModelUrl,
   getApiKey,
@@ -42,15 +43,10 @@ export class CloudflareAIChatProvider implements vscode.LanguageModelChatProvide
       }
       return [];
     }
-    if (cfg.models.length === 0) {
-      if (!options.silent) {
-        void vscode.window.showWarningMessage(
-          'Cloudflare AI: configure at least one entry in wxCloudflareAi.models.',
-        );
-      }
-      return [];
-    }
-    return cfg.models.map(m => toModelInfo(m));
+    // Advertise the whole curated catalog, not just what the setup preset wrote
+    // into settings — VS Code's model management UI lists exactly what we return
+    // here and remembers which ones the user enabled.
+    return catalogWithUserModels(cfg.models).map(m => toModelInfo(m));
   }
 
   async provideLanguageModelChatResponse(
