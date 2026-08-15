@@ -17,6 +17,25 @@ interface CuratedModel {
 
 const CURATED: CuratedModel[] = [
   {
+    id: "workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813",
+    name: "DeepSeek V4 Pro (Cloudflare)",
+    family: "deepseek-v4",
+    maxInputTokens: 1_048_576,
+    maxOutputTokens: 16_384,
+    toolCalling: true,
+    vision: false,
+    defaultPicked: true,
+  },
+  {
+    id: "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    name: "DeepSeek V4 Flash (Cloudflare)",
+    family: "deepseek-v4",
+    maxInputTokens: 1_048_576,
+    maxOutputTokens: 16_384,
+    toolCalling: true,
+    vision: false,
+  },
+  {
     id: "workers-ai/@cf/zai-org/glm-5.2",
     name: "GLM 5.2 (Cloudflare)",
     family: "glm-5.2",
@@ -37,6 +56,16 @@ const CURATED: CuratedModel[] = [
     defaultPicked: true,
   },
   {
+    id: "workers-ai/@cf/moonshotai/kimi-k2.7-code",
+    name: "Kimi K2.7 Code (Cloudflare)",
+    family: "kimi-k2",
+    maxInputTokens: 262_144,
+    maxOutputTokens: 16_384,
+    toolCalling: true,
+    vision: true,
+    defaultPicked: true,
+  },
+  {
     id: "workers-ai/@cf/qwen/qwen3-30b-a3b-fp8",
     name: "Qwen3 30B (Cloudflare)",
     family: "qwen3",
@@ -44,16 +73,6 @@ const CURATED: CuratedModel[] = [
     maxOutputTokens: 8_192,
     toolCalling: true,
     vision: false,
-  },
-  {
-    id: "workers-ai/@cf/moonshotai/kimi-k3",
-    name: "Kimi K3 (Cloudflare)",
-    family: "kimi-k3",
-    maxInputTokens: 1_048_576,
-    maxOutputTokens: 1_048_576,
-    toolCalling: true,
-    vision: true,
-    defaultPicked: false,
   },
 ];
 
