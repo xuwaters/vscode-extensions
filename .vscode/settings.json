@@ -1,8 +1,4 @@
 {
-  "deno.enable": true,
-  "deno.enablePaths": [
-    "./scripts"
-  ],
   // `temp/` is a farm of symlinks to large external checkouts (microsoft/vscode,
   // vim, diesel, microsoft-fast, ...) and `target` points at the shared Rust
   // build cache. Following those reaches ~8.3M files. Extensions call

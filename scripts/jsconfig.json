@@ -1,0 +1,19 @@
+{
+  // Type checking for the JSDoc annotations in these scripts. The editor reads
+  // this automatically; there is nothing to install and nothing to build.
+  "compilerOptions": {
+    "target": "ES2025",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2025"],
+    "types": ["node"],
+    "checkJs": true,
+    "strict": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+    "maxNodeModuleJsDepth": 0,
+    "noEmit": true
+  },
+  "include": ["**/*.mjs"],
+  "exclude": ["**/node_modules"]
+}
