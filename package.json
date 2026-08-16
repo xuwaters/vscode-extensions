@@ -6,7 +6,8 @@
   "scripts": {
     "build": "pnpm -r run build",
     "clean": "pnpm -r run clean",
-    "typecheck": "pnpm -r run typecheck",
+    "typecheck": "pnpm -r run typecheck && pnpm run typecheck:scripts",
+    "typecheck:scripts": "tsc -p scripts/jsconfig.json",
     "watch": "pnpm -r --parallel run watch",
     "package": "pnpm --filter './extensions/**' run package",
     "test": "pnpm -r run test && pnpm run test:scripts",
@@ -16,7 +17,8 @@
     "sync-vscodeignore": "node scripts/main.mjs sync-vscodeignore"
   },
   "devDependencies": {
-    "@types/node": "^25.8.0"
+    "@types/node": "^25.8.0",
+    "typescript": "catalog:build"
   },
   "engines": {
     "node": ">=20.19.0"

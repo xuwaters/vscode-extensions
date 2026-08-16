@@ -16,8 +16,8 @@ catalogs:
       specifier: ^0.21.4
       version: 0.21.4
     typescript:
-      specifier: ^5.7.0
-      version: 5.9.3
+      specifier: ^6.0.3
+      version: 6.0.3
     vitest:
       specifier: ^4.1.0
       version: 4.1.0
@@ -29,6 +29,9 @@ importers:
       '@types/node':
         specifier: ^25.8.0
         version: 25.8.0
+      typescript:
+        specifier: catalog:build
+        version: 6.0.3
 
   extensions/askama-templates:
     devDependencies:
@@ -43,10 +46,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -67,10 +70,10 @@ importers:
         version: 0.7.2
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -88,10 +91,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
 
   extensions/cargo-make:
     devDependencies:
@@ -106,10 +109,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
 
   extensions/claude-usage-ultra:
     devDependencies:
@@ -124,10 +127,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -145,10 +148,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -166,10 +169,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -187,10 +190,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -208,10 +211,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
 
   extensions/gitignore-generator:
     devDependencies:
@@ -226,10 +229,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -247,10 +250,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -268,10 +271,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -308,10 +311,10 @@ importers:
         version: 15.11.7
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -329,10 +332,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
 
   extensions/protobuf:
     devDependencies:
@@ -347,10 +350,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -368,10 +371,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -389,10 +392,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -410,10 +413,10 @@ importers:
         version: 3.7.1(supports-color@7.2.0)
       tsdown:
         specifier: catalog:build
-        version: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
       typescript:
         specifier: catalog:build
-        version: 5.9.3
+        version: 6.0.3
       vitest:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
@@ -2709,8 +2712,8 @@ packages:
   typed-rest-client@1.8.11:
     resolution: {integrity: sha512-5UvfMpd1oelmUPRbbaVnq+rHP7ng2cE4qoQkQeAqxRL6PklkxsM0g32/HL0yfvruK6ojQ5x8EE+HF4YV6DtuCA==}
 
-  typescript@5.9.3:
-    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -3458,7 +3461,7 @@ snapshots:
       lightningcss: 1.32.0
       postcss-load-config: 6.0.1(postcss@8.5.8)
       rolldown: 1.0.0-rc.9
-      tsdown: 0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3)
+      tsdown: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
     optionalDependencies:
       postcss: 8.5.8
     transitivePeerDependencies:
@@ -4945,7 +4948,7 @@ snapshots:
 
   robust-predicates@3.0.3: {}
 
-  rolldown-plugin-dts@0.22.5(rolldown@1.0.0-rc.9)(typescript@5.9.3):
+  rolldown-plugin-dts@0.22.5(rolldown@1.0.0-rc.9)(typescript@6.0.3):
     dependencies:
       '@babel/generator': 8.0.0-rc.2
       '@babel/helper-validator-identifier': 8.0.0-rc.2
@@ -4958,7 +4961,7 @@ snapshots:
       obug: 2.1.1
       rolldown: 1.0.0-rc.9
     optionalDependencies:
-      typescript: 5.9.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - oxc-resolver
 
@@ -5221,7 +5224,7 @@ snapshots:
 
   ts-dedent@2.2.0: {}
 
-  tsdown@0.21.4(@tsdown/css@0.21.4)(typescript@5.9.3):
+  tsdown@0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3):
     dependencies:
       ansis: 4.2.0
       cac: 7.0.0
@@ -5232,7 +5235,7 @@ snapshots:
       obug: 2.1.1
       picomatch: 4.0.3
       rolldown: 1.0.0-rc.9
-      rolldown-plugin-dts: 0.22.5(rolldown@1.0.0-rc.9)(typescript@5.9.3)
+      rolldown-plugin-dts: 0.22.5(rolldown@1.0.0-rc.9)(typescript@6.0.3)
       semver: 7.7.4
       tinyexec: 1.0.4
       tinyglobby: 0.2.15
@@ -5241,7 +5244,7 @@ snapshots:
       unrun: 0.2.32
     optionalDependencies:
       '@tsdown/css': 0.21.4(postcss@8.5.8)(tsdown@0.21.4)
-      typescript: 5.9.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - '@ts-macro/tsc'
       - '@typescript/native-preview'
@@ -5266,7 +5269,7 @@ snapshots:
       tunnel: 0.0.6
       underscore: 1.13.8
 
-  typescript@5.9.3: {}
+  typescript@6.0.3: {}
 
   uc.micro@2.1.0: {}
 

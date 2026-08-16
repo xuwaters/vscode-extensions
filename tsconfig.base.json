@@ -4,6 +4,10 @@
     "module": "Node16",
     "moduleResolution": "Node16",
     "lib": ["ES2022", "DOM"],
+    // TypeScript 6 stopped pulling in every @types package it could find, so
+    // the global-only ones have to be named. `vscode` and the rest arrive
+    // through their imports and need no entry here.
+    "types": ["node"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
