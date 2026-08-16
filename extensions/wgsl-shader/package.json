@@ -2,7 +2,7 @@
   "name": "wx-vsce-wgsl-shader",
   "displayName": "WGSL Shader",
   "description": "WGSL shader language support with syntax highlighting, code completion, and validation (via naga WASM)",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -41,6 +41,16 @@
           "source.jsx",
           "source.ts",
           "source.tsx"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.wgsl": "wgsl"
+        }
+      },
+      {
+        "scopeName": "inline.rust.wgsl",
+        "path": "./syntaxes/wgsl-rust-injection.tmLanguage.json",
+        "injectTo": [
+          "source.rust"
         ],
         "embeddedLanguages": {
           "meta.embedded.block.wgsl": "wgsl"
@@ -91,6 +101,8 @@
     "@vscode/vsce": "catalog:build",
     "tsdown": "catalog:build",
     "typescript": "catalog:build",
-    "vitest": "catalog:build"
+    "vitest": "catalog:build",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

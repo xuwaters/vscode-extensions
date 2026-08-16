@@ -1,0 +1,45 @@
+{
+  "scopeName": "inline.rust.wgsl",
+  "injectionSelector": "L:source.rust",
+  "patterns": [
+    { "include": "#wgsl-comment-tagged-raw-string" },
+    { "include": "#wgsl-comment-tagged-string" }
+  ],
+  "repository": {
+    "wgsl-comment-tagged-raw-string": {
+      "begin": "(/\\*\\s*wgsl\\s*\\*/)\\s*(b?r(#*)\")",
+      "beginCaptures": {
+        "1": { "name": "comment.block.rust" },
+        "2": { "name": "punctuation.definition.string.raw.begin.rust" }
+      },
+      "end": "(\"\\3)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.raw.end.rust" }
+      },
+      "contentName": "meta.embedded.block.wgsl",
+      "patterns": [
+        { "include": "source.wgsl" }
+      ]
+    },
+    "wgsl-comment-tagged-string": {
+      "begin": "(/\\*\\s*wgsl\\s*\\*/)\\s*(b?\")",
+      "beginCaptures": {
+        "1": { "name": "comment.block.rust" },
+        "2": { "name": "punctuation.definition.string.begin.rust" }
+      },
+      "end": "(\")",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.end.rust" }
+      },
+      "contentName": "meta.embedded.block.wgsl",
+      "patterns": [
+        { "include": "#wgsl-escape-sequence" },
+        { "include": "source.wgsl" }
+      ]
+    },
+    "wgsl-escape-sequence": {
+      "name": "constant.character.escape.rust",
+      "match": "\\\\(x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\}|.|\\n)"
+    }
+  }
+}
