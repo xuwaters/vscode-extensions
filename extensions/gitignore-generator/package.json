@@ -1,6 +1,6 @@
 {
   "name": "wx-vsce-gitignore-generator",
-  "displayName": "Gitignore Generator",
+  "displayName": "Gitignore Generator Ultra",
   "description": "Generate or append .gitignore files from bundled language and tooling templates",
   "version": "0.1.2",
   "private": true,
