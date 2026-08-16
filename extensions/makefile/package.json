@@ -81,7 +81,7 @@
     "watch": "tsdown --watch",
     "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
     "vscode:prepublish": "tsdown --minify",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },
   "devDependencies": {
