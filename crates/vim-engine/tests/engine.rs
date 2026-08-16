@@ -288,6 +288,16 @@ fn gg_and_g_with_counts() {
 }
 
 #[test]
+fn gh_asks_the_host_for_a_hover() {
+    let mut s = at("let x = foo();", 0, 8);
+    let fx = feed(&mut s, "gh");
+    assert!(matches!(fx.commands[..], [Command::ShowHover]));
+    // The cursor stays where it is and nothing is pending afterwards.
+    assert_eq!((fx.mode, s.cursor(), fx.pending.as_str()), ("normal", Pos::new(0, 8), ""));
+    assert!(fx.edits.is_empty());
+}
+
+#[test]
 fn d_gg_linewise() {
     let mut s = at("a\nb\nc", 1, 0);
     feed(&mut s, "dgg");

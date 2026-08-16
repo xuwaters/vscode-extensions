@@ -77,6 +77,9 @@ pub enum Command {
     OpenLine {
         above: bool,
     },
+    /// `gh`: pop the hover — the docs/type of whatever is under the cursor.
+    /// Purely a host affordance; the engine has no idea what a symbol is.
+    ShowHover,
 }
 
 /// Incremental-search UI state, present while a `/` or `?` prompt is open
@@ -1506,6 +1509,12 @@ impl Session {
                 let target = Pos::new(line, self.buf.first_non_blank(line));
                 self.pending.awaiting = Awaiting::None;
                 self.do_motion(target, MotionKind::Linewise, edits, commands);
+            }
+            // Not vim's `gh` (select mode); the editor's hover, as vscode-vim
+            // spells it. Leaves mode and cursor alone.
+            Key::Char('h') => {
+                commands.push(Command::ShowHover);
+                self.clear_pending();
             }
             _ => self.clear_pending(),
         }

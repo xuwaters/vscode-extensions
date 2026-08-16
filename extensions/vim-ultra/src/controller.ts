@@ -316,6 +316,10 @@ export class VimController implements vscode.Disposable {
           cmd.above ? 'editor.action.insertLineBefore' : 'editor.action.insertLineAfter',
         );
         break;
+      // `gh`: the hover for the symbol under the cursor.
+      case 'showHover':
+        await vscode.commands.executeCommand('editor.action.showHover');
+        break;
     }
   }
 

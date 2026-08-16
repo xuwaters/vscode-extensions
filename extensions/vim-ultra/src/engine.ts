@@ -25,7 +25,8 @@ export type EngineCommand =
   | { kind: 'redo' }
   | { kind: 'indentLines'; startLine: number; endLine: number; dedent: boolean }
   | { kind: 'scroll'; to: 'center' | 'top' | 'bottom' }
-  | { kind: 'openLine'; above: boolean };
+  | { kind: 'openLine'; above: boolean }
+  | { kind: 'showHover' };
 
 /**
  * Incremental-search UI state, present while a `/` or `?` prompt is open and

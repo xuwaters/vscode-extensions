@@ -44,6 +44,8 @@ commands), and mirrors external document changes back into the engine.
   the new line through VSCode's own line-insert — the same thing `enter` in
   insert mode runs — so it arrives indented by the language's rules rather
   than at column 0.
+- **Editor integration**: `gh` pops the hover for the symbol under the
+  cursor — its type and docs — like vscode-vim's binding of the same name.
 - **Registers**: the unnamed register, charwise and linewise, with counted
   pastes.
 - **Multiple cursors**: make them the VSCode way — `cmd+alt+up/down` for a
