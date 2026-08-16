@@ -2,7 +2,7 @@
   "name": "wx-vsce-wgsl-shader",
   "displayName": "WGSL Shader",
   "description": "WGSL shader language support with syntax highlighting, code completion, and validation (via naga WASM)",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -11,7 +11,9 @@
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:rust"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
@@ -80,6 +82,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable code completion for WGSL"
+        },
+        "wgsl.rust.highlightHint": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When a Rust file embeds WGSL with the `/* wgsl */` tag, offer to turn off `#rust-analyzer.semanticHighlighting.strings.enable#`. rust-analyzer's semantic tokens override TextMate scopes, which hides the WGSL highlighting inside the string."
         }
       }
     }

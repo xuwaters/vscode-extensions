@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import {
+  HINT_ACTIONS,
+  HINT_SETTING,
+  RUST_ANALYZER_EXTENSION_ID,
+  RUST_STRING_TOKENS_SETTING,
+  hintActions,
+  shouldOfferStringTokenFix,
+} from './rustHint';
 
 // ── WASM module interface ──────────────────────────────────────────
 
@@ -253,9 +261,67 @@ class WgslDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
   }
 }
 
+// ── Embedded WGSL in Rust ──────────────────────────────────────────
+
+/**
+ * Offer, once per session, to turn off the rust-analyzer setting that hides the
+ * WGSL highlighting inside tagged Rust strings. Asked only when a Rust file
+ * actually uses the tag, so plain Rust users never see it.
+ */
+function registerRustHighlightHint(context: vscode.ExtensionContext): void {
+  let asked = false;
+
+  async function consider(document: vscode.TextDocument): Promise<void> {
+    if (asked) return;
+
+    const wgslConfig = vscode.workspace.getConfiguration('wgsl');
+    const offer = shouldOfferStringTokenFix({
+      languageId: document.languageId,
+      text: document.getText(),
+      hasRustAnalyzer: vscode.extensions.getExtension(RUST_ANALYZER_EXTENSION_ID) !== undefined,
+      stringTokensEnabled: vscode.workspace
+        .getConfiguration()
+        .get<boolean>(RUST_STRING_TOKENS_SETTING, true),
+      hintEnabled: wgslConfig.get<boolean>(HINT_SETTING, true),
+    });
+    if (!offer) return;
+
+    asked = true;
+
+    const hasWorkspace = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
+    const choice = await vscode.window.showInformationMessage(
+      'rust-analyzer highlights whole string literals, which hides the WGSL colouring in /* wgsl */ strings. ' +
+      `Turn off ${RUST_STRING_TOKENS_SETTING}? Rust strings keep their colour from the TextMate grammar.`,
+      ...hintActions(hasWorkspace),
+    );
+
+    if (choice === HINT_ACTIONS.workspace || choice === HINT_ACTIONS.global) {
+      const target =
+        choice === HINT_ACTIONS.workspace
+          ? vscode.ConfigurationTarget.Workspace
+          : vscode.ConfigurationTarget.Global;
+      await vscode.workspace.getConfiguration().update(RUST_STRING_TOKENS_SETTING, false, target);
+    } else if (choice === HINT_ACTIONS.never) {
+      await wgslConfig.update(HINT_SETTING, false, vscode.ConfigurationTarget.Global);
+    }
+  }
+
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      void consider(doc);
+    }),
+  );
+
+  // The file that triggered activation is already open.
+  const activeDoc = vscode.window.activeTextEditor?.document;
+  if (activeDoc) void consider(activeDoc);
+}
+
 // ── Activation ─────────────────────────────────────────────────────
 
 export function activate(context: vscode.ExtensionContext): void {
+  registerRustHighlightHint(context);
+
   const wasm = loadWasm(context.extensionPath);
 
   if (!wasm) {

@@ -20,7 +20,37 @@ const RUST_STUB = JSON.stringify({
   patterns: [{ match: '\\w+', name: 'meta.word.rust' }],
 });
 
+/** VS Code ships the Rust grammar; use the real one when this machine has it. */
+const REAL_RUST_GRAMMAR = [
+  '/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/rust/syntaxes/rust.tmLanguage.json',
+  '/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/extensions/rust/syntaxes/rust.tmLanguage.json',
+  '/Applications/Cursor.app/Contents/Resources/app/extensions/rust/syntaxes/rust.tmLanguage.json',
+  '/usr/share/code/resources/app/extensions/rust/syntaxes/rust.tmLanguage.json',
+].find((p) => fs.existsSync(p));
+
 let registry: textmate.Registry;
+let realRegistry: textmate.Registry | undefined;
+
+/** Registry whose `source.rust` is `rustGrammar`, with our injection wired in. */
+function makeRegistry(rustGrammar: string, rustGrammarPath: string): textmate.Registry {
+  return new textmate.Registry({
+    onigLib: Promise.resolve({
+      createOnigScanner: (sources) => new oniguruma.OnigScanner(sources),
+      createOnigString: (str) => new oniguruma.OnigString(str),
+    }),
+    loadGrammar: async (scopeName) => {
+      if (scopeName === 'source.rust') {
+        return textmate.parseRawGrammar(rustGrammar, rustGrammarPath);
+      }
+      const file = GRAMMARS[scopeName];
+      if (!file) return null;
+      const raw = fs.readFileSync(path.join(EXT_ROOT, file), 'utf8');
+      return textmate.parseRawGrammar(raw, file);
+    },
+    getInjections: (scopeName) =>
+      scopeName === 'source.rust' ? ['inline.rust.wgsl'] : undefined,
+  });
+}
 
 beforeAll(async () => {
   const wasmPath = path.join(
@@ -32,28 +62,18 @@ beforeAll(async () => {
   );
   await oniguruma.loadWASM(fs.readFileSync(wasmPath).buffer as ArrayBuffer);
 
-  registry = new textmate.Registry({
-    onigLib: Promise.resolve({
-      createOnigScanner: (sources) => new oniguruma.OnigScanner(sources),
-      createOnigString: (str) => new oniguruma.OnigString(str),
-    }),
-    loadGrammar: async (scopeName) => {
-      if (scopeName === 'source.rust') {
-        return textmate.parseRawGrammar(RUST_STUB, 'rust-stub.json');
-      }
-      const file = GRAMMARS[scopeName];
-      if (!file) return null;
-      const raw = fs.readFileSync(path.join(EXT_ROOT, file), 'utf8');
-      return textmate.parseRawGrammar(raw, file);
-    },
-    getInjections: (scopeName) =>
-      scopeName === 'source.rust' ? ['inline.rust.wgsl'] : undefined,
-  });
+  registry = makeRegistry(RUST_STUB, 'rust-stub.json');
+  if (REAL_RUST_GRAMMAR) {
+    realRegistry = makeRegistry(fs.readFileSync(REAL_RUST_GRAMMAR, 'utf8'), REAL_RUST_GRAMMAR);
+  }
 });
 
 /** Tokenize `source` as Rust and return, per line, the scopes on each token. */
-async function tokenizeRust(source: string): Promise<textmate.IToken[][]> {
-  const grammar = await registry.loadGrammar('source.rust');
+async function tokenizeRust(
+  source: string,
+  reg: textmate.Registry = registry,
+): Promise<textmate.IToken[][]> {
+  const grammar = await reg.loadGrammar('source.rust');
   expect(grammar).not.toBeNull();
   let ruleStack = textmate.INITIAL;
   const lines: textmate.IToken[][] = [];
@@ -74,9 +94,13 @@ function scopesAt(tokens: textmate.IToken[], line: string, needle: string): stri
   return token!.scopes;
 }
 
-async function embeddedScopes(source: string, needle: string): Promise<string[]> {
+async function embeddedScopes(
+  source: string,
+  needle: string,
+  reg?: textmate.Registry,
+): Promise<string[]> {
   const lines = source.split('\n');
-  const tokenized = await tokenizeRust(source);
+  const tokenized = await tokenizeRust(source, reg);
   const lineIndex = lines.findIndex((l) => l.includes(needle));
   expect(lineIndex, `"${needle}" not found in source`).toBeGreaterThanOrEqual(0);
   return scopesAt(tokenized[lineIndex], lines[lineIndex], needle);
@@ -148,5 +172,57 @@ describe('WGSL injection into Rust', () => {
     const source = fs.readFileSync(path.join(EXT_ROOT, 'examples', 'test-embedded.rs'), 'utf8');
     expect(await embeddedScopes(source, '@compute')).toContain(EMBEDDED);
     expect(await embeddedScopes(source, 'fn main() {')).not.toContain(EMBEDDED);
+  });
+});
+
+// The stub above cannot show how the injection competes with Rust's own comment
+// and string rules, which is where an injection normally goes wrong.
+describe.skipIf(!REAL_RUST_GRAMMAR)("against VS Code's real Rust grammar", () => {
+  const example = () =>
+    fs.readFileSync(path.join(EXT_ROOT, 'examples', 'test-embedded.rs'), 'utf8');
+
+  /** Every line of examples/test-embedded.rs, flagged as embedded WGSL or not. */
+  async function embeddedLines(): Promise<boolean[]> {
+    const tokenized = await tokenizeRust(example(), realRegistry);
+    return tokenized.map((tokens) => tokens.some((t) => t.scopes.includes(EMBEDDED)));
+  }
+
+  it('marks exactly the shader bodies in the example file', async () => {
+    const flags = await embeddedLines();
+    const lines = example().split('\n');
+    const embedded = lines.filter((_, i) => flags[i]);
+    const plain = lines.filter((_, i) => !flags[i]);
+
+    // The three shader bodies, and nothing else.
+    for (const needle of ['struct VertexOutput', 'fn fs_clear', '@compute', 'data[id.x]']) {
+      expect(embedded.some((l) => l.includes(needle)), needle).toBe(true);
+    }
+    for (const needle of ['const SHADER', 'const CLEAR', 'const COMPUTE', 'fn main() {', 'println!']) {
+      expect(plain.some((l) => l.includes(needle)), needle).toBe(true);
+    }
+  });
+
+  it('keeps the tag comment and string delimiters scoped as Rust', async () => {
+    const lines = example().split('\n');
+    const tokenized = await tokenizeRust(example(), realRegistry);
+    const at = (lineNeedle: string, needle: string) => {
+      const i = lines.findIndex((l) => l.includes(lineNeedle));
+      expect(i, lineNeedle).toBeGreaterThanOrEqual(0);
+      return scopesAt(tokenized[i], lines[i], needle);
+    };
+
+    expect(at('const SHADER', '/* wgsl */')).toContain('comment.block.rust');
+    expect(at('const SHADER', 'r#"')).toContain('punctuation.definition.string.raw.begin.rust');
+    expect(at('"#;', '"#;')).toContain('punctuation.definition.string.raw.end.rust');
+  });
+
+  it('resolves WGSL scopes inside the shader bodies', async () => {
+    const source = example();
+    expect(await embeddedScopes(source, 'struct VertexOutput', realRegistry)).toContain(
+      'storage.type.wgsl',
+    );
+    expect(await embeddedScopes(source, '@group(0)', realRegistry)).toContain(
+      'keyword.operator.attribute.at.wgsl',
+    );
   });
 });

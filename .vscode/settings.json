@@ -18,5 +18,12 @@
     "**/temp/**": true,
     "**/target/**": true,
     "**/node_modules/**": true
-  }
+  },
+  // rust-analyzer paints whole string literals with a `string` semantic token,
+  // and semantic tokens win over TextMate scopes. That hides the WGSL colouring
+  // the wgsl-shader extension injects into `/* wgsl */ r#"..."#` strings. The
+  // setting cannot be scoped to a single string, so it is set here rather than
+  // in user settings: only this workspace gives up rust-analyzer's `string` and
+  // `escapeSequence` tokens, which the Rust TextMate grammar covers anyway.
+  "rust-analyzer.semanticHighlighting.strings.enable": false
 }

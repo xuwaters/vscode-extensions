@@ -1,4 +1,8 @@
 // Example of WGSL embedded in Rust using the /* wgsl */ comment tag.
+//
+// Requires `"rust-analyzer.semanticHighlighting.strings.enable": false`: with the
+// default (true) rust-analyzer emits a `string` semantic token for the whole
+// literal, and semantic tokens override the injected TextMate scopes.
 
 // Raw string with hashes — the usual form, since WGSL uses no escapes.
 const SHADER: &str = /* wgsl */ r#"
