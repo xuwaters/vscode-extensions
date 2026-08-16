@@ -2,7 +2,7 @@
   "name": "wx-vsce-mojom",
   "displayName": "Mojom IDL Ultra",
   "description": "Mojom (.mojom) interface definition editing — syntax highlighting, outline, navigation, and diagnostics powered by a Rust analyzer compiled to WebAssembly.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "publisher": "weixu",
   "engines": {

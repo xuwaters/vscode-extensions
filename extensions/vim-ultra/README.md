@@ -90,19 +90,3 @@ budget sized to the buffer — a tenth of a second or so — and reported as
 found" or allowed to freeze the editor. Ordinary patterns are nowhere near
 it: most lines are rejected by a required-literal test before matching starts,
 which puts a whole-buffer search over a 1 MB file at well under a millisecond.
-See `crates/vim-engine/tests/perf.rs` for the measurements.
-
-## Development
-
-```sh
-pnpm run build:wasm   # wasm-pack build of crates/vim-engine into wasm/
-pnpm run build        # tsdown bundle into dist/
-pnpm run test         # vitest (host helpers)
-cargo test -p vim-engine   # the engine's real test suite
-```
-
-The engine keeps a line-based mirror of the document (UTF-16 columns, so
-positions round-trip with the VSCode API). Every edit the engine emits is
-self-applied to its mirror and applied to the document under a suppression
-flag; all other document changes flow back via `apply_changes`. If an edit is
-rejected (readonly file), the mirror is rebuilt from the document.

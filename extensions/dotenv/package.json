@@ -2,7 +2,7 @@
   "name": "wx-vsce-dotenv",
   "displayName": "dotenv (.env)",
   "description": "dotenv (.env) editing — syntax highlighting, diagnostics, formatting, outline, and variable-reference completion powered by a dotent analyzer compiled to WebAssembly.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",

@@ -2,7 +2,7 @@
   "name": "wx-vsce-wgsl-shader",
   "displayName": "WGSL Shader",
   "description": "WGSL shader language support with syntax highlighting, code completion, and validation (via naga WASM)",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "publisher": "weixu",
   "engines": {
