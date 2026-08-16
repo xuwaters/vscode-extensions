@@ -72,9 +72,6 @@ WGSL text), and the string delimiters keep their host scopes, so the rest of the
 file is unaffected. This is highlighting only: completion and validation apply
 to `.wgsl` files, not to embedded strings.
 
-See [examples/test-embedded.rs](examples/test-embedded.rs) and
-[examples/test-embedded.ts](examples/test-embedded.ts).
-
 ### rust-analyzer hides it by default
 
 rust-analyzer emits a `string` semantic token covering the whole literal, and in
