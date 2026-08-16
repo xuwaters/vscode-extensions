@@ -1,11 +1,25 @@
+# Shared by every extension in this repo.
+# Edit this template and run `pnpm sync-vscodeignore` — do not edit the copies.
+
+# Sources: only the bundle in dist/ ships.
 src/
+test/
+webview/
 examples/
+**/*.test.ts
+
+# Build configuration.
 tsconfig.json
 tsconfig.tsbuildinfo
 tsdown.config.mts
-**/*.test.ts
-.gitignore
+
+# Build leftovers.
+target/
+temp
 **/*.js.map
 **/*.ts.map
 **/*.d.ts
-temp
+
+# Repo bookkeeping.
+.gitignore
+wasm/.gitignore
