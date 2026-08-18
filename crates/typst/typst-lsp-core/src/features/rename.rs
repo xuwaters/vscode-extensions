@@ -29,7 +29,15 @@ impl<Q: Ports> Server<Q> {
         &mut self,
         params: TextDocumentPositionParams,
     ) -> Option<PrepareRenameResponse> {
-        let (_, source, cursor) = self.locate(&params.text_document.uri, params.position)?;
+        let (id, source, cursor) = self.locate(&params.text_document.uri, params.position)?;
+
+        // In a bibliography the renameable thing is the citation key, and the
+        // three refusals below are all about typst definitions.
+        if super::bibtex::is_bib(id) {
+            let range = self.bib_key_range(&source, cursor)?;
+            return Some(PrepareRenameResponse::Range(range_to_lsp(&source, range)));
+        }
+
         let target = self.resolve_target(&source, cursor)?;
 
         if self.refusal(&source, cursor, &target).is_some() {
@@ -70,11 +78,15 @@ impl<Q: Ports> Server<Q> {
             return Ok(None);
         };
 
-        let Some(target) = self.resolve_target(&source, cursor) else {
+        let Some(target) = self.target_at(id, &source, cursor) else {
             return Ok(None);
         };
 
-        if let Some(message) = self.refusal(&source, cursor, &target) {
+        // The refusals are about typst definitions — a package's, the standard
+        // library's, a file's. None of them can apply to a citation key.
+        if !super::bibtex::is_bib(id)
+            && let Some(message) = self.refusal(&source, cursor, &target)
+        {
             return Err(ResponseError::internal(message));
         }
 
@@ -99,6 +111,31 @@ impl<Q: Ports> Server<Q> {
         }))
     }
 
+    /// The range a citation key occupies at a cursor in a bibliography.
+    fn bib_key_range(
+        &self,
+        source: &Source,
+        cursor: usize,
+    ) -> Option<std::ops::Range<usize>> {
+        let name = self.bib_key_at(source, cursor)?;
+        let bib = crate::bib::Bib::parse(source.text());
+        let entry = bib.entry_at(cursor)?;
+
+        if entry.key_range.contains(&cursor) || entry.key_range.end == cursor {
+            return Some(entry.key_range.clone());
+        }
+
+        // A `crossref` value: the key inside the braces, not the braces.
+        let field = entry
+            .fields
+            .iter()
+            .find(|field| field.value.as_ref().is_some_and(|v| v.range.contains(&cursor)))?;
+        let value = field.value.as_ref()?;
+        let text = source.text().get(value.range.clone())?;
+        let start = value.range.start + text.find(name.as_str())?;
+        Some(start..start + name.len())
+    }
+
     /// A label occurrence covers its delimiters; the edit must not.
     fn rename_range(&self, target: &Target, location: &lsp_types::Location) -> lsp_types::Range {
         let Target::Label(_) = target else { return location.range };
@@ -106,6 +143,10 @@ impl<Q: Ports> Server<Q> {
         let Some(id) = self.uris().to_file_id(&location.uri) else {
             return location.range;
         };
+        // A bibliography's occurrences already point at the bare key.
+        if super::bibtex::is_bib(id) {
+            return location.range;
+        }
         let Ok(source) = typst::World::source(self.session().world(), id) else {
             return location.range;
         };

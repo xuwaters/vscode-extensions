@@ -18,6 +18,7 @@ without reading the whole RFC or digging through chat logs.
 | [0008](0008-compile-root.md) | Follow the focused file by default; pin a main file for projects | Accepted | OQ 6 |
 | [0009](0009-file-extensions.md) | Claim `.typ` and `.typc` under one language id | Accepted | OQ 8 |
 | [0010](0010-naming.md) | `typst-ultra`, four crates under `crates/typst/` | Accepted | OQ 7 |
+| [0011](0011-bibtex-support.md) | Speak BibTeX in the same server, with our own parser | Accepted | — |
 
 "OQ n" refers to the numbered open questions in [proposal.md §11](../proposal.md#11-open-questions), which
 now points here rather than restating the answers.

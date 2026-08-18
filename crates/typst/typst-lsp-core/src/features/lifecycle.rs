@@ -59,6 +59,13 @@ impl<Q: Ports> Server<Q> {
         );
         self.tokens.remove(&id);
 
+        // A bibliography is data the compiler reads, never the thing it
+        // compiles: making it the root would compile BibTeX as typst markup.
+        if super::bibtex::is_bib(id) {
+            self.publish_bib_diagnostics(id);
+            return;
+        }
+
         // The first open of a file with no pinned main makes it the root, so
         // opening a `.typ` and seeing errors needs no configuration at all.
         if self.pinned_main.is_none() {
@@ -96,6 +103,12 @@ impl<Q: Ports> Server<Q> {
             entry.version = params.text_document.version;
         }
 
+        // Bibliography problems are a parse away, so they are published on the
+        // edit rather than waiting for a compile that may never read this file.
+        if super::bibtex::is_bib(id) {
+            self.publish_bib_diagnostics(id);
+        }
+
         // The token cache is deliberately *not* cleared here: it holds what the
         // client currently has, which is exactly what the next `full/delta`
         // diffs against. Clearing it would turn every delta request into a full
@@ -108,6 +121,9 @@ impl<Q: Ports> Server<Q> {
         if let Some(text) = params.text {
             self.session_mut().replace(id, &text);
         }
+        if super::bibtex::is_bib(id) {
+            self.publish_bib_diagnostics(id);
+        }
     }
 
     /// `textDocument/didClose`.
@@ -116,6 +132,11 @@ impl<Q: Ports> Server<Q> {
         self.session_mut().close(id);
         self.documents.remove(&id);
         self.tokens.remove(&id);
+        // Nothing is watching the file any more, so its problems come down with
+        // it — otherwise the Problems panel keeps a closed file's squiggles.
+        if super::bibtex::is_bib(id) {
+            self.clear_bib_diagnostics(id);
+        }
     }
 
     /// `workspace/didChangeConfiguration`.
@@ -139,15 +160,28 @@ impl<Q: Ports> Server<Q> {
 
         if self.set_settings(settings) {
             self.compile_now(CompileParams { uri: None });
+            // Bibliographies are checked outside the compile, so switching
+            // diagnostics on or off has to reach them separately.
+            for id in self.bib_documents() {
+                self.publish_bib_diagnostics(id);
+            }
         }
+    }
+
+    /// The open `.bib` documents.
+    fn bib_documents(&self) -> Vec<FileId> {
+        self.documents.keys().copied().filter(|id| super::bibtex::is_bib(*id)).collect()
     }
 
     /// `typst/compile`: run a compile and publish what it produced.
     pub fn compile_now(&mut self, params: CompileParams) {
-        // Follow the focused editor unless a main file is pinned.
+        // Follow the focused editor unless a main file is pinned. A `.bib` is
+        // never a candidate: editing one should recompile the document that
+        // cites it, not try to compile the bibliography itself.
         if self.pinned_main.is_none()
             && let Some(uri) = &params.uri
             && let Some(id) = self.uris().to_file_id(uri)
+            && !super::bibtex::is_bib(id)
         {
             self.session_mut().set_main(id);
         }
@@ -195,7 +229,14 @@ impl<Q: Ports> Server<Q> {
 
     /// `typst/setMain`: pin or unpin the compile root.
     pub fn set_main(&mut self, params: SetMainParams) {
-        match params.uri.as_ref().and_then(|uri| self.uris().to_file_id(uri)) {
+        match params
+            .uri
+            .as_ref()
+            .and_then(|uri| self.uris().to_file_id(uri))
+            // Pinning a bibliography as the compile root is never what someone
+            // means; unpinning is, so it falls through to `None`.
+            .filter(|id| !super::bibtex::is_bib(*id))
+        {
             Some(id) => {
                 self.pinned_main = Some(id);
                 self.session_mut().set_main(id);

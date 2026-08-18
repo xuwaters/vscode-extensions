@@ -18,6 +18,7 @@
 //! completion arriving mid-typing answers from a fresh syntax tree plus a
 //! slightly stale document, and stays under 30 ms regardless of document size.
 
+pub mod bib;
 pub mod capabilities;
 pub mod convert;
 pub mod dispatch;
@@ -94,6 +95,11 @@ pub struct Server<Q: Ports> {
     /// none must be published as an empty array or the squiggles persist, so
     /// the difference between compiles is what gets cleared.
     published: FxHashSet<String>,
+    /// The same, for `.bib` files. Kept apart because the two publishers run on
+    /// different clocks — bibliography problems come straight off the edit, and
+    /// typst's come off the debounced compile — and whichever runs second must
+    /// not clear the other's squiggles.
+    bib_published: FxHashSet<String>,
     /// Per-document semantic token cache, for `full/delta`.
     tokens: FxHashMap<FileId, TokenCache>,
     /// Files the host has told us about, for `workspace/symbol`.
@@ -125,6 +131,7 @@ impl<Q: Ports> Server<Q> {
             settings: config.settings,
             documents: FxHashMap::default(),
             published: FxHashSet::default(),
+            bib_published: FxHashSet::default(),
             tokens: FxHashMap::default(),
             workspace_files: Vec::new(),
             pinned_main: None,

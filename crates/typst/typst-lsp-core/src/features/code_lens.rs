@@ -7,8 +7,12 @@ use crate::{Ports, Server};
 impl<Q: Ports> Server<Q> {
     /// `textDocument/codeLens`.
     pub fn code_lenses(&mut self, params: CodeLensParams) -> Option<Vec<CodeLens>> {
-        // Only offer them on a file the compiler can actually reach.
-        let (_, _) = self.source_of(&params.text_document.uri)?;
+        // Only offer them on a file the compiler can actually reach — and a
+        // bibliography is data, not a document to preview or export.
+        let (id, _) = self.source_of(&params.text_document.uri)?;
+        if super::bibtex::is_bib(id) {
+            return None;
+        }
 
         let first_line = Range {
             start: Position { line: 0, character: 0 },

@@ -7,6 +7,7 @@ import {
   type LanguageClientOptions,
   type ServerOptions,
 } from 'vscode-languageclient/node';
+import { namesTypstSource } from './commandTarget.js';
 import * as config from './config.js';
 
 /** The language server, started lazily and restartable. */
@@ -118,7 +119,12 @@ export class Client implements vscode.Disposable {
     };
 
     const clientOptions: LanguageClientOptions = {
-      documentSelector: [{ scheme: 'file', language: 'typst' }],
+      // Bibliographies are part of a typst project, and the server speaks
+      // BibTeX for them — see `crates/typst/typst-lsp-core/src/bib.rs`.
+      documentSelector: [
+        { scheme: 'file', language: 'typst' },
+        { scheme: 'file', language: 'bibtex' },
+      ],
       outputChannel: this.output,
       // Keep the server alive through a compiler panic: it restarts, and the
       // document version that provoked it is in the log.
@@ -137,7 +143,7 @@ export class Client implements vscode.Disposable {
         settings: settings.server,
       },
       synchronize: {
-        fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{typ,typc}'),
+        fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{typ,typc,bib}'),
       },
     };
 
@@ -183,7 +189,9 @@ export class Client implements vscode.Disposable {
     if (absolute) {
       return path.isAbsolute(absolute) ? path.relative(root, absolute) : absolute;
     }
-    if (document) {
+    // The document that started the server may be a `.bib` — compiling a
+    // bibliography as if it were a document is not a thing.
+    if (document && namesTypstSource(document)) {
       return path.relative(root, document.fsPath);
     }
     return 'main.typ';

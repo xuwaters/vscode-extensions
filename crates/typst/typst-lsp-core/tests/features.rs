@@ -819,6 +819,420 @@ fn postfix_items_are_not_offered_in_plain_markup() {
     );
 }
 
+// ── BibTeX ───────────────────────────────────────────────────────────────────
+
+/// The fixture bibliography, as an editor would have it open.
+const REFS: &str = include_str!("fixtures/refs.bib");
+
+#[test]
+fn a_bibliography_is_checked_on_the_edit_and_cleared_when_fixed() {
+    let mut harness = Harness::new();
+    let uri = harness.open("refs.bib", "@misc{same, title={A}}\n@misc{same, title={B}}\n");
+
+    let diagnostics = diagnostics_in(&harness.server().drain(), &uri);
+    let duplicate = diagnostics
+        .iter()
+        .find(|d| d["message"].as_str().unwrap_or_default().contains("duplicate"))
+        .unwrap_or_else(|| panic!("expected a duplicate-key error: {diagnostics:#?}"));
+    assert_eq!(duplicate["severity"], json!(1));
+    assert_eq!(duplicate["source"], json!("bibtex"));
+    assert!(
+        duplicate["relatedInformation"][0]["location"]["uri"] == json!(uri.as_str()),
+        "the error should point at the first definition too: {duplicate:#?}"
+    );
+
+    harness.change(&uri, "@misc{one, title={A}}\n@misc{two, title={B}}\n");
+    let diagnostics = diagnostics_in(&harness.server().drain(), &uri);
+    assert!(
+        diagnostics.is_empty(),
+        "a fixed bibliography must be published as an empty array: {diagnostics:#?}"
+    );
+}
+
+#[test]
+fn a_missing_required_field_is_a_warning_not_an_error() {
+    let mut harness = Harness::new();
+    let uri = harness.open("refs.bib", "@article{k,\n  title = {T},\n}\n");
+
+    let diagnostics = diagnostics_in(&harness.server().drain(), &uri);
+    assert!(!diagnostics.is_empty(), "expected the missing fields to be reported");
+    assert!(
+        diagnostics.iter().all(|d| d["severity"] == json!(2)),
+        "an incomplete entry is a warning, not an error: {diagnostics:#?}"
+    );
+}
+
+/// The trap this whole feature is built around: a `.bib` file must never become
+/// the compile root, or the compiler is handed BibTeX and asked for a document.
+#[test]
+fn opening_a_bibliography_leaves_the_compile_root_alone() {
+    let mut harness = Harness::new();
+    let main = harness.open("main.typ", "= Title\n\nBody.\n");
+    let bib = harness.open("refs.bib", REFS);
+
+    // The host debounces off the last edited document, which is now the `.bib`.
+    let events = harness.compile(&bib);
+    let statuses = events_named(&events, "typst/compileStatus");
+    assert_eq!(
+        statuses.last().unwrap()["state"],
+        json!("ok"),
+        "the typst document should still be what compiled"
+    );
+    assert!(diagnostics_in(&events, &main).is_empty());
+    assert!(
+        diagnostics_in(&events, &bib)
+            .iter()
+            .all(|d| d["source"] == json!("bibtex")),
+        "typst must not be publishing into a `.bib` file"
+    );
+}
+
+/// The overlay is what the compiler reads, so a citation resolves against the
+/// bibliography **as it is being typed** rather than as it was last saved.
+#[test]
+fn an_unsaved_bibliography_edit_reaches_the_compiler() {
+    let mut harness = Harness::new();
+    let bib = harness.open("refs.bib", REFS);
+    let main = harness.open(
+        "main.typ",
+        "#bibliography(\"refs.bib\")\n\nSee @knuth1984.\n",
+    );
+
+    let events = harness.compile(&main);
+    let diagnostics = diagnostics_in(&events, &main);
+    assert!(diagnostics.is_empty(), "the citation should resolve: {diagnostics:#?}");
+
+    // Rename the key in the editor only; the file on disk still has the old one.
+    harness.change(&bib, &REFS.replace("knuth1984", "knuth1984tlp"));
+    let events = harness.compile(&main);
+    assert!(
+        !diagnostics_in(&events, &main).is_empty(),
+        "the citation should now be unresolved"
+    );
+}
+
+/// The two publishers run on different clocks. A compile must not clear the
+/// bibliography's squiggles on its way past.
+#[test]
+fn a_compile_leaves_bibliography_diagnostics_standing() {
+    let mut harness = Harness::new();
+    let bib = harness.open("refs.bib", "@misc{same, title={A}}\n@misc{same, title={B}}\n");
+    let main = harness.open("main.typ", "= Title\n");
+    assert!(!diagnostics_in(&harness.server().drain(), &bib).is_empty());
+
+    let events = harness.compile(&main);
+    let published: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|event| event.method == "textDocument/publishDiagnostics")
+        .filter(|event| event.params["uri"] == json!(bib.as_str()))
+        .map(|event| &event.params)
+        .collect();
+
+    assert!(
+        published.is_empty(),
+        "the compile republished into the `.bib` file: {published:#?}"
+    );
+}
+
+#[test]
+fn bibliography_symbols_are_its_entries_with_their_fields() {
+    let mut harness = Harness::new();
+    let uri = harness.open("refs.bib", REFS);
+
+    let result = harness.request(
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": uri.as_str() } }),
+    );
+
+    let entries = result.as_array().unwrap();
+    assert_eq!(entries.len(), 3, "{entries:#?}");
+    assert_eq!(entries[0]["name"], json!("knuth1984"));
+    assert!(
+        entries[0]["detail"].as_str().unwrap().contains("Literate Programming"),
+        "{:#?}",
+        entries[0]
+    );
+
+    let fields = entries[0]["children"].as_array().unwrap();
+    assert!(fields.iter().any(|field| field["name"] == json!("author")));
+}
+
+#[test]
+fn bibliography_folding_is_one_region_per_entry() {
+    let mut harness = Harness::new();
+    let uri = harness.open("refs.bib", REFS);
+
+    let result = harness.request(
+        "textDocument/foldingRange",
+        json!({ "textDocument": { "uri": uri.as_str() } }),
+    );
+    assert_eq!(result.as_array().unwrap().len(), 3, "{result}");
+}
+
+#[test]
+fn bibliography_hover_reads_the_entry_under_the_cursor() {
+    let mut harness = Harness::new();
+    let (uri, position) = harness.open_with_cursor(
+        "refs.bib",
+        "@article{knu/* CURSOR */th1984,\n  title = {Literate Programming},\n}\n",
+    );
+
+    let result = harness.request("textDocument/hover", at(&uri, position));
+    let value = result["contents"]["value"].as_str().unwrap_or_default();
+    assert!(value.contains("Literate Programming"), "got {value:?}");
+    assert!(value.contains("article"), "got {value:?}");
+}
+
+#[test]
+fn bibliography_hover_on_a_field_says_what_it_means() {
+    let mut harness = Harness::new();
+    let (uri, position) = harness
+        .open_with_cursor("refs.bib", "@article{k,\n  jour/* CURSOR */nal = {TCJ},\n}\n");
+
+    let result = harness.request("textDocument/hover", at(&uri, position));
+    let value = result["contents"]["value"].as_str().unwrap_or_default();
+    assert!(value.contains("journal"), "got {value:?}");
+}
+
+#[test]
+fn bibliography_completion_offers_entry_types_then_field_names() {
+    let mut harness = Harness::new();
+
+    let (uri, position) = harness.open_with_cursor("refs.bib", "@/* CURSOR */\n");
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    let items = result["items"].as_array().unwrap();
+    let article = items
+        .iter()
+        .find(|item| item["label"] == json!("@article"))
+        .unwrap_or_else(|| panic!("expected `@article`: {items:#?}"));
+    let inserted = article["textEdit"]["newText"].as_str().unwrap();
+    assert!(inserted.starts_with("@article{"), "{inserted}");
+    assert!(inserted.contains("journal = {$4}"), "the skeleton needs tab stops: {inserted}");
+    // The edit has to swallow the `@` the reader already typed.
+    assert_eq!(article["textEdit"]["range"]["start"]["character"], json!(0));
+
+    let (uri, position) =
+        harness.open_with_cursor("refs.bib", "@article{k,\n  au/* CURSOR */\n}\n");
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    let items = result["items"].as_array().unwrap();
+    let author = items
+        .iter()
+        .find(|item| item["label"] == json!("author"))
+        .unwrap_or_else(|| panic!("expected `author`: {items:#?}"));
+    assert_eq!(author["textEdit"]["newText"], json!("author = {$1},"));
+    assert!(
+        author["sortText"].as_str().unwrap().starts_with('0'),
+        "a required field sorts first"
+    );
+}
+
+#[test]
+fn a_crossref_completes_and_then_jumps_to_the_entry_it_names() {
+    let mut harness = Harness::new();
+    let text = "@book{whole,\n  title = {A Book},\n}\n\n\
+                @inbook{part,\n  crossref = {who/* CURSOR */le},\n}\n";
+    let (uri, position) = harness.open_with_cursor("refs.bib", text);
+
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    let items = result["items"].as_array().unwrap();
+    assert!(
+        items.iter().any(|item| item["label"] == json!("whole")),
+        "expected the other entry's key: {items:#?}"
+    );
+
+    let result = harness.request("textDocument/definition", at(&uri, position));
+    assert_eq!(result["uri"], json!(uri.as_str()));
+    assert_eq!(result["range"]["start"]["line"], json!(0), "{result}");
+}
+
+#[test]
+fn bibliography_links_come_from_url_and_doi_fields() {
+    let mut harness = Harness::new();
+    let uri = harness.open("refs.bib", REFS);
+
+    let result = harness.request(
+        "textDocument/documentLink",
+        json!({ "textDocument": { "uri": uri.as_str() } }),
+    );
+    let targets: Vec<&str> =
+        result.as_array().unwrap().iter().map(|l| l["target"].as_str().unwrap()).collect();
+
+    assert!(
+        targets.contains(&"https://doi.org/10.1093/comjnl/27.2.97"),
+        "a bare DOI needs the resolver in front of it: {targets:?}"
+    );
+    assert!(
+        targets.iter().any(|target| target.contains("edwardtufte.com")),
+        "{targets:?}"
+    );
+}
+
+#[test]
+fn bibliography_semantic_tokens_come_from_the_bibtex_parse() {
+    let mut harness = Harness::new();
+    let uri = harness.open("refs.bib", REFS);
+
+    let result = harness.request(
+        "textDocument/semanticTokens/full",
+        json!({ "textDocument": { "uri": uri.as_str() } }),
+    );
+    let data = result["data"].as_array().unwrap();
+    assert!(!data.is_empty());
+
+    // The first token is `@article`: line 0, character 0, eight units long.
+    assert_eq!(data[0], json!(0), "delta line");
+    assert_eq!(data[1], json!(0), "delta start");
+    assert_eq!(data[2], json!("@article".len()), "length");
+}
+
+#[test]
+fn formatting_a_bibliography_normalises_it_rather_than_running_typstyle() {
+    let mut harness = Harness::new();
+    let uri = harness.open(
+        "refs.bib",
+        "@ARTICLE{ k ,Author={A},TITLE={T},journal={J},year={1984}}",
+    );
+
+    let result = harness.request(
+        "textDocument/formatting",
+        json!({
+            "textDocument": { "uri": uri.as_str() },
+            "options": { "tabSize": 2, "insertSpaces": true },
+        }),
+    );
+
+    let edits = result.as_array().unwrap();
+    assert_eq!(edits.len(), 1, "{edits:#?}");
+    assert_eq!(
+        edits[0]["newText"],
+        json!(
+            "@article{k,\n  author = {A},\n  title = {T},\n  \
+             journal = {J},\n  year = {1984},\n}\n"
+        )
+    );
+}
+
+#[test]
+fn formatting_leaves_a_broken_bibliography_alone() {
+    let mut harness = Harness::new();
+    let uri = harness.open("refs.bib", "@article{k, title = {unclosed\n");
+
+    let result = harness.request(
+        "textDocument/formatting",
+        json!({
+            "textDocument": { "uri": uri.as_str() },
+            "options": { "tabSize": 2, "insertSpaces": true },
+        }),
+    );
+    assert_eq!(result, json!(null), "a half-typed file must not be rewritten");
+}
+
+#[test]
+fn a_citation_hovers_and_jumps_into_the_bibliography() {
+    let mut harness = Harness::new();
+    harness.open("refs.bib", REFS);
+    let (main, position) = harness.open_with_cursor(
+        "main.typ",
+        "#bibliography(\"refs.bib\")\n\nSee @knu/* CURSOR */th1984.\n",
+    );
+
+    let hover = harness.request("textDocument/hover", at(&main, position));
+    let value = hover["contents"]["value"].as_str().unwrap_or_default();
+    assert!(
+        value.contains("Literate Programming"),
+        "the tooltip should read the bibliography: {value:?}"
+    );
+
+    let definition = harness.request("textDocument/definition", at(&main, position));
+    assert!(
+        definition["uri"].as_str().unwrap_or_default().ends_with("refs.bib"),
+        "got {definition}"
+    );
+    assert_eq!(definition["range"]["start"]["line"], json!(0));
+}
+
+#[test]
+fn citation_keys_are_offered_after_an_at_sign() {
+    let mut harness = Harness::new();
+    harness.open("refs.bib", REFS);
+    let (main, position) =
+        harness.open_with_cursor("main.typ", "See @/* CURSOR */\n");
+
+    let result = harness.request("textDocument/completion", at(&main, position));
+    let items = result["items"].as_array().unwrap();
+    let citation = items
+        .iter()
+        .find(|item| item["label"] == json!("@madje2022"))
+        .unwrap_or_else(|| panic!("expected the bibliography's keys: {items:#?}"));
+
+    assert_eq!(citation["textEdit"]["newText"], json!("@madje2022"));
+    assert_eq!(
+        citation["textEdit"]["range"]["start"]["character"],
+        json!(4),
+        "the edit must replace the `@` the reader typed"
+    );
+    assert!(citation["detail"].as_str().unwrap().contains("Madje"), "{citation:#?}");
+}
+
+#[test]
+fn renaming_a_citation_key_rewrites_the_entry_and_every_citation() {
+    let mut harness = Harness::new();
+    let main = harness.open("main.typ", "See @knuth1984 and @knuth1984 again.\n");
+    let (bib, position) =
+        harness.open_with_cursor("refs.bib", "@article{knu/* CURSOR */th1984,\n}\n");
+
+    let prepared = harness.request("textDocument/prepareRename", at(&bib, position));
+    assert_eq!(prepared["start"]["character"], json!("@article{".len()));
+
+    let mut params = at(&bib, position);
+    params["newName"] = json!("knuth1984tlp");
+    let result = harness.request("textDocument/rename", params);
+
+    let changes = result["changes"].as_object().unwrap();
+    let in_bib = changes[bib.as_str()].as_array().unwrap();
+    assert_eq!(in_bib.len(), 1, "the entry's key: {in_bib:#?}");
+    assert_eq!(in_bib[0]["range"]["start"]["character"], json!("@article{".len()));
+
+    let in_main = changes[main.as_str()].as_array().unwrap();
+    assert_eq!(in_main.len(), 2, "both citations: {in_main:#?}");
+    // The `@` stays; only the name is rewritten.
+    assert_eq!(in_main[0]["range"]["start"]["character"], json!(5));
+    assert_eq!(in_main[0]["newText"], json!("knuth1984tlp"));
+}
+
+#[test]
+fn workspace_symbols_find_citation_keys() {
+    let mut harness = Harness::new();
+    let bib = harness.uri("refs.bib");
+    harness
+        .server()
+        .on_notification("typst/workspaceFiles", json!({ "uris": [bib.as_str()] }));
+
+    let result = harness.request("workspace/symbol", json!({ "query": "tufte" }));
+    let symbols = result.as_array().unwrap();
+    assert!(
+        symbols.iter().any(|symbol| symbol["name"] == json!("tufte2001")),
+        "{symbols:#?}"
+    );
+}
+
+#[test]
+fn typst_only_features_decline_in_a_bibliography() {
+    let mut harness = Harness::new();
+    let uri = harness.open("refs.bib", REFS);
+    let document = json!({ "textDocument": { "uri": uri.as_str() } });
+
+    assert_eq!(harness.request("textDocument/codeLens", document.clone()), json!(null));
+
+    let mut params = document.clone();
+    params["range"] = json!({
+        "start": { "line": 0, "character": 0 },
+        "end": { "line": 0, "character": 0 },
+    });
+    params["context"] = json!({ "diagnostics": [] });
+    assert_eq!(harness.request("textDocument/codeAction", params), json!(null));
+}
+
 #[test]
 fn html_export_produces_a_document() {
     let mut harness = Harness::new();

@@ -33,6 +33,11 @@ impl<Q: Ports> Server<Q> {
         &mut self,
         params: DocumentSymbolParams,
     ) -> Option<DocumentSymbolResponse> {
+        // A bibliography's outline is its entries, not a typst syntax walk.
+        if let Some((_, source, bib)) = self.bib_of(&params.text_document.uri) {
+            return Some(DocumentSymbolResponse::Nested(self.bib_symbols(&source, &bib)));
+        }
+
         let (_, source) = self.source_of(&params.text_document.uri)?;
         Some(DocumentSymbolResponse::Nested(nested_symbols(&source)))
     }
@@ -49,7 +54,12 @@ impl<Q: Ports> Server<Q> {
             let Ok(source) = self.session().world().source(id) else { continue };
             let Some(uri) = self.uris().to_uri(id) else { continue };
 
-            for symbol in flat_symbols(&source) {
+            // A citation key is a workspace symbol like any other — searching
+            // for `knuth1984` should find the entry that defines it.
+            for symbol in match super::bibtex::is_bib(id) {
+                true => bib_symbols(&source),
+                false => flat_symbols(&source),
+            } {
                 if !matches_query(&symbol.name, &query) {
                     continue;
                 }
@@ -70,6 +80,24 @@ impl<Q: Ports> Server<Q> {
 
         Some(WorkspaceSymbolResponse::Flat(out))
     }
+}
+
+/// A bibliography's entries, in the same shape the typst walk produces.
+fn bib_symbols(source: &Source) -> Vec<Found> {
+    crate::bib::Bib::parse(source.text())
+        .references()
+        .filter_map(|entry| {
+            let key = entry.key.clone()?;
+            Some(Found {
+                name: key,
+                detail: Some(entry.summary()),
+                kind: SymbolKind::CONSTANT,
+                range: entry.key_range.clone(),
+                selection: entry.key_range.clone(),
+                depth: None,
+            })
+        })
+        .collect()
 }
 
 /// A forgiving subsequence match, so `wsym` finds `workspace_symbols`.

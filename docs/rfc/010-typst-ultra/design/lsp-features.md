@@ -31,6 +31,7 @@ Legend for **Source**:
 | `textDocument/codeAction` | 🔵 | 4 | Quick fixes for a small set of diagnostics |
 | `textDocument/codeLens` | 🔵 | 4 | "Preview" / "Export" above the document |
 | `typst/*` (preview, export, status) | 🔵 | 3 | [architecture.md §7.2](architecture.md#72-extension-host-and-server-lsp) |
+| BibTeX, in `.bib` files and citations | 🔵 | 6 | Same methods, routed by extension — [§8](#8-bibtex-bibliographies) |
 
 Not implemented, deliberately: call hierarchy, type hierarchy, type definition, implementation, moniker,
 linked editing, color provider, on-type formatting.
@@ -370,3 +371,59 @@ A status-bar item shows which mode is active (`$(eye) chapter-03.typ` following,
 and opens a QuickPick to switch. Full behaviour, including the one-shot "pin `main.typ`?" suggestion and
 what happens when the focused file is outside the pinned project, is in
 [0008](../decisions/0008-compile-root.md).
+
+---
+
+## 8. BibTeX bibliographies (Phase 6)
+
+A `.bib` file is part of a typst project — `bibliography("refs.bib")` reads it and `@knuth1984` cites into
+it — so it is part of the server. The *why*, including why neither `biblatex` nor `hayagriva` could be the
+parser, is [0011](../decisions/0011-bibtex-support.md). This is the surface.
+
+### 8.1 Routing
+
+There is no second server and no second dispatch table. Every handler asks `Server::bib_of(uri)` first;
+`Some` means the document is a `.bib` and the BibTeX path answers it. The document overlay, the URI map,
+the token cache, and `typst/*` are untouched.
+
+| In a `.bib` file | What it answers |
+| --- | --- |
+| `publishDiagnostics` | Syntax errors, duplicate keys and fields (error); missing required fields, unknown entry types (warning) |
+| `documentSymbol` | One symbol per entry, keyed by citation key, fields nested underneath |
+| `workspace/symbol` | Citation keys, searched with the same fuzzy filter as typst symbols |
+| `hover` | The entry as a reference; what a field means; a `crossref` target; a `@string` expansion |
+| `completion` | Entry types as fill-in skeletons, field names (required ones first), `crossref` keys, `@string` names |
+| `definition` | `crossref` → the entry it names, in this file or another; a bare value → its `@string` |
+| `documentLink` | `url` fields, and `doi` fields behind `https://doi.org/` |
+| `foldingRange` | One region per entry |
+| `selectionRange` | value → field → entry → file |
+| `semanticTokens/full`, `/full/delta` | From the BibTeX parse: entry type, key, field name, value, number, `@string` reference, punctuation, and the ignored text between entries |
+| `formatting` | The canonical layout — one field per line, trailing commas, one blank line between entries. Refuses on a file with syntax errors, as `typstyle` does |
+| `rangeFormatting`, `codeAction`, `codeLens`, `inlayHint`, `signatureHelp` | Nothing. These are typst notions |
+
+| In a `.typ` file | What changes |
+| --- | --- |
+| `hover` on `@key` | Falls back to the bibliography when `typst-ide` has no tooltip |
+| `definition` on `@key` | Falls back to the entry's key range in the `.bib` file |
+| `completion` after `@` | Appends citation keys upstream did not offer, sorted after everything it did |
+| `references`, `rename` on `@key` | Span both languages: one rename rewrites the entry and every citation |
+
+### 8.2 Two clocks, again
+
+[architecture.md §5](architecture.md#5-concurrency-model-one-thread-two-clocks) has the syntax tree and the
+compiled document on separate clocks. Bibliography diagnostics are a third: they come straight off the edit, because parsing is
+instant and a `.bib` file that no `bibliography()` call names would otherwise never be checked at all.
+
+The consequence is in the publishing. Both publishers clear by difference — "these URIs had diagnostics
+last time and do not now" — so they keep separate sets (`published`, `bib_published`) and the compile skips
+`.bib` files entirely. Without that, each would clear the other's squiggles on its way past, and which one
+you saw would depend on your typing speed.
+
+### 8.3 What the compiler already did
+
+`Vfs::file` prefers the open-document overlay, so an unsaved edit to a `.bib` already reached the compiler
+before any of this existed: the bibliography in the preview is the one in the editor, not the one on disk.
+`an_unsaved_bibliography_edit_reaches_the_compiler` pins it.
+
+What did *not* work, and now does: a `.bib` can no longer become the compile root — not by being focused,
+not by `typst/setMain` — so editing one recompiles the document that cites it.

@@ -26,6 +26,16 @@ impl<Q: Ports> Server<Q> {
     /// `textDocument/completion`.
     pub fn completion(&mut self, params: CompletionParams) -> Option<CompletionResponse> {
         let position = params.text_document_position;
+
+        // A bibliography completes entry types, field names, and its own keys.
+        if let Some((_, source, bib)) = self.bib_of(&position.text_document.uri) {
+            let cursor = crate::convert::position_to_offset(&source, position.position);
+            return Some(CompletionResponse::List(lsp_types::CompletionList {
+                is_incomplete: true,
+                items: self.bib_completion(&source, &bib, cursor),
+            }));
+        }
+
         let (_, source, cursor) = self.locate(&position.text_document.uri, position.position)?;
 
         // `explicit` tells upstream how aggressive to be: a deliberate
@@ -45,8 +55,10 @@ impl<Q: Ports> Server<Q> {
             cursor,
             explicit,
         ) else {
-            // Upstream declined — a comment, say. Postfix items may still apply.
-            let items = self.postfix_completions(&source, cursor);
+            // Upstream declined — a comment, say. Postfix items and citation
+            // keys may still apply.
+            let mut items = self.postfix_completions(&source, cursor);
+            items.extend(self.citation_items(&source, cursor, &items));
             if items.is_empty() {
                 return None;
             }
@@ -66,6 +78,11 @@ impl<Q: Ports> Server<Q> {
         // Postfix entries come last and sort last: a real field on the value is
         // nearly always the better answer (P4-13).
         items.extend(self.postfix_completions(&source, cursor));
+
+        // Citation keys upstream did not offer, because it only knows the ones
+        // in the last compiled document.
+        let citations = self.citation_items(&source, cursor, &items);
+        items.extend(citations);
 
         Some(CompletionResponse::List(lsp_types::CompletionList {
             // Typst's completions depend on the cursor's syntactic context, so

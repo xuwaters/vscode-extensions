@@ -232,4 +232,64 @@ describe.skipIf(!BUILT)('the WASM engine', () => {
     const bytes = wasm.TypstServer.heapBytes();
     expect(bytes).toBeGreaterThan(1_000_000);
   });
+
+  // The other half of a paper: a `.bib` the compiler reads and the editor edits.
+  it('speaks BibTeX for a bibliography, and cites into it', () => {
+    const bib = '@article{knuth1984,\n  author = {Knuth, Donald E.},\n  '
+      + 'title = {Literate Programming},\n  journal = {The Computer Journal},\n  '
+      + 'year = {1984},\n}\n';
+    const bibUri = `${pathToFileURL(workspace).toString()}/refs.bib`;
+    fs.writeFileSync(path.join(workspace, 'refs.bib'), bib);
+
+    server.onNotification('textDocument/didOpen', {
+      textDocument: { uri: bibUri, languageId: 'bibtex', version: 1, text: bib },
+    });
+    server.onNotification('textDocument/didChange', {
+      textDocument: { uri: mainUri, version: 5 },
+      contentChanges: [
+        { text: '#bibliography("refs.bib")\n\nSee @knuth1984.\n' },
+      ],
+    });
+
+    // The host debounces off the last edited file, which is the bibliography.
+    // Compiling *it* would hand BibTeX to the typst compiler.
+    server.drainEvents();
+    server.onNotification('typst/compile', { uri: bibUri });
+    const events = server.drainEvents();
+
+    const status = events.filter((event) => event.method === 'typst/compileStatus');
+    const last = status.at(-1)?.params as { state: string; pageCount: number };
+    expect(last.state).toBe('ok');
+    expect(last.pageCount).toBe(1);
+
+    const symbols = server.onRequest('textDocument/documentSymbol', {
+      textDocument: { uri: bibUri },
+    }) as { name: string }[];
+    expect(symbols.map((symbol) => symbol.name)).toEqual(['knuth1984']);
+
+    const definition = server.onRequest('textDocument/definition', {
+      textDocument: { uri: mainUri },
+      position: { line: 2, character: 8 },
+    }) as { uri: string; range: { start: { line: number } } };
+    expect(definition.uri).toBe(bibUri);
+    expect(definition.range.start.line).toBe(0);
+
+    // Break the bibliography: its problems come from the parser, on the edit.
+    server.onNotification('textDocument/didChange', {
+      textDocument: { uri: bibUri, version: 2 },
+      contentChanges: [{ text: `${bib}\n@misc{knuth1984, title = {Again}}\n` }],
+    });
+    const problems = server
+      .drainEvents()
+      .filter((event) => event.method === 'textDocument/publishDiagnostics')
+      .filter((event) => (event.params as { uri: string }).uri === bibUri)
+      .flatMap(
+        (event) =>
+          (event.params as { diagnostics: { message: string; source: string }[] })
+            .diagnostics,
+      );
+
+    expect(problems.some((problem) => problem.message.includes('duplicate'))).toBe(true);
+    expect(problems.every((problem) => problem.source === 'bibtex')).toBe(true);
+  });
 });

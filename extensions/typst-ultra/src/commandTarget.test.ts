@@ -27,6 +27,14 @@ describe('the URI a command was invoked with', () => {
     expect(namesTypstSource('file:///w/notes.md')).toBe(false);
   });
 
+  // A bibliography is a project file the server speaks BibTeX for, but it is
+  // not a document: `Client.mainPath` asks this before making the file that
+  // started the server the compile root.
+  it('rejects a bibliography', () => {
+    expect(namesTypstSource({ path: '/w/refs.bib' })).toBe(false);
+    expect(namesTypstSource('file:///w/refs.bib')).toBe(false);
+  });
+
   it('rejects anything else that is not a document', () => {
     expect(namesTypstSource({ path: '/w/paper.pdf' })).toBe(false);
     expect(namesTypstSource({ path: '/w/typ' })).toBe(false);

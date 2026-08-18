@@ -33,21 +33,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(output, client, preview, modes, compileRoot, status);
 
-  // Start on the first typst document, and on every later one in case the
-  // server was stopped in between.
-  const startForDocument = (document: vscode.TextDocument) => {
-    if (document.languageId === 'typst') void client.start(document.uri);
-  };
-  vscode.workspace.textDocuments.forEach(startForDocument);
-  context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(startForDocument),
-  );
-
-  // Tell the server which files exist, so `workspace/symbol` has something to
-  // search. The host walks the file system; the server does not.
+  // Tell the server which files exist, so `workspace/symbol` and citation
+  // completion have something to search. The host walks the file system; the
+  // server does not. `.bib` files are in the list because a bibliography the
+  // compile has not read yet is still a bibliography the reader can cite from.
   const publishWorkspaceFiles = async () => {
     const files = await vscode.workspace.findFiles(
-      '**/*.{typ,typc}',
+      '**/*.{typ,typc,bib}',
       '**/node_modules/**',
       2000,
     );
@@ -55,9 +47,49 @@ export function activate(context: vscode.ExtensionContext): void {
       uris: files.map((uri) => uri.toString()),
     });
   };
-  void publishWorkspaceFiles();
 
-  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{typ,typc}');
+  /** Whether this workspace is a typst project at all, looked up once. */
+  let typstProject: Promise<boolean> | undefined;
+  const isTypstProject = async (): Promise<boolean> => {
+    typstProject ??= (async () => {
+      const found = await vscode.workspace.findFiles(
+        '**/*.{typ,typc}',
+        '**/node_modules/**',
+        1,
+      );
+      return found.length > 0;
+    })();
+    return typstProject;
+  };
+
+  // Start on the first typst document, and on every later one in case the
+  // server was stopped in between.
+  const startForDocument = async (document: vscode.TextDocument) => {
+    if (document.languageId === 'typst') {
+      // fall through
+    } else if (document.languageId === 'bibtex') {
+      // A `.bib` on its own is not reason enough to fork a WASM engine —
+      // someone editing a LaTeX project's bibliography should never notice this
+      // extension. It starts once the workspace turns out to hold typst files.
+      if (!client.running && !(await isTypstProject())) return;
+    } else {
+      return;
+    }
+
+    const wasRunning = client.running;
+    await client.start(document.uri);
+    // The file list is only useful once there is a server to receive it, and
+    // activation runs before the first document opens.
+    if (!wasRunning) void publishWorkspaceFiles();
+  };
+  vscode.workspace.textDocuments.forEach((document) => void startForDocument(document));
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument(
+      (document) => void startForDocument(document),
+    ),
+  );
+
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{typ,typc,bib}');
   context.subscriptions.push(
     watcher,
     watcher.onDidCreate(() => void publishWorkspaceFiles()),

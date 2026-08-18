@@ -19,6 +19,12 @@ impl<Q: Ports> Server<Q> {
     /// `textDocument/codeAction`.
     pub fn code_actions(&mut self, params: CodeActionParams) -> Option<CodeActionResponse> {
         let uri = params.text_document.uri.clone();
+        // Every action here rewrites typst syntax; none of them mean anything in
+        // a bibliography.
+        if self.bib_of(&uri).is_some() {
+            return None;
+        }
+
         let (_, source) = self.source_of(&uri)?;
         let selection = range_from_lsp(&source, params.range);
 

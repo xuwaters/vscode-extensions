@@ -40,11 +40,48 @@ impl<Q: Ports> Server<Q> {
         let (id, source, cursor) =
             self.locate(&position.text_document.uri, position.position)?;
 
-        let target = self.resolve_target(&source, cursor)?;
+        let target = self.target_at(id, &source, cursor)?;
         Some(self.find_references(id, &target, include_declaration))
     }
 
-    /// Classify what the cursor is on.
+    /// Classify what the cursor is on, in whichever language the file is.
+    ///
+    /// A citation key is a [`Target::Label`] like any other: `@knuth1984` in a
+    /// document and `@article{knuth1984` in a bibliography are two spellings of
+    /// one name, which is exactly what makes rename work across both.
+    pub(crate) fn target_at(
+        &self,
+        id: FileId,
+        source: &Source,
+        cursor: usize,
+    ) -> Option<Target> {
+        if super::bibtex::is_bib(id) {
+            return self.bib_key_at(source, cursor).map(Target::Label);
+        }
+        self.resolve_target(source, cursor)
+    }
+
+    /// The citation key a cursor in a bibliography is on: an entry's own key,
+    /// or one a `crossref` names.
+    pub(crate) fn bib_key_at(&self, source: &Source, cursor: usize) -> Option<String> {
+        let bib = crate::bib::Bib::parse(source.text());
+        let entry = bib.entry_at(cursor)?;
+
+        if entry.key_range.contains(&cursor) || entry.key_range.end == cursor {
+            return entry.key.clone();
+        }
+
+        let field = entry
+            .fields
+            .iter()
+            .find(|field| field.value.as_ref().is_some_and(|v| v.range.contains(&cursor)))?;
+        if !matches!(field.name.as_str(), "crossref" | "xdata" | "related" | "ids") {
+            return None;
+        }
+        Some(field.value.as_ref()?.text.trim().to_string())
+    }
+
+    /// Classify what the cursor is on in a typst file.
     pub(crate) fn resolve_target(&self, source: &Source, cursor: usize) -> Option<Target> {
         let root = LinkedNode::new(source.root());
         let leaf = root
@@ -90,13 +127,19 @@ impl<Q: Ports> Server<Q> {
         let mut out = Vec::new();
 
         match target {
-            // Labels are document-wide, so every file in the graph is fair game.
+            // Labels are document-wide, so every file in the graph is fair game
+            // — bibliographies included, since a citation key is declared in one
+            // and used in the others.
             Target::Label(name) => {
                 for id in self.graph_files(current) {
                     let Ok(source) = self.session().world().source(id) else { continue };
                     let Some(uri) = self.uris().to_uri(id) else { continue };
 
-                    for range in label_occurrences(&source, name, include_declaration) {
+                    let ranges = match super::bibtex::is_bib(id) {
+                        true => bib_occurrences(&source, name, include_declaration),
+                        false => label_occurrences(&source, name, include_declaration),
+                    };
+                    for range in ranges {
                         out.push(Location {
                             uri: uri.clone(),
                             range: range_to_lsp(&source, range),
@@ -184,6 +227,39 @@ fn label_occurrences(
             out.push(range);
         }
     });
+    out
+}
+
+/// Every mention of a citation key in a bibliography: the entry that declares
+/// it, and any `crossref` that points at it.
+fn bib_occurrences(
+    source: &Source,
+    name: &str,
+    include_declaration: bool,
+) -> Vec<std::ops::Range<usize>> {
+    let bib = crate::bib::Bib::parse(source.text());
+    let mut out = Vec::new();
+
+    for entry in bib.references() {
+        if include_declaration && entry.key.as_deref() == Some(name) {
+            out.push(entry.key_range.clone());
+        }
+
+        for field in &entry.fields {
+            if !matches!(field.name.as_str(), "crossref" | "xdata" | "related" | "ids") {
+                continue;
+            }
+            let Some(value) = field.value.as_ref() else { continue };
+            if value.text.trim() != name {
+                continue;
+            }
+            // The value's range covers its braces; the name is what gets renamed.
+            let text = source.text().get(value.range.clone()).unwrap_or_default();
+            let start = value.range.start + text.find(name).unwrap_or(0);
+            out.push(start..start + name.len());
+        }
+    }
+
     out
 }
 

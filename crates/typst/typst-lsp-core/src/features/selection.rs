@@ -16,6 +16,20 @@ impl<Q: Ports> Server<Q> {
         &mut self,
         params: SelectionRangeParams,
     ) -> Option<Vec<SelectionRange>> {
+        // A bibliography expands value → field → entry → file.
+        if let Some((_, source, bib)) = self.bib_of(&params.text_document.uri) {
+            return Some(
+                params
+                    .positions
+                    .into_iter()
+                    .map(|position| {
+                        let offset = crate::convert::position_to_offset(&source, position);
+                        self.bib_selection_range(&source, &bib, offset)
+                    })
+                    .collect(),
+            );
+        }
+
         let (_, source) = self.source_of(&params.text_document.uri)?;
 
         Some(

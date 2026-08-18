@@ -21,6 +21,11 @@ pub const ALLOWED_SCHEMES: &[&str] = &["https", "http", "mailto"];
 impl<Q: Ports> Server<Q> {
     /// `textDocument/documentLink`.
     pub fn document_links(&mut self, params: DocumentLinkParams) -> Option<Vec<DocumentLink>> {
+        // In a bibliography the links are `url` and `doi` fields.
+        if let Some((_, source, bib)) = self.bib_of(&params.text_document.uri) {
+            return Some(self.bib_links(&source, &bib));
+        }
+
         let (id, source) = self.source_of(&params.text_document.uri)?;
         let mut out = Vec::new();
 

@@ -23,6 +23,15 @@ impl<Q: Ports> Server<Q> {
         params: GotoDefinitionParams,
     ) -> Option<GotoDefinitionResponse> {
         let position = params.text_document_position_params;
+
+        // In a bibliography: `crossref` and `@string` references.
+        if let Some((id, source, bib)) = self.bib_of(&position.text_document.uri) {
+            let cursor = crate::convert::position_to_offset(&source, position.position);
+            return self
+                .bib_definition(id, &source, &bib, cursor)
+                .map(GotoDefinitionResponse::Scalar);
+        }
+
         let (_, source, cursor) = self.locate(&position.text_document.uri, position.position)?;
 
         let definition = typst_ide::definition(
@@ -40,7 +49,17 @@ impl<Q: Ports> Server<Q> {
                 cursor,
                 Side::After,
             )
-        })?;
+        });
+
+        // A citation key is defined in a `.bib` file, which typst-ide has no
+        // notion of: it can only place labels the compiled document carries.
+        let Some(definition) = definition else {
+            let (file, target, entry) = self.cited_entry(&source, cursor)?;
+            return Some(GotoDefinitionResponse::Scalar(Location {
+                uri: self.uris().to_uri(file)?,
+                range: range_to_lsp(&target, entry.key_range.clone()),
+            }));
+        };
 
         match definition {
             Definition::Span(span) => {

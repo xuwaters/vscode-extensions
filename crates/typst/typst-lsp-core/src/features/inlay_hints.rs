@@ -22,7 +22,11 @@ impl<Q: Ports> Server<Q> {
             return None;
         }
 
-        let (_, source) = self.source_of(&params.text_document.uri)?;
+        let (id, source) = self.source_of(&params.text_document.uri)?;
+        // Parameter names are a typst notion; a bibliography has no calls.
+        if super::bibtex::is_bib(id) {
+            return None;
+        }
         let byte_range = range_from_lsp(&source, params.range);
 
         let mut out = Vec::new();

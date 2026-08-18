@@ -15,6 +15,13 @@ impl<Q: Ports> Server<Q> {
     /// `textDocument/hover`.
     pub fn hover(&mut self, params: HoverParams) -> Option<Hover> {
         let position = params.text_document_position_params;
+
+        // A bibliography answers from its own parse.
+        if let Some((_, source, bib)) = self.bib_of(&position.text_document.uri) {
+            let cursor = crate::convert::position_to_offset(&source, position.position);
+            return self.bib_hover(&source, &bib, cursor);
+        }
+
         let (_, source, cursor) = self.locate(&position.text_document.uri, position.position)?;
 
         // Upstream's own tests probe both sides: which one carries the tooltip
@@ -47,6 +54,15 @@ impl<Q: Ports> Server<Q> {
                 value.push_str("\n\n");
             }
             value.push_str(&format!("On page {page}."));
+        }
+
+        // A citation upstream cannot place — the document has not compiled, or
+        // `bibliography()` has not been written yet — is still a key we can look
+        // up in the project's `.bib` files.
+        if value.is_empty()
+            && let Some((_, _, entry)) = self.cited_entry(&source, cursor)
+        {
+            value = entry.markdown();
         }
 
         if value.is_empty() {

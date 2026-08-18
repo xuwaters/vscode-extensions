@@ -12,18 +12,21 @@ Progress tracking for RFC 010. One file per phase; phases are defined in
 | [3 — Preview](phase-3-preview.md) | Live preview, two-way sync, export | Type → repaint < 120 ms; click a page → land on the source | ☑ 13 / 13 |
 | [4 — Polish](phase-4-polish.md) | Hints, actions, PNG mode, real-world validation | Each item independently shippable | ◐ 14 / 16 |
 | [5 — Preview UX](phase-5-preview-ux.md) | Three view modes, follow-the-editor, export affordances | `cmd+shift+v` means what it means in markdown-preview-ultra | ☑ 10 / 10 |
+| [6 — BibTeX](phase-6-bibtex.md) | `.bib` files and citations, in the same server | A duplicate key is underlined; `@knuth1984` jumps to the entry and renames across both files | ☑ 9 / 9 |
 
-**Overall: 70 / 72 complete**, 1 scoped ([P4-06](phase-4-polish.md), browser build — blocked on a
+**Overall: 79 / 81 complete**, 1 scoped ([P4-06](phase-4-polish.md), browser build — blocked on a
 question about vscode.dev), 1 blocked ([P4-09](phase-4-polish.md), Windows/Linux verification — needs
 those machines).
 
-Phase 5 is a **scope change, not a continuation**: it comes from
+Phases 5 and 6 are **scope changes, not continuations**. Phase 5 comes from
 [Amendment 001](../proposal-amendment-001-preview-ux.md), written after using this extension and
-markdown-preview-ultra side by side in one window.
+markdown-preview-ultra side by side in one window. Phase 6 comes from
+[0011](../decisions/0011-bibtex-support.md): a bibliography is part of a typst project, and the server was
+treating it as a blob — in three places, actively wrongly.
 
 ### Where it stands
 
-Four Rust crates and one extension. **751 Rust tests and 116 extension tests pass**; the WASM artifact is
+Four Rust crates and one extension. **809 Rust tests and 126 extension tests pass**; the WASM artifact is
 **26.5 MB raw / 10 MB gzipped**, and the VSIX is **16 MB**. The whole stack is exercised end to end
 through the real artifact by `server/engine.test.ts` — multi-file compile with synchronous host callbacks
 firing mid-compile, hover, page rendering with hash diffing, PDF export, and diagnostics appearing and

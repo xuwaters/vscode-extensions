@@ -38,6 +38,14 @@ impl<Q: Ports> Server<Q> {
             // A detached span belongs to no file; attach it to the compile root
             // at offset 0 with the message intact rather than dropping it.
             let file = diagnostic.file.unwrap_or(main);
+            // `.bib` files are published from the BibTeX parser, on the edit
+            // rather than on the compile. Letting a compile publish here as well
+            // would mean the two clear each other's squiggles by turns; typst
+            // reports bibliography trouble at the `bibliography()` call anyway,
+            // which is in a file this branch does not touch.
+            if crate::features::bibtex::is_bib(file) {
+                continue;
+            }
             let Some(converted) = self.convert_diagnostic(file, diagnostic) else {
                 continue;
             };

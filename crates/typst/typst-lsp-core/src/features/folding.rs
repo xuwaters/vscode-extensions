@@ -13,6 +13,11 @@ use crate::{Ports, Server};
 impl<Q: Ports> Server<Q> {
     /// `textDocument/foldingRange`.
     pub fn folding_ranges(&mut self, params: FoldingRangeParams) -> Option<Vec<FoldingRange>> {
+        // A bibliography folds by entry.
+        if let Some((_, source, bib)) = self.bib_of(&params.text_document.uri) {
+            return Some(self.bib_folding(&source, &bib));
+        }
+
         let (_, source) = self.source_of(&params.text_document.uri)?;
         Some(folding_ranges(&source))
     }

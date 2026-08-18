@@ -3,6 +3,7 @@
 //! Each module adds an `impl` block to [`Server`], so a feature is a file and
 //! the dispatch table is the index.
 
+pub mod bibtex;
 pub mod code_actions;
 pub mod code_lens;
 pub mod completion;

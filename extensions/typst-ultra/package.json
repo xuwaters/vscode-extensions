@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-typst-ultra",
   "displayName": "Typst Ultra",
-  "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact \u2014 diagnostics, completion, hover, goto-definition, semantic tokens, formatting, two-way-synced preview, and PDF/SVG/PNG export",
-  "version": "0.2.1",
+  "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact \u2014 diagnostics, completion, hover, goto-definition, semantic tokens, formatting, BibTeX bibliographies, two-way-synced preview, and PDF/SVG/PNG export",
+  "version": "0.2.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -15,6 +15,7 @@
   ],
   "activationEvents": [
     "onLanguage:typst",
+    "onLanguage:bibtex",
     "onWebviewPanel:typstUltra.preview",
     "onCustomEditor:typstUltra.editor",
     "onCommand:typstUltra.newFromTemplate"
@@ -33,6 +34,17 @@
           ".typc"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "bibtex",
+        "aliases": [
+          "BibTeX",
+          "bibtex"
+        ],
+        "extensions": [
+          ".bib"
+        ],
+        "configuration": "./language-configuration-bibtex.json"
       }
     ],
     "grammars": [
@@ -99,6 +111,19 @@
           ],
           "error": [
             "invalid.illegal.typst"
+          ]
+        }
+      },
+      {
+        "language": "bibtex",
+        "scopes": {
+          "label": [
+            "entity.name.type.entry-key.bibtex",
+            "entity.name.label"
+          ],
+          "punct": [
+            "punctuation.definition.keyword.bibtex",
+            "punctuation"
           ]
         }
       }

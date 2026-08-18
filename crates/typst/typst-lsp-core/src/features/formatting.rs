@@ -23,6 +23,12 @@ impl<Q: Ports> Server<Q> {
             return None;
         }
 
+        // A bibliography has its own canonical layout. Running typstyle over it
+        // would not fail — it would rewrite the file into something else.
+        if let Some((_, source, _)) = self.bib_of(&params.text_document.uri) {
+            return self.bib_formatting(&source);
+        }
+
         let (_, source) = self.source_of(&params.text_document.uri)?;
         let formatted = format_document(&source, &settings)?;
         if formatted == source.text() {
@@ -42,6 +48,12 @@ impl<Q: Ports> Server<Q> {
     ) -> Option<Vec<TextEdit>> {
         let settings = self.settings().formatter;
         if settings.mode == FormatterMode::Off {
+            return None;
+        }
+
+        // Formatting half a bibliography is not a thing: entries are the unit,
+        // and "format document" already does it.
+        if self.bib_of(&params.text_document.uri).is_some() {
             return None;
         }
 

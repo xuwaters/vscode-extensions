@@ -1,0 +1,30 @@
+{
+  "_comment": "VSCode ships a `bibtex` language and grammar in its built-in LaTeX extension, but no language configuration at all — no bracket matching, no auto-closing, no comment toggle. This is that missing half. The grammar stays the built-in one; the real colouring comes from the server's semantic tokens.",
+  "comments": {
+    "lineComment": "%"
+  },
+  "brackets": [
+    ["{", "}"],
+    ["(", ")"],
+    ["[", "]"]
+  ],
+  "autoClosingPairs": [
+    { "open": "{", "close": "}" },
+    { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
+    { "open": "\"", "close": "\"", "notIn": ["string"] }
+  ],
+  "surroundingPairs": [
+    ["{", "}"],
+    ["(", ")"],
+    ["[", "]"],
+    ["\"", "\""]
+  ],
+  "autoCloseBefore": ",}) \n\t",
+  "_wordPattern": "A citation key is one word: double-clicking `knuth1984` or `knuth-1984:tlp` selects all of it, and completion filters on the whole thing rather than the fragment after the last dash.",
+  "wordPattern": "[A-Za-z0-9_\\-.:+]+",
+  "indentationRules": {
+    "increaseIndentPattern": "^\\s*@\\w+\\s*[{(][^})]*$",
+    "decreaseIndentPattern": "^\\s*[})]"
+  }
+}

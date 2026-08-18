@@ -22,6 +22,21 @@ download, no code signing.
 - Formatting and range formatting via `typstyle`
 - Signature help, inlay hints, code actions, and code lenses
 
+**Bibliographies** — `.bib` files get the same treatment as `.typ` files
+
+- Diagnostics as you type: duplicate keys, unclosed entries, missing required
+  fields, entry types typst will not recognise
+- Entries as the document outline and as workspace symbols, so `knuth1984` is
+  one `Cmd/Ctrl+T` away
+- Completion for entry types (as fill-in skeletons), field names, `crossref`
+  keys, and `@string` abbreviations
+- Hover on an entry, a field, or a citation; `url` and `doi` fields are links
+- A formatter that puts a bibliography in canonical shape and refuses to touch
+  one that does not parse
+- In your document: `@knuth1984` hovers, jumps to the entry, and renames across
+  the document and the bibliography at once — before the first compile, and
+  before `bibliography()` is even written
+
 **Preview**
 
 - Repaints as you type, rendering pages as SVG
@@ -48,6 +63,12 @@ nothing is fetched twice.
 
 Open a `.typ` file. That is the whole setup — the server starts on the first
 typst document, and the compile root follows whichever file you are looking at.
+
+A `.bib` file in the same workspace is picked up as well, and editing one
+recompiles the document that cites it rather than trying to compile the
+bibliography. Opening a `.bib` in a workspace with no typst files in it does
+nothing at all — a LaTeX project's bibliography is none of this extension's
+business.
 
 For a project with chapters, pin the entry file so editing a chapter still
 checks the whole document: click the status bar item, or run

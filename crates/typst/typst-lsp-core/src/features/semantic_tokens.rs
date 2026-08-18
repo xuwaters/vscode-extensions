@@ -51,6 +51,10 @@ pub const TOKEN_TYPES: &[&str] = &[
     "mathDelimiter",
     "interpolated",
     "error",
+    // Standard LSP types, used by the BibTeX colouring in `features::bibtex`.
+    // Every theme already understands both, so they need no scope mapping.
+    "property",
+    "variable",
 ];
 
 /// The legend the server advertises at initialize time.
@@ -59,6 +63,13 @@ pub fn legend() -> SemanticTokensLegend {
         token_types: TOKEN_TYPES.iter().map(|name| SemanticTokenType::new(name)).collect(),
         token_modifiers: Vec::new(),
     }
+}
+
+/// A token type's index in [`TOKEN_TYPES`], which is what the wire format
+/// carries. An unknown name would be a bug here, not in the client, so it falls
+/// back to the first entry rather than dropping the token.
+pub(crate) fn index_of(name: &str) -> u32 {
+    TOKEN_TYPES.iter().position(|candidate| *candidate == name).unwrap_or(0) as u32
 }
 
 /// Tag → index into [`TOKEN_TYPES`].
@@ -85,12 +96,12 @@ fn token_index(tag: Tag) -> u32 {
         Tag::Interpolated => "interpolated",
         Tag::Error => "error",
     };
-    TOKEN_TYPES.iter().position(|candidate| *candidate == name).unwrap_or(0) as u32
+    index_of(name)
 }
 
 /// One absolute token, before delta encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct AbsoluteToken {
+pub(crate) struct AbsoluteToken {
     line: u32,
     start: u32,
     length: u32,
@@ -107,7 +118,10 @@ impl<Q: Ports> Server<Q> {
             return None;
         }
         let (id, source) = self.source_of(&params.text_document.uri)?;
-        let tokens = tokens_for(&source);
+        let tokens = match self.bib_of(&params.text_document.uri) {
+            Some((_, source, bib)) => self.bib_tokens(&source, &bib),
+            None => tokens_for(&source),
+        };
 
         let cache = self.tokens.entry(id).or_default();
         let result_id = cache.store(tokens.clone());
@@ -130,7 +144,10 @@ impl<Q: Ports> Server<Q> {
             return None;
         }
         let (id, source) = self.source_of(&params.text_document.uri)?;
-        let tokens = tokens_for(&source);
+        let tokens = match self.bib_of(&params.text_document.uri) {
+            Some((_, source, bib)) => self.bib_tokens(&source, &bib),
+            None => tokens_for(&source),
+        };
 
         let cache = self.tokens.entry(id).or_default();
         if !cache.matches(&params.previous_result_id) {
@@ -190,7 +207,7 @@ fn collect(
 
 /// LSP tokens may not span lines, so a multi-line leaf (a raw block, a block
 /// comment) becomes one token per line.
-fn push_split_by_line(
+pub(crate) fn push_split_by_line(
     range: std::ops::Range<usize>,
     token_type: u32,
     source: &Source,
@@ -229,7 +246,7 @@ fn push_split_by_line(
 }
 
 /// LSP's relative encoding: each token is offset from the previous one.
-fn encode(tokens: &[AbsoluteToken]) -> Vec<SemanticToken> {
+pub(crate) fn encode(tokens: &[AbsoluteToken]) -> Vec<SemanticToken> {
     let mut out = Vec::with_capacity(tokens.len());
     let mut previous_line = 0;
     let mut previous_start = 0;

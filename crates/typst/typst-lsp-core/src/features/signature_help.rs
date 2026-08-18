@@ -18,7 +18,12 @@ impl<Q: Ports> Server<Q> {
     /// `textDocument/signatureHelp`.
     pub fn signature_help(&mut self, params: SignatureHelpParams) -> Option<SignatureHelp> {
         let position = params.text_document_position_params;
-        let (_, source, cursor) = self.locate(&position.text_document.uri, position.position)?;
+        let (id, source, cursor) =
+            self.locate(&position.text_document.uri, position.position)?;
+        // There are no function calls in a bibliography.
+        if super::bibtex::is_bib(id) {
+            return None;
+        }
 
         let root = LinkedNode::new(source.root());
         let leaf = root
