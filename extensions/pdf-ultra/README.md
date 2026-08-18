@@ -4,9 +4,8 @@ A PDF viewer that is an editor, not an attachment. Open a `.pdf` and it renders
 in the tab — continuous pages, real selectable text, find, an outline, and a
 reload that keeps your place when the file is rebuilt beside you.
 
-Built on [pdf.js](https://mozilla.github.io/pdf.js/), rendered by a
-[FAST](https://fast.design) element, and entirely offline: no CDN, no web
-fonts, no telemetry, no remote origin of any kind.
+Built on [pdf.js](https://mozilla.github.io/pdf.js/) and entirely offline: no
+CDN, no web fonts, no telemetry, no remote origin of any kind.
 
 ## What it does
 
@@ -82,61 +81,18 @@ whatever the operating system uses for PDFs.
 | `pdfUltra.maxCanvasPixels` | `16777216` | Ceiling on one page's bitmap |
 | `pdfUltra.renderAhead` | `1` | Screens rendered either side of the viewport |
 
-## How it is put together
+## Privacy and safety
 
-`src/` is the extension host: the custom editor, the commands, the status bar,
-the file watch, and the host half of the message protocol.
+A PDF can come from anywhere, so the viewer treats every document as untrusted.
+Nothing in the page may reach the network: no CDN, no web fonts, no telemetry,
+no remote origin of any kind. Document scripting is not supported and the
+JavaScript engine that would run it is not shipped. Links are rebuilt as the
+viewer's own overlay and handed to VS Code, so clicking one never navigates the
+page itself.
 
-`webview/` is the page, in three layers that only ever depend downwards:
+The extension never modifies the file it is showing. Exporting a page as a PNG
+writes a new file, through a save dialog, and that is its only write.
 
-| Layer | Rule | Holds |
-| --- | --- | --- |
-| `viewer/` | Reactive. Everything the reader can see the state of. | `element.ts` and its `template.ts` / `styles.css`, plus the two controllers it delegates to — `search.ts` and `outlineState.ts` |
-| `render/` | pdf.js and the DOM, but no state the reader sees. | `pageColumn.ts` (the virtualized column), `pdfjs.ts` (loader, worker boot, document parameters), `destinations.ts`, `highlight.ts` |
-| `model/` | No DOM, no pdf.js. Pure functions — and where most of the tests are. | `layout.ts`, `find.ts`, `outline.ts`, `zoom.ts`, `chunks.ts` |
-
-The two bundle entry points sit at the top of `webview/`, so what gets built is
-answerable without opening anything: `index.ts` is the page, `pdfWorker.ts` is
-the pdf.js worker.
-
-The split between the element and the column is the load-bearing one. The
-*chrome* is reactive and lives in a FAST template; the *pages* are not. A page
-column is hundreds of boxes of which a handful hold a canvas at any moment,
-rasterized and released as you scroll, and expressing that as bindings would
-mean a binding per page and a canvas per binding. So `PageColumn` owns the
-column imperatively, models its own scroll geometry rather than measuring the
-DOM back, and the element owns everything you can see the state of.
-
-### Security
-
-A PDF is an untrusted document that can come from anywhere, and pdf.js is a
-large parser sitting between it and the page. So:
-
-- `default-src 'none'`, and no remote origin is permitted at all
-- No inline or injected script can run — `script-src` is a nonce and
-  `'wasm-unsafe-eval'`, which lets `WebAssembly.instantiate` compile pdf.js's
-  image decoders without re-enabling `eval`
-- XFA is off, no scripting layer exists, and pdf.js's annotation layer is not
-  mounted — link annotations are read out and rebuilt as our own overlay, so
-  every link out goes through the host's scheme allow-list
-- `quickjs-eval.wasm`, pdf.js's interpreter for document scripting, is left out
-  of the package: shipping a JavaScript engine nothing can reach is attack
-  surface for no feature
-- Every message from the webview is shape-validated host-side, one hand-written
-  guard per variant
-
-### Where pdf.js's data lives
-
-`dist/pdfjs/` carries the cMaps (CID-keyed fonts, which is most CJK), the 14
-standard fonts (for documents that embed none), and the JBIG2 / JPEG 2000 /
-ICC decoders. They are copied into the bundle at build time and loaded from the
-extension's own URL, never from a CDN.
-
-## Building
-
-```sh
-pnpm install
-pnpm --filter wx-vsce-pdf-ultra build
-pnpm --filter wx-vsce-pdf-ultra test
-pnpm --filter wx-vsce-pdf-ultra package   # → wx-vsce-pdf-ultra-<version>.vsix
-```
+Everything pdf.js needs to render — the cMaps for CID-keyed fonts (most CJK),
+the 14 standard fonts, the JBIG2 / JPEG 2000 / ICC decoders — ships inside the
+extension, so documents render the same offline as online.
