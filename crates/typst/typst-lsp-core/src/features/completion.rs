@@ -79,7 +79,9 @@ impl<Q: Ports> Server<Q> {
 
 fn to_item(completion: &Completion, range: lsp_types::Range, index: usize) -> CompletionItem {
     let apply = completion.apply.as_ref();
-    let new_text = apply.map(|a| a.to_string()).unwrap_or_else(|| completion.label.to_string());
+    let new_text = apply
+        .map(|a| to_lsp_snippet(a))
+        .unwrap_or_else(|| completion.label.to_string());
 
     CompletionItem {
         label: completion.label.to_string(),
@@ -93,7 +95,6 @@ fn to_item(completion: &Completion, range: lsp_types::Range, index: usize) -> Co
         }),
         text_edit: Some(CompletionTextEdit::Edit(TextEdit { range, new_text })),
         insert_text_format: Some(if apply.is_some() {
-            // `apply` is snippet syntax — `${lhs} + ${rhs}` and friends.
             InsertTextFormat::SNIPPET
         } else {
             InsertTextFormat::PLAIN_TEXT
@@ -102,6 +103,85 @@ fn to_item(completion: &Completion, range: lsp_types::Range, index: usize) -> Co
         // rather than letting the client re-sort alphabetically.
         sort_text: Some(format!("{index:06}")),
         ..CompletionItem::default()
+    }
+}
+
+/// Translate typst's `apply` string into LSP snippet syntax.
+///
+/// The two look alike and are not the same. Typst writes a hole as `${hint}`,
+/// where the hint is prose for the reader and often empty — `page(${})`. LSP
+/// requires every tab stop to be numbered: `${1:hint}` or a bare `$1`. An
+/// unnumbered `${}` is not a tab stop at all, so VSCode inserts it as text,
+/// which is exactly what the user sees as `#page(${})`.
+///
+/// So: number the holes left to right, drop the braces when the hint is empty,
+/// and escape every `$` and `\` that was meant literally — typst's math
+/// snippets (`$${x}$`) are full of them.
+fn to_lsp_snippet(apply: &str) -> String {
+    let mut out = String::with_capacity(apply.len());
+    let mut rest = apply;
+    let mut stop = 0;
+
+    while let Some(offset) = rest.find('$') {
+        escape_literal(&rest[..offset], &mut out);
+        rest = &rest[offset..];
+
+        match rest.strip_prefix("${").and_then(|inner| {
+            inner.find('}').map(|end| (&inner[..end], &inner[end + 1..]))
+        }) {
+            Some((hint, tail)) => {
+                stop += 1;
+                // Typst occasionally pre-numbers a hole (`${2:2}` in the math
+                // sub/superscript snippets). Our own numbering is authoritative
+                // — strip theirs rather than emitting two competing schemes.
+                let hint = strip_stop_number(hint);
+                if hint.is_empty() {
+                    out.push_str(&format!("${stop}"));
+                } else {
+                    out.push_str(&format!("${{{stop}:"));
+                    escape_placeholder(hint, &mut out);
+                    out.push('}');
+                }
+                rest = tail;
+            }
+            // A lone `$` (math delimiter) or an unterminated `${`: literal.
+            None => {
+                out.push_str("\\$");
+                rest = &rest['$'.len_utf8()..];
+            }
+        }
+    }
+
+    escape_literal(rest, &mut out);
+    out
+}
+
+/// `2:x` → `x`. Only a leading run of digits followed by `:` counts.
+fn strip_stop_number(hint: &str) -> &str {
+    let digits = hint.len() - hint.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    match (digits > 0).then(|| hint[digits..].strip_prefix(':')).flatten() {
+        Some(rest) => rest,
+        None => hint,
+    }
+}
+
+/// Outside a placeholder only `$` and `\` are special; a bare `}` is literal.
+fn escape_literal(text: &str, out: &mut String) {
+    for character in text.chars() {
+        if matches!(character, '$' | '\\') {
+            out.push('\\');
+        }
+        out.push(character);
+    }
+}
+
+/// Inside `${n:…}` a `}` would close the placeholder early, so it escapes too.
+fn escape_placeholder(text: &str, out: &mut String) {
+    for character in text.chars() {
+        if matches!(character, '$' | '\\' | '}') {
+            out.push('\\');
+        }
+        out.push(character);
     }
 }
 
@@ -130,4 +210,63 @@ fn detail_of(completion: &Completion) -> Option<String> {
 
 fn first_line(text: &str) -> String {
     text.lines().next().unwrap_or_default().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_lsp_snippet;
+
+    /// The reported bug: `#page(${})` showed up verbatim in the document.
+    #[test]
+    fn an_empty_hole_becomes_a_bare_tab_stop() {
+        assert_eq!(to_lsp_snippet("page(${})"), "page($1)");
+        assert_eq!(to_lsp_snippet("set ${}"), "set $1");
+    }
+
+    #[test]
+    fn a_hinted_hole_keeps_its_hint_and_gains_a_number() {
+        assert_eq!(to_lsp_snippet("*${strong}*"), "*${1:strong}*");
+        assert_eq!(
+            to_lsp_snippet("let ${name} = ${value}"),
+            "let ${1:name} = ${2:value}"
+        );
+    }
+
+    #[test]
+    fn holes_number_left_to_right_across_a_multiline_snippet() {
+        assert_eq!(
+            to_lsp_snippet("for ${value} in ${(1, 2, 3)} {\n\t${}\n}"),
+            "for ${1:value} in ${2:(1, 2, 3)} {\n\t$3\n}"
+        );
+    }
+
+    /// Math snippets carry `$` as a delimiter, not as a tab stop.
+    #[test]
+    fn a_lone_dollar_is_escaped() {
+        assert_eq!(to_lsp_snippet("$${x}$"), "\\$${1:x}\\$");
+        assert_eq!(to_lsp_snippet("$ ${sum_x^2} $"), "\\$ ${1:sum_x^2} \\$");
+    }
+
+    /// Typst pre-numbers the sub/superscript holes; ours wins.
+    #[test]
+    fn a_pre_numbered_hint_is_renumbered() {
+        assert_eq!(to_lsp_snippet("${x}_${2:2}"), "${1:x}_${2:2}");
+        assert_eq!(to_lsp_snippet("${a}/${3:b}"), "${1:a}/${2:b}");
+    }
+
+    #[test]
+    fn text_without_holes_passes_through() {
+        assert_eq!(to_lsp_snippet("emph"), "emph");
+        assert_eq!(to_lsp_snippet("\"${text}\": ${}"), "\"${1:text}\": $2");
+    }
+
+    #[test]
+    fn a_backslash_survives_as_a_backslash() {
+        assert_eq!(to_lsp_snippet("\\\n${}"), "\\\\\n$1");
+    }
+
+    #[test]
+    fn an_unterminated_hole_is_literal_text() {
+        assert_eq!(to_lsp_snippet("page(${"), "page(\\${");
+    }
 }

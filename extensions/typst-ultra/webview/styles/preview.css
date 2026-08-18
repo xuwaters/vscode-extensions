@@ -162,6 +162,9 @@ body.has-error .page {
 }
 
 .chrome button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 24px;
   height: 22px;
   padding: 0 6px;
@@ -172,18 +175,47 @@ body.has-error .page {
   cursor: pointer;
 }
 
+/* Sized to sit level with the glyph buttons next to it rather than tower over them. */
+.chrome button .icon {
+  width: 13px;
+  height: 13px;
+}
+
 .chrome button:hover {
   background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2));
 }
 
+/*
+ * Both boxes in the toolbar are typed into, so both have to look it. The border
+ * falls back to a drawn one rather than to `transparent`: most themes leave
+ * `--vscode-input-border` unset, and against the toolbar's own widget
+ * background an unbordered field reads as a label, not as somewhere to type.
+ */
 .chrome input {
-  width: 56px;
+  width: 52px;
   height: 22px;
   padding: 0 4px;
   color: var(--vscode-input-foreground);
   background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
+  border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.45));
   border-radius: 3px;
+  font-size: inherit;
+  font-family: inherit;
+  text-align: center;
+}
+
+.chrome input:hover {
+  border-color: var(--vscode-inputOption-hoverBackground, rgba(128, 128, 128, 0.75));
+}
+
+.chrome input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* The name of the field beside it, in the same key as the page count. */
+.chrome .field {
+  color: var(--vscode-descriptionForeground);
 }
 
 .chrome .spacer {
@@ -199,7 +231,9 @@ body.has-error .page {
 }
 
 #zoom-level {
-  min-width: 44px;
-  text-align: center;
+  width: 56px;
+}
+
+#page-count {
   color: var(--vscode-descriptionForeground);
 }

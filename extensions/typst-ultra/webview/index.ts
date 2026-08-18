@@ -7,6 +7,7 @@ import type {
 } from '../src/preview/messages.js';
 import { PageList } from './pageList.js';
 import styles from './styles/preview.css';
+import { formatZoomPercent, parseZoomPercent } from './zoom.js';
 
 /**
  * The preview webview.
@@ -29,7 +30,7 @@ injectStyles();
 
 const container = must<HTMLElement>('pages');
 const statusBar = must<HTMLElement>('status');
-const zoomLabel = must<HTMLElement>('zoom-level');
+const zoomInput = must<HTMLInputElement>('zoom-level');
 const pageCount = must<HTMLElement>('page-count');
 const goToPage = must<HTMLInputElement>('go-to-page');
 
@@ -58,6 +59,7 @@ const pages = new PageList(
 );
 
 if (restored?.zoom) pages.setZoom(restored.zoom);
+showZoom(pages.scale);
 
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
   const message = event.data as HostToWebview;
@@ -134,6 +136,23 @@ must<HTMLButtonElement>('export').addEventListener('click', () =>
   post({ type: 'export' }),
 );
 
+// The zoom readout is also the way to set it: a reader who wants 175% should
+// not have to hunt for it through 1.2× steps.
+zoomInput.addEventListener('change', () => {
+  const percent = parseZoomPercent(zoomInput.value);
+  if (percent === null) showZoom(pages.scale);
+  else setZoom(percent / 100);
+});
+zoomInput.addEventListener('focus', () => zoomInput.select());
+// Blur rewrites the box from the real scale, so a half-typed or clamped value
+// never lingers as if it were in effect.
+zoomInput.addEventListener('blur', () => showZoom(pages.scale));
+zoomInput.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  showZoom(pages.scale);
+  container.focus();
+});
+
 goToPage.addEventListener('change', () => {
   const page = Number(goToPage.value) - 1;
   if (Number.isInteger(page) && page >= 0) pages.goToPage(page);
@@ -205,7 +224,7 @@ function setZoom(zoom: number): void {
   fit = 'actual';
   const before = pages.scale;
   pages.setZoom(zoom);
-  zoomLabel.textContent = `${Math.round(pages.scale * 100)}%`;
+  showZoom(pages.scale);
 
   // A raster page is rendered at a fixed resolution, so a zoom step needs it
   // re-rendered or it goes soft. Vector pages just scale.
@@ -222,9 +241,12 @@ function zoomStep(zoom: number): number {
 
 function applyFit(mode: FitMode): void {
   fit = mode;
-  const zoom = pages.fit(mode);
-  zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+  showZoom(pages.fit(mode));
   saveState();
+}
+
+function showZoom(scale: number): void {
+  zoomInput.value = formatZoomPercent(scale);
 }
 
 function toggleInvert(): void {
@@ -282,6 +304,10 @@ function showCursor(page: number, yPt: number): void {
 }
 
 function updateCurrentPage(): void {
+  // Not while the reader is typing in it: scrolling to the page they asked for
+  // would otherwise overwrite the number half-way through the next one.
+  if (document.activeElement === goToPage) return;
+
   const center = pages.centerPage();
   if (center) goToPage.value = String(center.page + 1);
 }

@@ -42,15 +42,40 @@ export function html(webview: vscode.Webview, extensionUri: vscode.Uri): string 
   <body class="typst-preview">
     <div id="chrome" class="chrome">
       <button id="zoom-out" title="Zoom out">−</button>
-      <span id="zoom-level">100%</span>
+      <input
+        id="zoom-level"
+        type="text"
+        inputmode="decimal"
+        value="100%"
+        title="Zoom — type a percentage and press Enter"
+        aria-label="Zoom percentage"
+      />
       <button id="zoom-in" title="Zoom in">+</button>
       <button id="fit-width" title="Fit width">↔</button>
       <button id="fit-page" title="Fit page">⤢</button>
       <button id="invert" title="Invert colors">◐</button>
       <span class="separator"></span>
       <button id="edit-source" title="Edit — show the source in a text editor">✎</button>
-      <button id="export" title="Export… — PDF, SVG, PNG, or HTML">⭳</button>
+      <button id="export" title="Export… — PDF, SVG, PNG, or HTML" aria-label="Export">
+        <!-- Inline SVG, not a glyph: the download arrows live in Miscellaneous
+             Symbols and Arrows, which the system UI fonts do not cover, so the
+             button rendered as tofu. Inline markup is document, not a fetch, so
+             the CSP does not apply to it. -->
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path
+            d="M8 2v7.5M5 6.6 8 9.7l3-3.1M3 11.4v2.1h10v-2.1"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
       <span class="spacer"></span>
+      <!-- Labelled, because a bare number box next to "/ 12" reads as decoration
+           rather than as somewhere to type. -->
+      <label class="field" for="go-to-page">Page</label>
       <input id="go-to-page" type="number" min="1" value="1" title="Go to page" />
       <span id="page-count">/ 0</span>
     </div>

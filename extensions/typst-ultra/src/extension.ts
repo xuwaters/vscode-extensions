@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Client } from './client.js';
+import { namesTypstSource } from './commandTarget.js';
 import { CompileRoot } from './compileRoot.js';
 import * as config from './config.js';
 import { exportDocument, pickAndExport } from './export.js';
@@ -80,14 +81,30 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   /**
-   * Which document a command acts on. The explorer context menu and the
-   * preview's own toolbar name the file; the palette and the keybindings pass
-   * nothing and mean the active editor.
+   * The file a command's argument names, if it names one at all — see
+   * `namesTypstSource` for who passes what. A code lens sends its URI as a
+   * string, because the language server's arguments are JSON.
+   */
+  const namedSource = (target?: vscode.Uri | string): vscode.Uri | undefined => {
+    if (!namesTypstSource(target)) return undefined;
+    if (typeof target !== 'string') return target;
+    try {
+      return vscode.Uri.parse(target, true);
+    } catch {
+      return undefined;
+    }
+  };
+
+  /**
+   * Which document a command acts on. An argument that names a file wins;
+   * anything else — no argument, a webview's own resource, a URI that will not
+   * parse — means the document the reader is looking at.
    */
   const requireDocument = async (
-    uri?: vscode.Uri,
+    target?: vscode.Uri | string,
   ): Promise<vscode.TextDocument | undefined> => {
-    if (uri) return vscode.workspace.openTextDocument(uri);
+    const named = namedSource(target);
+    if (named) return vscode.workspace.openTextDocument(named);
 
     const editor = vscode.window.activeTextEditor;
     if (editor?.document.languageId === 'typst') return editor.document;
@@ -123,16 +140,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand(
       'typstUltra.showPreview',
-      async (uri?: vscode.Uri) => {
-        const document = await requireDocument(uri);
+      async (target?: vscode.Uri | string) => {
+        const document = await requireDocument(target);
         if (document) await preview.show(document.uri, vscode.ViewColumn.Active);
       },
     ),
 
     vscode.commands.registerCommand(
       'typstUltra.showPreviewToSide',
-      async (uri?: vscode.Uri) => {
-        const document = await requireDocument(uri);
+      async (target?: vscode.Uri | string) => {
+        const document = await requireDocument(target);
         if (document) await preview.show(document.uri, vscode.ViewColumn.Beside);
       },
     ),
@@ -192,16 +209,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand(
       'typstUltra.export',
-      async (uri?: vscode.Uri) => {
-        const document = await requireDocument(uri);
+      async (target?: vscode.Uri | string) => {
+        const document = await requireDocument(target);
         if (document) await pickAndExport(client, compileRoot, document);
       },
     ),
 
     vscode.commands.registerCommand(
       'typstUltra.exportPdf',
-      async (uri?: vscode.Uri) => {
-        const document = await requireDocument(uri);
+      async (target?: vscode.Uri | string) => {
+        const document = await requireDocument(target);
         if (document) {
           await exportDocument(client, compileRoot, 'pdf', document);
         }
