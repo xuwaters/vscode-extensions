@@ -167,8 +167,11 @@ export class PageColumn {
    * rasterizing is the viewport sync's job.
    */
   async open(doc: PDFDocumentProxy): Promise<void> {
-    const generation = ++this.generation;
+    // Dropping the old document is itself a generation bump, so this one has to
+    // be claimed *after* it — the other order hands back a number that is stale
+    // before the first `await`, and every open abandons itself.
     this.teardown();
+    const generation = ++this.generation;
     this.doc = doc;
 
     const first = await doc.getPage(1);
