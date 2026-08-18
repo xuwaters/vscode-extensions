@@ -2,7 +2,7 @@
   "name": "wx-vsce-pdf-ultra",
   "displayName": "PDF Ultra",
   "description": "PDF viewer as a native custom editor — continuous virtualized pages on pdf.js, selectable text, find-in-document, outline, zoom and fits, colour inversion, and live reload when the file is rebuilt",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "publisher": "weixu",
   "engines": {
