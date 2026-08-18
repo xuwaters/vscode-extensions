@@ -80,6 +80,16 @@ function fakeDoc(numPages: number, renders?: Renders): PDFDocumentProxy {
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 /**
+ * Wait out the pause the column takes before it redraws a stretched page —
+ * what turns a drag-resize into one rasterization rather than one per frame —
+ * and then let the draw it starts run.
+ */
+async function settled(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await flush();
+}
+
+/**
  * A scroller with a box.
  *
  * happy-dom lays nothing out, so every element it makes measures zero — which
@@ -497,5 +507,158 @@ describe('the text layer', () => {
     await flush();
     const text = host.querySelector<HTMLElement>('.page-text');
     expect(text?.style.getPropertyValue('--scale-factor')).toBe('');
+  });
+});
+
+/**
+ * Dragging a tab wider is a new scroller size every animation frame, and a fit
+ * turns every one of those into a new zoom — so a resize is not one relayout,
+ * it is sixty a second for as long as the reader holds the mouse down.
+ *
+ * Releasing the rasters on each of those is what made the pages flicker: every
+ * frame blanked the visible pages down to their placeholder and started a
+ * render that the next frame cancelled before it could reach the screen. The
+ * whole gesture was spent looking at empty grey rectangles.
+ */
+describe('a view that is still moving', () => {
+  /** A document whose pages finish drawing the moment they are asked to. */
+  function drawnDoc(numPages: number, drawn: { calls: number }): PDFDocumentProxy {
+    return {
+      numPages,
+      getPage: async () => ({
+        rotate: 0,
+        getViewport: ({ scale = 1 }: { scale?: number }) => ({
+          width: 612 * scale,
+          height: 792 * scale,
+          scale,
+        }),
+        render: () => {
+          drawn.calls += 1;
+          return { promise: Promise.resolve(), cancel: () => {} };
+        },
+      }),
+    } as unknown as PDFDocumentProxy;
+  }
+
+  /**
+   * A document whose renders finish only when the test says so — which is the
+   * window that matters here: the seconds a page spends being redrawn are the
+   * seconds the reader must still have something to look at.
+   */
+  function gatedDoc(numPages: number, waiting: Array<() => void>): PDFDocumentProxy {
+    return {
+      numPages,
+      getPage: async () => ({
+        rotate: 0,
+        getViewport: ({ scale = 1 }: { scale?: number }) => ({
+          width: 612 * scale,
+          height: 792 * scale,
+          scale,
+        }),
+        render: () => {
+          let done = (): void => {};
+          const promise = new Promise<void>((resolve) => {
+            done = resolve;
+          });
+          waiting.push(done);
+          return { promise, cancel: () => {} };
+        },
+      }),
+    } as unknown as PDFDocumentProxy;
+  }
+
+  /** One frame of a drag: the scroller is narrower, so the fit is smaller. */
+  function drag(
+    scroll: HTMLElement,
+    column: InstanceType<typeof PageColumn>,
+    width: number,
+  ): void {
+    sized(scroll, width, 800);
+    column.setView(width / 1000, 0);
+  }
+
+  const canvasOf = (host: HTMLElement): HTMLCanvasElement =>
+    host.querySelector<HTMLCanvasElement>('.page-canvas')!;
+
+  it('keeps the raster on the page it is stretching rather than blanking it', async () => {
+    const drawn = { calls: 0 };
+    const { scroll, host, column } = mount();
+    await opened(column, drawnDoc(1, drawn));
+    await flush();
+    const before = canvasOf(host);
+    expect(before.width).toBe(816);
+
+    drag(scroll, column, 700);
+
+    expect(canvasOf(host)).toBe(before);
+    expect(before.width).toBe(816);
+    expect(host.querySelector('.page')?.classList.contains('placeholder')).toBe(false);
+  });
+
+  it('rasterizes once the drag has stopped, not once per frame of it', async () => {
+    const drawn = { calls: 0 };
+    const { scroll, column } = mount();
+    await opened(column, drawnDoc(1, drawn));
+    await flush();
+    expect(drawn.calls).toBe(1);
+
+    for (const width of [980, 940, 900, 860, 820]) {
+      drag(scroll, column, width);
+      await flush();
+    }
+    expect(drawn.calls).toBe(1);
+
+    await settled();
+    expect(drawn.calls).toBe(2);
+  });
+
+  /**
+   * The wait is for pages that have something to show. A page that has never
+   * been drawn has nothing, so scrolling ahead during a drag must still fill
+   * the band rather than leave the reader on a placeholder until they let go.
+   */
+  it('still draws a page that has no raster to stretch', async () => {
+    const drawn = { calls: 0 };
+    const { scroll, column } = mount();
+    await opened(column, drawnDoc(5, drawn));
+    await flush();
+    const before = drawn.calls;
+
+    drag(scroll, column, 900);
+    column.goToPage(4);
+    await flush();
+
+    expect(drawn.calls).toBeGreaterThan(before);
+  });
+
+  /**
+   * Sizing a canvas clears it, so a draw that paints into the page's own canvas
+   * blanks it for the whole of the render — the flash the reader sees at the
+   * end of every resize, however few renders it took to get there.
+   */
+  it('swaps a finished raster in rather than emptying the page to make one', async () => {
+    const waiting: Array<() => void> = [];
+    const { scroll, host, column } = mount();
+    await opened(column, gatedDoc(1, waiting));
+    await flush();
+    waiting.shift()?.();
+    await flush();
+    const before = canvasOf(host);
+    expect(before.width).toBe(816);
+
+    drag(scroll, column, 700);
+    await settled();
+    // The redraw is under way, and the page is still the one the reader had.
+    expect(waiting).toHaveLength(1);
+    expect(canvasOf(host)).toBe(before);
+    expect(before.width).toBe(816);
+
+    waiting.shift()?.();
+    await flush();
+    const after = canvasOf(host);
+    expect(after).not.toBe(before);
+    expect(after.width).toBe(571);
+    // And the raster it replaced has handed its bitmap back.
+    expect(before.width).toBe(0);
   });
 });

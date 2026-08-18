@@ -19,6 +19,18 @@ import {
 } from '../model/layout.js';
 import { pdfjs } from './pdfjs.js';
 
+/**
+ * How long the column waits for a resize or a zoom to stop moving before it
+ * rasterizes again.
+ *
+ * A drag-resize delivers a new size every animation frame, and a render is far
+ * slower than that — so redrawing per frame is a render started and cancelled
+ * sixty times a second, none of which ever reaches the screen. The pages are
+ * stretched to the new boxes immediately either way; this is only how long they
+ * stay soft before the sharp ones land.
+ */
+const SETTLE_MS = 120;
+
 /** What a click on a link annotation asks for. */
 export type LinkTarget =
   | { kind: 'url'; href: string }
@@ -49,7 +61,12 @@ interface PageSlot {
   /** 1-based. */
   readonly n: number;
   readonly el: HTMLElement;
-  readonly canvas: HTMLCanvasElement;
+  /**
+   * The raster surface. Swapped rather than resized: a draw paints into a
+   * canvas of its own and takes this one's place only once it is finished, so
+   * the page the reader is looking at is never blanked to make room for it.
+   */
+  canvas: HTMLCanvasElement;
   readonly text: HTMLElement;
   readonly links: HTMLElement;
   box: PageBox;
@@ -113,6 +130,13 @@ export class PageColumn {
   private laidOutFor = '';
   /** Guards stale async work across document swaps and teardown. */
   private generation = 0;
+  /**
+   * Whether pages that already hold a raster are waiting for the view to stop
+   * moving before they redraw. Set by a relayout that stretched something;
+   * cleared by {@link settle}, which then draws.
+   */
+  private holding = false;
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly onScroll = (): void => this.queueSync();
 
@@ -229,9 +253,7 @@ export class PageColumn {
       el.dataset.page = String(n);
       el.setAttribute('aria-label', `Page ${n}`);
 
-      const canvas = document.createElement('canvas');
-      canvas.className = 'page-canvas';
-      canvas.setAttribute('aria-hidden', 'true');
+      const canvas = makeCanvas();
 
       const text = document.createElement('div');
       text.className = 'page-text';
@@ -346,6 +368,7 @@ export class PageColumn {
 
     const boxes = this.computeBoxes();
     const key = this.viewKey;
+    let stretched = 0;
     this.slots.forEach((slot, index) => {
       const box = boxes[index]!;
       slot.box = box;
@@ -355,14 +378,50 @@ export class PageColumn {
       slot.el.style.display = shown ? '' : 'none';
       slot.el.style.width = `${box.w}px`;
       slot.el.style.height = `${box.h}px`;
-      // Every raster drawn for a different view is now the wrong shape for its
-      // box, and every draw in flight is drawing the wrong one. A slot holding
-      // neither is left alone: on a freshly opened document that is all of them.
-      if (!shown || slot.drawnFor !== key) {
-        if (slot.drawnFor !== '' || slot.drawingFor !== '') this.release(slot);
+      if (shown && slot.drawnFor === key) return;
+      // Every draw in flight is drawing the wrong view, and a raster from
+      // another *turn* is the wrong shape for its box — stretching one of those
+      // is exactly the skewed page the rotation half of the key exists to
+      // prevent. A raster from another zoom is the right shape at the wrong
+      // resolution, so it stays: the stylesheet stretches it over the new box
+      // and it reads as a page going soft rather than a page disappearing.
+      if (shown && slot.drawnFor !== '' && turnOf(slot.drawnFor) === turnOf(key)) {
+        this.stretch(slot);
+        stretched += 1;
+      } else if (slot.drawnFor !== '' || slot.drawingFor !== '') {
+        // A slot holding neither is left alone: on a freshly opened document
+        // that is all of them.
+        this.release(slot);
       }
     });
     this.scroll.scrollTop = scrollTopAt(this.slots[anchorIndex]!.box, within);
+    // Only a relayout with something to show waits. The first layout of a
+    // document, and a rotation, have nothing on screen to go soft — holding
+    // those back would be a blank page for as long as the wait lasts.
+    if (stretched > 0) this.hold();
+    this.syncViewport();
+  }
+
+  /**
+   * Put off redrawing the pages that are currently stretched until the view has
+   * stopped moving.
+   *
+   * Rearmed by every relayout, so a drag-resize rasterizes once, when the
+   * reader lets go — not once per frame of the drag, each one cancelling the
+   * last before it could reach the screen.
+   */
+  private hold(): void {
+    this.holding = true;
+    if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+    this.settleTimer = setTimeout(() => this.settle(), SETTLE_MS);
+  }
+
+  /** End the wait and draw, whether or not the timer has come round. */
+  private settle(): void {
+    if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+    this.settleTimer = null;
+    if (!this.holding) return;
+    this.holding = false;
     this.syncViewport();
   }
 
@@ -420,6 +479,9 @@ export class PageColumn {
     if (!this.onScreen) return;
     for (const slot of this.slots) if (slot.drawingFor !== '') this.release(slot);
     this.relayout();
+    // A tab coming back to the front is not a gesture to wait out: whatever the
+    // resize that hid it left holding, this is the moment to draw it.
+    this.settle();
     this.syncViewport();
   }
 
@@ -495,6 +557,10 @@ export class PageColumn {
   async ensureDrawn(page: number): Promise<void> {
     const slot = this.reveal(page);
     if (!slot) return;
+    // A caller that needs the page *now* — find stepping to a match, an export
+    // — is not waiting out a gesture, and a stretched raster is not the page at
+    // this zoom. Ending the wait draws the rest of the band with it.
+    this.settle();
     await this.draw(slot);
   }
 
@@ -640,6 +706,10 @@ export class PageColumn {
   private draw(slot: PageSlot): Promise<void> {
     const key = this.viewKey;
     if (slot.drawnFor === key) return Promise.resolve();
+    // A page that is showing a stretched raster has something to look at, so it
+    // waits for the view to stop moving. A page that is showing nothing does
+    // not: a scroll during a resize still has to fill the band ahead of it.
+    if (this.holding && slot.drawnFor !== '') return Promise.resolve();
     if (slot.drawingFor === key && slot.pending) return slot.pending;
     slot.pending = this.drawNow(slot, this.zoom, this.rotation, key);
     return slot.pending;
@@ -662,6 +732,8 @@ export class PageColumn {
     const seq = ++slot.seq;
     const generation = this.generation;
     const stale = (): boolean => generation !== this.generation || seq !== slot.seq;
+    /** The surface this draw paints into, until the slot adopts it. */
+    let painting: HTMLCanvasElement | null = null;
 
     try {
       const proxy = await doc.getPage(slot.n);
@@ -678,25 +750,33 @@ export class PageColumn {
         window.devicePixelRatio || 1,
         this.options.maxCanvasPixels,
       );
-      // A render still on this canvas belongs to an attempt this one has
-      // superseded. pdf.js refuses two renders on one canvas outright, and the
-      // refusal would land on *this* draw while the older one carried on
-      // painting into a bitmap we are about to resize out from under it — so
-      // the older one is stopped first, deliberately, rather than raced.
+      // A render still running belongs to an attempt this one has superseded,
+      // and nothing it paints will ever be shown — it is stopped rather than
+      // left to compete for the main thread with the draw replacing it.
       slot.task?.cancel();
 
+      // Off to the side, never into the canvas the reader is looking at: sizing
+      // a canvas clears it, so drawing in place would blank the page for the
+      // whole of the render and flash it back at the end. This one takes the
+      // old one's place already finished.
+      //
       // Only the bitmap is sized here — the canvas and the layers over it are
       // stretched across the slot by CSS, so nothing they carry can outlive the
       // raster and stretch the scroll extent.
-      slot.canvas.width = Math.max(1, Math.round(viewport.width * ratio));
-      slot.canvas.height = Math.max(1, Math.round(viewport.height * ratio));
+      const canvas = makeCanvas();
+      painting = canvas;
+      canvas.width = Math.max(1, Math.round(viewport.width * ratio));
+      canvas.height = Math.max(1, Math.round(viewport.height * ratio));
       slot.task = proxy.render({
-        canvas: slot.canvas,
+        canvas,
         viewport,
         transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
       });
       await slot.task.promise;
       if (stale()) return;
+      slot.canvas.replaceWith(canvas);
+      discard(slot.canvas);
+      slot.canvas = canvas;
       slot.el.classList.remove('placeholder');
 
       if (this.options.textLayer) {
@@ -730,6 +810,10 @@ export class PageColumn {
       // rasterize is not a dead document — the slot stays blank at the right
       // size and the next pass over it retries.
     } finally {
+      // A surface the slot never adopted — a cancelled render, a page that
+      // would not rasterize — is nowhere in the DOM and holds a bitmap the size
+      // of a page. It is handed back here rather than left to the collector.
+      if (painting !== null && painting !== slot.canvas) discard(painting);
       // Only the draw that is still the slot's own clears the slot's in-flight
       // bookkeeping. An older attempt finishing late used to report that no
       // draw was running while one was, which cost `draw` its one guarantee —
@@ -818,14 +902,39 @@ export class PageColumn {
     slot.pending = null;
     slot.drawnFor = '';
     slot.drawingFor = '';
-    slot.canvas.width = 0;
-    slot.canvas.height = 0;
+    discard(slot.canvas);
     if (!(options.sparingSelection === true && holdsSelection(slot.text))) {
       slot.text.replaceChildren();
       slot.textDivs = null;
     }
     slot.links.replaceChildren();
     slot.el.classList.add('placeholder');
+  }
+
+  /**
+   * Keep a slot's raster across a relayout, stretched over its new box.
+   *
+   * Releasing instead is what made a drag-resize flicker: the boxes change on
+   * every frame of the drag, so every frame blanked the visible pages down to
+   * their placeholder and started a render that the next frame cancelled. The
+   * reader spent the whole gesture looking at empty grey rectangles.
+   *
+   * The bitmap is the one thing worth keeping. Its resolution is now wrong —
+   * the stylesheet sizes the canvas to the slot, so the page reads as soft
+   * until the draw that replaces it lands — but its *shape* is not, and a soft
+   * page is a page. Everything over it goes: the text runs and the link boxes
+   * are laid out for the old scale, and runs left standing would paint the
+   * reader's selection nowhere near the words it covers.
+   */
+  private stretch(slot: PageSlot): void {
+    slot.seq += 1;
+    slot.task?.cancel();
+    slot.task = null;
+    slot.pending = null;
+    slot.drawingFor = '';
+    slot.text.replaceChildren();
+    slot.textDivs = null;
+    slot.links.replaceChildren();
   }
 
   /**
@@ -844,6 +953,9 @@ export class PageColumn {
 
   private teardown(): void {
     this.generation += 1;
+    if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+    this.settleTimer = null;
+    this.holding = false;
     for (const slot of this.slots) this.release(slot);
     this.slots = [];
     this.geom.clear();
@@ -864,6 +976,39 @@ export class PageColumn {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+/** A page's raster surface. The stylesheet stretches it across the slot. */
+function makeCanvas(): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.className = 'page-canvas';
+  canvas.setAttribute('aria-hidden', 'true');
+  return canvas;
+}
+
+/**
+ * Give a canvas's bitmap back.
+ *
+ * A page of a big document at a deep zoom is tens of megabytes, and dropping
+ * the element is not enough on its own — the backing store lives until the
+ * collector gets to it, and a virtualized column drops canvases faster than
+ * that. Sizing it to nothing frees it now.
+ */
+function discard(canvas: HTMLCanvasElement): void {
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
+/**
+ * The rotation half of a view key — the half a stretched raster cannot survive.
+ *
+ * A quarter turn trades a page's width for its height, so a raster from another
+ * turn stretched over the new box is the skewed page {@link PageSlot.drawnFor}
+ * exists to prevent. A raster from another zoom is the same picture at another
+ * size, which is exactly what stretching it means.
+ */
+function turnOf(key: string): string {
+  return key.slice(key.indexOf('r') + 1);
 }
 
 /**
