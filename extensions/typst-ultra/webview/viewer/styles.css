@@ -167,11 +167,24 @@ typst-preview * {
 /* ── Pages ─────────────────────────────────────────────────────────────────
  *
  * `padding` here is `PAGE_PAD` in `model/layout.ts` and `gap` is `PAGE_GAP`.
+ *
+ * `scrollbar-gutter: stable` is load-bearing, not cosmetic. A fit is resolved
+ * against this box's *content* width, and the content width shrinks when a
+ * classic scrollbar appears. Without a reserved gutter there is a panel width
+ * at which that closes a loop: fit-width scales the pages up, the taller column
+ * overflows, the scrollbar takes its width out of the content box, the resize
+ * observer re-resolves the fit smaller, the column no longer overflows, the
+ * scrollbar goes — and the same observer sees the width come back. Reserving
+ * the gutter whether or not it is used takes the scrollbar out of the
+ * measurement, so the width the fit is resolved against never depends on the
+ * zoom the fit produced. (On platforms with overlay scrollbars — macOS by
+ * default — the gutter is zero wide and this costs nothing.)
  */
 .pages {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
   padding: 16px;
   display: flex;
   flex-direction: column;
