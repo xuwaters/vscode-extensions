@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FontIndex, systemFontDirs, walk } from './fonts.js';
+import { BUNDLED_FONTS } from './testFonts.js';
 
 /** A stand-in for `TypstServer.indexFont`, so these tests need no WASM. */
 function fakeParse(calls: string[]) {
@@ -139,7 +140,7 @@ describe.skipIf(
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const wasm = require(path.join(__dirname, '..', 'wasm', 'typst_lsp_wasm.js'));
     const parse = (data: Uint8Array) => wasm.TypstServer.indexFont(data);
-    const bundled = path.join(__dirname, '..', 'assets', 'fonts');
+    const bundled = BUNDLED_FONTS;
 
     const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'typst-fontcache-'));
     const cachePath = path.join(cacheDir, 'font-index.json');

@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { BUNDLED_FONTS } from './testFonts.js';
 
 /**
  * The built server, over a real LSP connection.
@@ -114,7 +115,7 @@ describe.skipIf(!READY)('the built server, over LSP', () => {
         rootPath: workspace,
         rootUri: pathToFileURL(workspace).toString(),
         mainPath: 'main.typ',
-        bundledFontsPath: path.join(__dirname, '..', 'assets', 'fonts'),
+        bundledFontsPath: BUNDLED_FONTS,
         fontCachePath: path.join(workspace, 'font-index.json'),
         extraFontPaths: [],
         // Off: a background scan of the host's fonts is not this test's subject.

@@ -1,8 +1,13 @@
 # 0004 — Bundle typst's default fonts as VSIX assets
 
-**Status**: Accepted
+**Status**: Accepted, amended by [0012](0012-fonts-in-a-companion-extension.md)
 **Date**: 2026-08-17
 **Resolves**: OQ 5
+
+> **Amendment (2026-08-18).** Everything below still holds — the fonts ship as files, loaded on demand,
+> not embedded in the WASM. What changed is *which* VSIX carries them: they now live in the
+> `weixu.wx-vsce-typst-ultra-fonts` extension so that a code release does not reship 6.4 MB of unchanged
+> binaries. See [0012](0012-fonts-in-a-companion-extension.md).
 
 ## Context
 

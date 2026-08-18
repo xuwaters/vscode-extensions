@@ -2,7 +2,7 @@
   "name": "wx-vsce-typst-ultra",
   "displayName": "Typst Ultra",
   "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact — diagnostics, completion, hover, goto-definition, semantic tokens, formatting, BibTeX bibliographies, two-way-synced preview, and PDF/SVG/PNG export",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -21,6 +21,9 @@
     "onCommand:typstUltra.newFromTemplate"
   ],
   "main": "./dist/extension.js",
+  "extensionDependencies": [
+    "weixu.wx-vsce-typst-ultra-fonts"
+  ],
   "contributes": {
     "languages": [
       {
@@ -629,14 +632,14 @@
   },
   "scripts": {
     "build:wasm": "cd ../../crates/typst/typst-lsp-wasm && wasm-pack build --target nodejs --out-dir ../../../extensions/typst-ultra/wasm --out-name typst_lsp_wasm",
-    "build:fonts": "cd ../.. && cargo run --release -p typst-session --example dump-fonts -- extensions/typst-ultra/assets/fonts",
+    "build:fonts": "pnpm --filter wx-vsce-typst-ultra-fonts run build:fonts",
     "licenses": "cd ../../crates/typst/typst-lsp-wasm && cargo about generate about.hbs -o ../../../extensions/typst-ultra/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
-    "clean": "rm -rf dist wasm assets/fonts",
+    "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit && tsc -p webview --noEmit",
     "watch": "tsdown --watch",
-    "package": "pnpm run build:wasm && pnpm run build:fonts && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
-    "vscode:prepublish": "pnpm run build:wasm && pnpm run build:fonts && tsdown --minify",
+    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "pnpm run build:wasm && tsdown --minify",
     "test": "vitest run",
     "test:watch": "vitest"
   },

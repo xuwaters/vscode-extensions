@@ -64,8 +64,13 @@ document's own folder, so exporting next to the source is one keystroke.
 and cached in typst's standard cache directory, shared with `typst-cli` so
 nothing is fetched twice.
 
-**Fonts**: typst's default set ships with the extension, so output matches
-`typst compile` out of the box. System fonts are indexed in the background.
+**Fonts**: typst's default set ships in a companion extension,
+`weixu.wx-vsce-typst-ultra-fonts`, so output matches `typst compile` out of the
+box while a code release stays 6.4 MB smaller. It is a declared dependency, so a
+gallery install pulls it in automatically — and installing this VSIX by hand
+means installing that one too, because VS Code will not activate an extension
+whose dependency is missing. System fonts are indexed in the background either
+way.
 
 ## Getting started
 
@@ -204,6 +209,12 @@ The server runs as a child process rather than inside the extension host,
 which is a departure from the other Rust-backed extensions in this repo: a cold
 compile blocks for up to 262 ms, the WASM heap is never returned to the OS, and
 a compiler panic would otherwise take down every extension in the window.
+
+It ships as two packages. This one is 10.4 MB, almost all of it the WASM
+artifact, which moves whenever the Rust does. The fonts are another 6.4 MB that
+move only when upstream typst-assets does, so they are a separate VSIX that this
+one names in `extensionDependencies` — a typo fix no longer reships them
+(decision 0012).
 
 
 ## What it deliberately does not do

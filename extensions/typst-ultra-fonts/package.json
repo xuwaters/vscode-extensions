@@ -1,0 +1,32 @@
+{
+  "name": "wx-vsce-typst-ultra-fonts",
+  "displayName": "Typst Ultra Fonts",
+  "description": "Typst's default font set — Libertinus Serif, New Computer Modern, DejaVu Sans Mono — packaged for the Typst Ultra extension, which reads them from here",
+  "version": "0.4.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "typst",
+    "fonts"
+  ],
+  "extensionKind": [
+    "workspace",
+    "ui"
+  ],
+  "scripts": {
+    "build:fonts": "cd ../.. && cargo run --release -p typst-session --example dump-fonts -- extensions/typst-ultra-fonts/assets/fonts",
+    "build": "pnpm run build:fonts",
+    "clean": "rm -rf assets/fonts",
+    "package": "pnpm run build:fonts && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "pnpm run build:fonts"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "catalog:build"
+  }
+}

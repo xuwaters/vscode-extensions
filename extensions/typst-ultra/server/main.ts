@@ -188,12 +188,23 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
   // Bundled fonts first: small, and correct for the overwhelming majority of
   // documents. System fonts arrive in the background and cost one recompile.
-  const bundled = fonts.addDirectories([resolved.bundledFontsPath]);
-  connection.console.log(
-    `indexed ${bundled.faces} bundled font faces in ${bundled.ms} ms ` +
-      `(${bundled.parsed} parsed, ${bundled.faces - bundled.parsed} cached)`,
-  );
-  fonts.save();
+  //
+  // Empty means the client found no font set to index — they ship in a separate
+  // extension now, and it can be absent. Compiling in system fonts is a
+  // fidelity loss, not a failure, so it is a log line and not a refusal to
+  // start; the client is the one that tells the user.
+  if (resolved.bundledFontsPath) {
+    const bundled = fonts.addDirectories([resolved.bundledFontsPath]);
+    connection.console.log(
+      `indexed ${bundled.faces} bundled font faces in ${bundled.ms} ms ` +
+        `(${bundled.parsed} parsed, ${bundled.faces - bundled.parsed} cached)`,
+    );
+    fonts.save();
+  } else {
+    connection.console.log(
+      'no bundled fonts to index; output will differ from `typst compile`',
+    );
+  }
 
   const host: HostServices = {
     readFile: (root, vpath) => readFile(roots, root, vpath),

@@ -4,10 +4,11 @@
 //! embedding them in the WASM artifact: 9.5 MB inside the module would sit in
 //! the WASM heap permanently, whereas as files the host reads them through the
 //! same callback the VFS uses and only for faces a document actually selects
-//! (decision 0004).
+//! (decision 0004). They are their own VSIX, because they change on upstream's
+//! schedule rather than the code's (decision 0012).
 //!
 //! ```sh
-//! cargo run -p typst-session --example dump-fonts -- extensions/typst-ultra/assets/fonts
+//! cargo run -p typst-session --example dump-fonts -- extensions/typst-ultra-fonts/assets/fonts
 //! ```
 
 use std::path::Path;
@@ -16,9 +17,9 @@ use std::path::Path;
 ///
 /// `fonts()` returns bytes without names, so the mapping lives here. The length
 /// assertion below fails loudly if an upstream bump changes the set, which is
-/// also the signal to revisit `extensions/typst-ultra/LICENSE.md` — the font
-/// licences are not all the same (`NewCM10-Regular.otf` is GPL with a font
-/// exception).
+/// also the signal to revisit `LICENSE.md` in *both* `typst-ultra-fonts` and
+/// `typst-ultra` — the font licences are not all the same
+/// (`NewCM10-Regular.otf` is GPL with a font exception).
 const NAMES: &[&str] = &[
     "LibertinusSerif-Regular.otf",
     "LibertinusSerif-Bold.otf",

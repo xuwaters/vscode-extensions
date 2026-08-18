@@ -4,6 +4,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FontIndex } from './fonts.js';
+import { BUNDLED_FONTS } from './testFonts.js';
 import { listDir, readFile, type Roots } from './vfs.js';
 
 /**
@@ -61,7 +62,7 @@ describe.skipIf(!BUILT)('the WASM engine', () => {
 
     const roots: Roots = { project: workspace, packageCache: '' };
     const fonts = new FontIndex('', (data) => wasm.TypstServer.indexFont(data));
-    fonts.addDirectories([path.join(__dirname, '..', 'assets', 'fonts')]);
+    fonts.addDirectories([BUNDLED_FONTS]);
 
     reads = [];
     const host = {
@@ -106,7 +107,7 @@ describe.skipIf(!BUILT)('the WASM engine', () => {
   it('indexes the bundled fonts', () => {
     const fonts = new FontIndex('', (data) => wasm.TypstServer.indexFont(data));
     const stats = fonts.addDirectories([
-      path.join(__dirname, '..', 'assets', 'fonts'),
+      BUNDLED_FONTS,
     ]);
     expect(stats.faces).toBeGreaterThanOrEqual(17);
   });

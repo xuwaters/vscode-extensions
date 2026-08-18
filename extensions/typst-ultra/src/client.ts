@@ -7,6 +7,11 @@ import {
   type LanguageClientOptions,
   type ServerOptions,
 } from 'vscode-languageclient/node';
+import {
+  FONTS_EXTENSION_ID,
+  resolveBundledFonts,
+  type BundledFonts,
+} from './bundledFonts.js';
 import { namesTypstSource } from './commandTarget.js';
 import * as config from './config.js';
 
@@ -14,6 +19,8 @@ import * as config from './config.js';
 export class Client implements vscode.Disposable {
   private client: LanguageClient | undefined;
   private starting: Promise<void> | undefined;
+  /** Warn about missing fonts once per session, not once per restart. */
+  private warnedAboutFonts = false;
   private readonly notificationHandlers = new Map<
     string,
     ((params: unknown) => void)[]
@@ -132,7 +139,7 @@ export class Client implements vscode.Disposable {
         rootPath: root,
         rootUri: vscode.Uri.file(root).toString(),
         mainPath: this.mainPath(settings, root, document),
-        bundledFontsPath: this.context.asAbsolutePath(path.join('assets', 'fonts')),
+        bundledFontsPath: this.bundledFontsPath(),
         fontCachePath: path.join(
           this.context.globalStorageUri.fsPath,
           'font-index.json',
@@ -175,6 +182,48 @@ export class Client implements vscode.Disposable {
           if (choice === 'Show Log') this.output.show(true);
         });
     });
+  }
+
+  /**
+   * The directory of bundled fonts to index, or `''` for none.
+   *
+   * The set ships in its own extension, so this is a lookup rather than a path
+   * (decision 0012). Missing fonts are a fidelity problem, not a startup
+   * failure: the server comes up, system fonts still resolve, and the document
+   * stops matching `typst compile`. Say so once, and say it where it can be
+   * acted on.
+   */
+  private bundledFontsPath(): string {
+    const companion = vscode.extensions.getExtension(FONTS_EXTENSION_ID);
+    const found: BundledFonts | undefined = resolveBundledFonts(
+      this.context.extensionPath,
+      companion?.extensionPath,
+    );
+
+    if (found) {
+      this.output.appendLine(`bundled fonts: ${found.path} (${found.source})`);
+      return found.path;
+    }
+
+    this.output.appendLine(
+      `bundled fonts: none found. Install \`${FONTS_EXTENSION_ID}\` — without it, ` +
+        'typst falls back to system fonts and output will differ from `typst compile`. ' +
+        'Alternatively, point `typstUltra.fonts.paths` at a copy of the font set.',
+    );
+
+    if (!this.warnedAboutFonts) {
+      this.warnedAboutFonts = true;
+      void vscode.window
+        .showWarningMessage(
+          'Typst: the bundled font extension is not installed, so output will not match `typst compile`.',
+          'Show Log',
+        )
+        .then((choice) => {
+          if (choice === 'Show Log') this.output.show(true);
+        });
+    }
+
+    return '';
   }
 
   /** The entry file to compile, root-relative. */

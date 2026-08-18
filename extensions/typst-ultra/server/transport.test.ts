@@ -5,6 +5,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { describe, expect, it } from 'vitest';
 import { FontIndex } from './fonts.js';
+import { BUNDLED_FONTS } from './testFonts.js';
 import { readFile, listDir, type Roots } from './vfs.js';
 
 /**
@@ -135,7 +136,7 @@ function renderRealPage(workspace: string): string {
 
   const roots: Roots = { project: workspace, packageCache: '' };
   const fonts = new FontIndex('', (data: Uint8Array) => wasm.TypstServer.indexFont(data));
-  fonts.addDirectories([path.join(__dirname, '..', 'assets', 'fonts')]);
+  fonts.addDirectories([BUNDLED_FONTS]);
 
   const server = new wasm.TypstServer(
     {

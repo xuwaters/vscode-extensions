@@ -3,6 +3,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { describe, expect, it } from 'vitest';
 import { FontIndex } from './fonts.js';
+import { BUNDLED_FONTS } from './testFonts.js';
 import { listDir, readFile, type Roots } from './vfs.js';
 
 /**
@@ -117,7 +118,7 @@ function measure(
 ): Result {
   const roots: Roots = { project: CORPUS, packageCache: '' };
   const fonts = new FontIndex('', (data) => wasm.TypstServer.indexFont(data));
-  fonts.addDirectories([path.join(__dirname, '..', 'assets', 'fonts')]);
+  fonts.addDirectories([BUNDLED_FONTS]);
 
   const server = new wasm.TypstServer(
     {
