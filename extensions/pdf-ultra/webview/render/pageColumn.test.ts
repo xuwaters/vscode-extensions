@@ -11,12 +11,21 @@ import { describe, expect, it, vi } from 'vitest';
  * empty page area with no error to explain it.
  */
 vi.mock('./pdfjs.js', () => ({
-  pdfjs: { TextLayer: class {} },
+  pdfjs: {
+    /** Enough of pdf.js's text layer to be constructed and awaited. */
+    TextLayer: class {
+      textDivs: HTMLElement[] = [];
+      constructor(_options: { container: HTMLElement }) {}
+      async render(): Promise<void> {}
+    },
+  },
   bootWorker: async () => {},
   documentParams: (source: unknown) => source,
 }));
 
 const { PageColumn } = await import('./pageColumn.js');
+const { viewportScale } = await import('../model/layout.js');
+type ColumnOptions = ConstructorParameters<typeof PageColumn>[3];
 
 /**
  * How many renders a document has going at once, and the worst it ever got.
@@ -85,6 +94,7 @@ function sized(el: HTMLElement, w: number, h: number): HTMLElement {
 
 function mount(
   view: { w: number; h: number } = { w: 1000, h: 800 },
+  options: Partial<ColumnOptions> = {},
 ): { scroll: HTMLElement; host: HTMLElement; column: InstanceType<typeof PageColumn> } {
   const scroll = sized(document.createElement('div'), view.w, view.h);
   const host = document.createElement('div');
@@ -94,7 +104,7 @@ function mount(
     scroll,
     host,
     { onPage: () => {}, onLink: () => {}, onTextLayer: () => {} },
-    { textLayer: false, links: false, maxCanvasPixels: 1 << 20, renderAhead: 0 },
+    { textLayer: false, links: false, maxCanvasPixels: 1 << 20, renderAhead: 0, ...options },
   );
   return { scroll, host, column };
 }
@@ -322,5 +332,104 @@ describe('single-page mode', () => {
     expect(column.page).toBe(4);
     column.setMode('continuous');
     expect(column.page).toBe(4);
+  });
+});
+
+/**
+ * A selection is anchored in the nodes of the text layer, so releasing one out
+ * from under the reader collapses it — and in a virtualized column the page a
+ * selection starts on leaves the render band the moment the drag reaches the
+ * bottom of the screen. Dragging across a page boundary would then select
+ * nothing at all.
+ */
+describe('a selection in flight', () => {
+  /** Put a text layer on a page and select a word of it. */
+  function selectOn(host: HTMLElement, page: number): HTMLElement {
+    const text = [...host.querySelectorAll<HTMLElement>('.page-text')][page - 1]!;
+    const span = document.createElement('span');
+    span.textContent = 'selected';
+    text.append(span);
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const selection = document.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return text;
+  }
+
+  it('survives the page it started on scrolling out of the band', async () => {
+    const { host, column } = mount();
+    await opened(column, fakeDoc(5, { calls: 0, live: 0, peak: 0 }));
+    const text = selectOn(host, 1);
+    column.goToPage(5);
+    expect(text.childNodes).toHaveLength(1);
+  });
+
+  it('does not keep the layers of pages it does not reach into', async () => {
+    const { host, column } = mount();
+    await opened(column, fakeDoc(5, { calls: 0, live: 0, peak: 0 }));
+    const text = selectOn(host, 1);
+    document.getSelection()?.removeAllRanges();
+    column.goToPage(5);
+    expect(text.childNodes).toHaveLength(0);
+  });
+
+  /**
+   * A relayout is the release a selection cannot be spared: the boxes have
+   * moved, so glyph runs left standing would sit at the old zoom and highlight
+   * the wrong part of the page.
+   */
+  it('is not spared by a relayout, where the boxes have genuinely moved', async () => {
+    const { host, column } = mount();
+    await opened(column, fakeDoc(5, { calls: 0, live: 0, peak: 0 }));
+    const text = selectOn(host, 1);
+    column.setView(2, 0);
+    expect(text.childNodes).toHaveLength(0);
+  });
+});
+
+/**
+ * pdf.js writes each run's height in PDF units and leaves the stylesheet to
+ * turn that into a font size, through `--total-scale-factor`. Set the wrong
+ * variable — `--scale-factor`, its name before pdf.js 5 — and nothing reads it:
+ * every run falls back to the font it inherits from the viewer's chrome, the
+ * glyph boxes come out at the wrong width, and the selection the reader drags
+ * is painted across the page nowhere near the words it covers.
+ */
+describe('the text layer', () => {
+  /** A document whose pages rasterize and carry text. */
+  function textDoc(numPages: number): PDFDocumentProxy {
+    return {
+      numPages,
+      getPage: async () => ({
+        rotate: 0,
+        getViewport: ({ scale = 1 }: { scale?: number }) => ({
+          width: 612 * scale,
+          height: 792 * scale,
+          scale,
+        }),
+        render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
+        streamTextContent: () => ({}),
+        getAnnotations: async () => [],
+      }),
+    } as unknown as PDFDocumentProxy;
+  }
+
+  it('scales the runs by the viewport the page was drawn at', async () => {
+    const { host, column } = mount({ w: 1000, h: 800 }, { textLayer: true });
+    await opened(column, textDoc(1), 1.25);
+    await flush();
+    const text = host.querySelector<HTMLElement>('.page-text');
+    expect(text?.style.getPropertyValue('--total-scale-factor')).toBe(
+      String(viewportScale(1.25)),
+    );
+  });
+
+  it('leaves nothing behind under the name pdf.js stopped reading', async () => {
+    const { host, column } = mount({ w: 1000, h: 800 }, { textLayer: true });
+    await opened(column, textDoc(1));
+    await flush();
+    const text = host.querySelector<HTMLElement>('.page-text');
+    expect(text?.style.getPropertyValue('--scale-factor')).toBe('');
   });
 });

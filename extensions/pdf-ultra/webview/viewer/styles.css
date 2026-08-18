@@ -333,6 +333,9 @@
   display: block;
   width: 100%;
   height: 100%;
+  /* Nothing under the text layer takes part in a selection: a drag across the
+   * page copies the document's words, not the furniture around them. */
+  user-select: none;
 }
 
 .page-number {
@@ -346,20 +349,43 @@
   border-radius: 2px;
   opacity: 0.7;
   pointer-events: none;
+  user-select: none;
 }
 
 /*
  * The pdf.js text layer: invisible glyph boxes over the raster, which is what
- * makes the page selectable, findable and readable by a screen reader. Geometry
- * is driven by pdf.js through inline styles and the --scale-factor variable.
+ * makes the page selectable, findable and readable by a screen reader.
+ *
+ * pdf.js positions a run but does not size it. What it writes on each span is
+ * the run's height *in PDF units* — `--font-height` — and the stylesheet is
+ * what multiplies that by the zoom, through `--total-scale-factor`. So these
+ * rules are not decoration: without them every run renders at whatever font
+ * size it inherits, the glyph boxes come out at the wrong width, and a
+ * selection is drawn across the page in the wrong places. They are pdf.js's
+ * own, ported to these class names, and `--total-scale-factor` is the name the
+ * variable took in pdf.js 5 — the older `--scale-factor` is read by nothing.
  */
 .page-text {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  /* `clip`, not `hidden`: a scroll container is what `hidden` makes, and
+   * Chromium scrolls one under the pointer during a drag-select. */
+  overflow: clip;
   line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-align: initial;
   text-size-adjust: none;
   forced-color-adjust: none;
+  transform-origin: 0 0;
+  /* pdf.js sizes the layer itself, in `round(down, …)` steps of these. */
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  /* A floor the browser's own minimum font size imposes: pdf.js writes the
+   * measured value over this one and scales the runs back down by it. */
+  --min-font-size: 1;
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
 }
 
 .page-text :is(span, br) {
@@ -368,10 +394,69 @@
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
+  /* Stated outright rather than left to the default, so the glyph boxes stay
+   * selectable however the layers around them are told to behave. */
+  user-select: text;
 }
 
+/* The runs themselves — everything but the marked-content wrappers, which are
+ * grouping only. `--font-height`, `--scale-x` and `--rotate` are written per
+ * run by pdf.js; the values here are what stands until it does. */
+.page-text > :not(.markedContent),
+.page-text .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+/* A wrapper, not a box: it must not take part in the positioning of the runs
+ * inside it, which the `:is(span, br)` rule above would otherwise give it. */
+.page-text .markedContent {
+  display: contents;
+}
+
+/* An image's alt text is there for a screen reader, not for the mouse. */
+.page-text span[role='img'] {
+  cursor: default;
+  user-select: none;
+}
+
+/*
+ * A rotated page. pdf.js lays the layer out unrotated and turns it with a
+ * transform, which is what this attribute on the container asks for — the
+ * translations put the rotated box back over the page it belongs to.
+ */
+.page-text[data-main-rotation='90'] {
+  transform: rotate(90deg) translateY(-100%);
+}
+
+.page-text[data-main-rotation='180'] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+
+.page-text[data-main-rotation='270'] {
+  transform: rotate(270deg) translateX(-100%);
+}
+
+/*
+ * Everything painted onto the text layer has to be a wash rather than a fill.
+ *
+ * VSCode's own selection and current-match colours are opaque, and in an editor
+ * that is right: the glyphs are drawn over them. Here the words are in the
+ * raster *underneath*, so an opaque colour does not highlight a passage, it
+ * hides it — the reader gets a solid bar where their selection is. Mixing the
+ * theme's colour down to a wash keeps the page readable through it, whatever
+ * the theme.
+ */
 .page-text ::selection {
-  background: var(--vscode-editor-selectionBackground, rgba(59, 130, 246, 0.35));
+  background: color-mix(
+    in srgb,
+    var(--vscode-editor-selectionBackground, rgb(59, 130, 246)) 40%,
+    transparent
+  );
   color: transparent;
 }
 
@@ -381,8 +466,14 @@
   background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
 }
 
+/* The one the reader is standing on. Themes state this one opaque — the match
+ * has to be the loudest thing on the page — so it needs the same wash. */
 ::highlight(pdf-find-current) {
-  background-color: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.66));
+  background-color: color-mix(
+    in srgb,
+    var(--vscode-editor-findMatchBackground, rgb(234, 92, 0)) 55%,
+    transparent
+  );
 }
 
 /*
@@ -393,11 +484,17 @@
 .page-links {
   position: absolute;
   inset: 0;
+  /* The container is a coordinate space, not a target. It covers the whole page
+   * and sits above the text layer, so anything else here would put an invisible
+   * sheet between the reader and the words: every drag would land on this and a
+   * page could not be selected at all. Only the annotation boxes take clicks. */
+  pointer-events: none;
 }
 
 .page-link {
   position: absolute;
   display: block;
+  pointer-events: auto;
   cursor: pointer;
   border-radius: 2px;
 }

@@ -590,7 +590,12 @@ export class PageColumn {
       if (this.shows(slot.n) && isWithinBand(slot.box, top, view, this.options.renderAhead)) {
         void this.draw(slot);
       } else if (slot.drawnAt !== 0 || slot.drawingAt !== 0) {
-        this.release(slot);
+        // Scrolling away is the one release that has to spare a live selection:
+        // the boxes it is anchored in are still where the reader put them, and
+        // dropping them mid-drag would collapse a selection that started on the
+        // page above. A relayout releases without the reprieve, because there
+        // the boxes have genuinely moved.
+        this.release(slot, { sparingSelection: true });
       }
     }
     const at =
@@ -670,7 +675,14 @@ export class PageColumn {
         // The text layer is what makes the page selectable, findable and
         // readable by a screen reader; without it a page is a picture of words.
         slot.text.replaceChildren();
-        slot.text.style.setProperty('--scale-factor', String(viewportScale(zoom)));
+        // What every run's size is computed from: pdf.js writes each run's
+        // height in PDF units and leaves the stylesheet to multiply it by this.
+        // `--total-scale-factor` is the name it took in pdf.js 5; under the old
+        // `--scale-factor` nothing read it, every run fell back to the font it
+        // inherited, and a selection landed nowhere near the words it covered.
+        // The viewport's own scale, not the zoom: it is what the runs were laid
+        // out against.
+        slot.text.style.setProperty('--total-scale-factor', String(viewport.scale));
         const layer = new pdfjs.TextLayer({
           textContentSource: proxy.streamTextContent(),
           container: slot.text,
@@ -761,8 +773,15 @@ export class PageColumn {
     }
   }
 
-  /** Drop a slot's raster and layers, keeping its box. */
-  private release(slot: PageSlot): void {
+  /**
+   * Drop a slot's raster and layers, keeping its box.
+   *
+   * `sparingSelection` leaves the text layer standing when the reader's
+   * selection reaches into it — the glyph boxes are invisible and cost nothing
+   * to keep, and they are the nodes the selection is anchored in. The raster
+   * goes either way, which is what the memory ceiling is actually about.
+   */
+  private release(slot: PageSlot, options: { sparingSelection?: boolean } = {}): void {
     slot.seq += 1;
     slot.task?.cancel();
     slot.task = null;
@@ -771,9 +790,11 @@ export class PageColumn {
     slot.drawingAt = 0;
     slot.canvas.width = 0;
     slot.canvas.height = 0;
-    slot.text.replaceChildren();
+    if (!(options.sparingSelection === true && holdsSelection(slot.text))) {
+      slot.text.replaceChildren();
+      slot.textDivs = null;
+    }
     slot.links.replaceChildren();
-    slot.textDivs = null;
     slot.el.classList.add('placeholder');
   }
 
@@ -813,4 +834,28 @@ export class PageColumn {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+/**
+ * Whether the reader's selection reaches into an element.
+ *
+ * Asked of the element's own root rather than of the document: the viewer lives
+ * in a shadow root, and `document.getSelection()` retargets to the host element
+ * there — it would answer for the `<pdf-viewer>` tag, never for a page's text.
+ * `ShadowRoot.getSelection` is Chromium's, which is the only engine a VSCode
+ * webview runs in; the document is the fallback for anything else, tests
+ * included.
+ */
+function holdsSelection(element: HTMLElement): boolean {
+  const root = element.getRootNode() as { getSelection?: () => Selection | null };
+  const selection =
+    typeof root.getSelection === 'function' ? root.getSelection() : document.getSelection();
+  if (!selection || selection.isCollapsed) return false;
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    const range = selection.getRangeAt(index);
+    // Not every DOM implementation the tests run against has it.
+    if (typeof range.intersectsNode !== 'function') return false;
+    if (range.intersectsNode(element)) return true;
+  }
+  return false;
 }
