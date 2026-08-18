@@ -72,22 +72,28 @@ export function rotated(geom: PageGeom, rotation: Rotation): PageGeom {
  * `columns` is what a fit means in a two-page spread: the width is shared
  * between the pages of a row and the gap between them, so fitting the width
  * fits a *pair* of pages, not one page across the whole tab.
+ *
+ * `rotation` is measured against the same displayed size the boxes are stacked
+ * at: a quarter turn trades the page's width for its height, and a fit that
+ * kept measuring the unrotated width would fit an edge that is no longer there.
  */
 export function fitZoom(
   fit: FitMode,
   view: { w: number; h: number },
   base: PageGeom,
   columns = 1,
+  rotation: Rotation = 0,
 ): number {
   if (fit === 'actual') return 1;
+  const display = rotated(base, rotation);
   const perRow = Math.max(1, Math.round(columns));
   const availW = Math.max(
     1,
     (view.w - PAGE_PAD * 2 - PAGE_GAP * (perRow - 1)) / perRow,
   );
   const availH = Math.max(1, view.h - PAGE_PAD * 2);
-  const widthZoom = availW / (base.w * PX_PER_PT);
-  const heightZoom = availH / (base.h * PX_PER_PT);
+  const widthZoom = availW / (display.w * PX_PER_PT);
+  const heightZoom = availH / (display.h * PX_PER_PT);
   if (fit === 'fit-width') return clampZoom(widthZoom);
   // `fit-height` fills the height and lets a wide page overflow sideways;
   // `fit-page` takes whichever of the two is the smaller, so nothing overflows.

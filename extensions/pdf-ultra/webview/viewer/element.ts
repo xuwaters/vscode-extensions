@@ -580,7 +580,7 @@ export class PdfViewer extends FASTElement {
     const zoom =
       this.fit === 'actual'
         ? this.zoom
-        : fitZoom(this.fit, view, column.baseGeom, columnsFor(this.mode));
+        : fitZoom(this.fit, view, column.baseGeom, columnsFor(this.mode), this.rotation);
     this.zoom = zoom;
     this.showZoom();
     column.setView(zoom, this.rotation);

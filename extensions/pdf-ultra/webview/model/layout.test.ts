@@ -101,6 +101,25 @@ describe('fits', () => {
     expect(fitZoom('fit-height', view, LETTER, 2)).toBeCloseTo(1);
   });
 
+  /**
+   * A quarter turn puts the page's *height* across the tab, so fitting the
+   * width has to fit that edge — measuring the unrotated width leaves a
+   * portrait page turned sideways running off the side of the scroller.
+   */
+  it('fits the edge the rotation actually put across the width', () => {
+    const view = { w: 792 * PX_PER_PT + PAGE_PAD * 2, h: 400 };
+    expect(fitZoom('fit-width', view, LETTER, 1, 90)).toBeCloseTo(1);
+    expect(fitZoom('fit-width', view, LETTER, 1, 270)).toBeCloseTo(1);
+    // Half a turn leaves the page the way up it was.
+    expect(fitZoom('fit-width', view, LETTER, 1, 180)).toBeCloseTo(792 / 612);
+  });
+
+  it('fits the height to the edge the rotation put down the page', () => {
+    const view = { w: 10_000, h: 612 * PX_PER_PT + PAGE_PAD * 2 };
+    expect(fitZoom('fit-height', view, LETTER, 1, 90)).toBeCloseTo(1);
+    expect(fitZoom('fit-page', view, LETTER, 1, 90)).toBeCloseTo(1);
+  });
+
   it('leaves actual size alone whatever the scroller measures', () => {
     expect(fitZoom('actual', { w: 37, h: 12 }, LETTER)).toBe(1);
   });
