@@ -1,0 +1,424 @@
+{
+  "name": "wx-vsce-pdf-ultra",
+  "displayName": "PDF Ultra",
+  "description": "PDF viewer as a native custom editor — continuous virtualized pages on pdf.js, selectable text, find-in-document, outline, zoom and fits, colour inversion, and live reload when the file is rebuilt",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onCustomEditor:pdfUltra.editor"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "pdfUltra.editor",
+        "displayName": "PDF Ultra",
+        "priority": "default",
+        "selector": [
+          {
+            "filenamePattern": "*.pdf"
+          },
+          {
+            "filenamePattern": "*.PDF"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "pdfUltra.open",
+        "title": "Open PDF",
+        "category": "PDF Ultra",
+        "icon": "$(file-pdf)"
+      },
+      {
+        "command": "pdfUltra.openToSide",
+        "title": "Open PDF to the Side",
+        "category": "PDF Ultra",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "pdfUltra.nextPage",
+        "title": "Next Page",
+        "category": "PDF Ultra",
+        "icon": "$(chevron-down)"
+      },
+      {
+        "command": "pdfUltra.previousPage",
+        "title": "Previous Page",
+        "category": "PDF Ultra",
+        "icon": "$(chevron-up)"
+      },
+      {
+        "command": "pdfUltra.goToPage",
+        "title": "Go to Page…",
+        "category": "PDF Ultra",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "pdfUltra.zoomIn",
+        "title": "Zoom In",
+        "category": "PDF Ultra",
+        "icon": "$(zoom-in)"
+      },
+      {
+        "command": "pdfUltra.zoomOut",
+        "title": "Zoom Out",
+        "category": "PDF Ultra",
+        "icon": "$(zoom-out)"
+      },
+      {
+        "command": "pdfUltra.zoomReset",
+        "title": "Zoom to 100%",
+        "category": "PDF Ultra",
+        "icon": "$(screen-normal)"
+      },
+      {
+        "command": "pdfUltra.fitWidth",
+        "title": "Fit Width",
+        "category": "PDF Ultra",
+        "icon": "$(arrow-both)"
+      },
+      {
+        "command": "pdfUltra.fitPage",
+        "title": "Fit Page",
+        "category": "PDF Ultra",
+        "icon": "$(screen-full)"
+      },
+      {
+        "command": "pdfUltra.rotateClockwise",
+        "title": "Rotate Clockwise",
+        "category": "PDF Ultra",
+        "icon": "$(redo)"
+      },
+      {
+        "command": "pdfUltra.rotateCounterclockwise",
+        "title": "Rotate Counterclockwise",
+        "category": "PDF Ultra",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "pdfUltra.toggleOutline",
+        "title": "Toggle Outline",
+        "category": "PDF Ultra",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "pdfUltra.toggleInvertColors",
+        "title": "Toggle Colour Inversion",
+        "category": "PDF Ultra",
+        "icon": "$(color-mode)"
+      },
+      {
+        "command": "pdfUltra.find",
+        "title": "Find in Document",
+        "category": "PDF Ultra",
+        "icon": "$(search)"
+      },
+      {
+        "command": "pdfUltra.reload",
+        "title": "Reload Document",
+        "category": "PDF Ultra",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "pdfUltra.exportPagePng",
+        "title": "Export Current Page as PNG…",
+        "category": "PDF Ultra",
+        "icon": "$(device-camera)"
+      },
+      {
+        "command": "pdfUltra.openInDefaultApp",
+        "title": "Open in Default Application",
+        "category": "PDF Ultra",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "pdfUltra.showLog",
+        "title": "Show Log",
+        "category": "PDF Ultra"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "pdfUltra.open",
+          "when": "resourceExtname =~ /\\.pdf$/i"
+        },
+        {
+          "command": "pdfUltra.openToSide",
+          "when": "resourceExtname =~ /\\.pdf$/i"
+        },
+        {
+          "command": "pdfUltra.nextPage",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.previousPage",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.goToPage",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.zoomIn",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.zoomOut",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.zoomReset",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.fitWidth",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.fitPage",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.rotateClockwise",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.rotateCounterclockwise",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.toggleOutline",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.toggleInvertColors",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.find",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.reload",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.exportPagePng",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.openInDefaultApp",
+          "when": "pdfUltra.active || resourceExtname =~ /\\.pdf$/i"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "pdfUltra.toggleOutline",
+          "when": "activeCustomEditorId == pdfUltra.editor",
+          "group": "navigation@1"
+        },
+        {
+          "command": "pdfUltra.fitWidth",
+          "when": "activeCustomEditorId == pdfUltra.editor",
+          "group": "navigation@2"
+        },
+        {
+          "command": "pdfUltra.toggleInvertColors",
+          "when": "activeCustomEditorId == pdfUltra.editor",
+          "group": "navigation@3"
+        },
+        {
+          "command": "pdfUltra.reload",
+          "when": "activeCustomEditorId == pdfUltra.editor",
+          "group": "navigation@4"
+        },
+        {
+          "command": "pdfUltra.openInDefaultApp",
+          "when": "activeCustomEditorId == pdfUltra.editor",
+          "group": "1_pdf@1"
+        },
+        {
+          "command": "pdfUltra.exportPagePng",
+          "when": "activeCustomEditorId == pdfUltra.editor",
+          "group": "1_pdf@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "pdfUltra.openToSide",
+          "when": "resourceExtname =~ /\\.pdf$/i",
+          "group": "navigation"
+        },
+        {
+          "command": "pdfUltra.openInDefaultApp",
+          "when": "resourceExtname =~ /\\.pdf$/i",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "pdfUltra.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.goToPage",
+        "key": "ctrl+g",
+        "mac": "cmd+g",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.zoomIn",
+        "key": "ctrl+=",
+        "mac": "cmd+=",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.zoomOut",
+        "key": "ctrl+-",
+        "mac": "cmd+-",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.zoomReset",
+        "key": "ctrl+0",
+        "mac": "cmd+0",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.toggleOutline",
+        "key": "ctrl+k ctrl+o",
+        "mac": "cmd+k cmd+o",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.toggleInvertColors",
+        "key": "ctrl+k ctrl+i",
+        "mac": "cmd+k cmd+i",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.reload",
+        "key": "ctrl+k ctrl+r",
+        "mac": "cmd+k cmd+r",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      }
+    ],
+    "configuration": {
+      "title": "PDF Ultra",
+      "properties": {
+        "pdfUltra.defaultZoom": {
+          "type": "string",
+          "enum": [
+            "fit-width",
+            "fit-page",
+            "actual"
+          ],
+          "default": "fit-width",
+          "description": "Zoom a document opens at. A fit recomputes as the tab is resized; `actual` is 100%."
+        },
+        "pdfUltra.background": {
+          "type": "string",
+          "enum": [
+            "editor",
+            "white",
+            "gray"
+          ],
+          "default": "editor",
+          "description": "Colour behind the pages."
+        },
+        "pdfUltra.invertColors": {
+          "type": "string",
+          "enum": [
+            "never",
+            "always",
+            "auto"
+          ],
+          "default": "never",
+          "description": "Invert page colours for reading white pages in a dark editor. `auto` follows the VSCode theme."
+        },
+        "pdfUltra.textLayer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Overlay the page's text so it can be selected, copied, found, and read by a screen reader. Turning this off makes a page a picture of words."
+        },
+        "pdfUltra.links": {
+          "type": "boolean",
+          "default": true,
+          "description": "Make the document's link annotations clickable. Internal links jump within the document; external ones are opened by the host, never by the page."
+        },
+        "pdfUltra.outline.visible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the outline sidebar by default, for documents that have one."
+        },
+        "pdfUltra.outline.width": {
+          "type": "number",
+          "default": 240,
+          "minimum": 140,
+          "maximum": 720,
+          "description": "Default width of the outline sidebar, in pixels. Drag its right edge in the viewer to resize it (double-click the edge to reset)."
+        },
+        "pdfUltra.reloadOnChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reload the page when the file changes on disk, keeping the reader's place. This is what makes the viewer usable beside a LaTeX or Typst build."
+        },
+        "pdfUltra.rememberPosition": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reopen a document on the page it was last read to."
+        },
+        "pdfUltra.maxCanvasPixels": {
+          "type": "number",
+          "default": 16777216,
+          "minimum": 1048576,
+          "description": "Ceiling on the bitmap area of a single rendered page, in device pixels. A deep zoom past this renders at a coarser resolution instead of exhausting GPU memory."
+        },
+        "pdfUltra.renderAhead": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Screens of pages rendered either side of the viewport. Higher is smoother to scroll and costs more memory."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit && tsc -p webview --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@microsoft/fast-element": "^3.0.2",
+    "pdfjs-dist": "^6.2.108"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "happy-dom": "^15.11.7",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}

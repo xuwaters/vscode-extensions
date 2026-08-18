@@ -1,0 +1,452 @@
+/*
+ * The viewer, in its shadow root.
+ *
+ * Colours come from VSCode's own theme variables, which pierce the shadow
+ * boundary because custom properties inherit — so the viewer is themed by the
+ * editor it lives in without the host having to send a palette across.
+ *
+ * The page geometry here is load-bearing: `layout.ts` computes scroll offsets
+ * from `PAGE_PAD` and `PAGE_GAP`, which must stay equal to the column's padding
+ * and gap below.
+ */
+
+:host {
+  display: block;
+  width: 100%;
+  height: 100%;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+  color: var(--vscode-foreground);
+  --chrome-height: 32px;
+  --page-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────────────
+ *
+ * At the top, where a document viewer's toolbar sits and where the editor's own
+ * title bar leaves off — so the controls for the page are next to the controls
+ * for the tab rather than at the far end of it. In the flow rather than
+ * absolutely positioned: the body takes the rest of the height, so nothing has
+ * to be offset by hand.
+ */
+.chrome {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: var(--chrome-height);
+  padding: 0 8px;
+  background: var(--vscode-editorWidget-background);
+  border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
+  font-size: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-contrastBorder, transparent);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A toggle that is on reads as pressed, not merely hovered. */
+.btn.on {
+  background: var(--vscode-inputOption-activeBackground, rgba(0, 122, 204, 0.35));
+  border-color: var(--vscode-inputOption-activeBorder, transparent);
+  color: var(--vscode-inputOption-activeForeground, inherit);
+}
+
+.btn:focus-visible,
+.field-input:focus,
+.find:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* Sized to sit level with the glyph buttons beside them rather than tower over them. */
+.icon {
+  width: 13px;
+  height: 13px;
+}
+
+/*
+ * Both boxes in the toolbar are typed into, so both have to look it. The border
+ * falls back to a drawn one rather than to `transparent`: most themes leave
+ * `--vscode-input-border` unset, and against the toolbar's own widget
+ * background an unbordered field reads as a label, not as somewhere to type.
+ */
+.field-input,
+.find {
+  height: 22px;
+  padding: 0 4px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.45));
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.field-input {
+  width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.field-input.wide {
+  width: 56px;
+}
+
+.find {
+  width: 168px;
+  padding: 0 6px;
+}
+
+.count,
+.find-count {
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.find-count {
+  min-width: 56px;
+  font-size: 11px;
+  text-align: right;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* Reading is one group of buttons and searching is another. */
+.separator {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
+}
+
+/* Below the toolbar, not over it: a notice must not swallow the zoom. */
+.notice {
+  flex: none;
+  padding: 3px 12px;
+  font-size: 12px;
+  background: var(--vscode-editorWidget-background);
+  border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.outline {
+  position: relative;
+  flex: none;
+  display: flex;
+  min-width: 0;
+  border-right: 1px solid var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.25));
+  background: var(--vscode-sideBar-background, var(--vscode-editorWidget-background));
+}
+
+.outline-tree {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 6px 0;
+}
+
+.outline-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.outline-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 8px;
+  min-height: 22px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.outline-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.outline-row.current {
+  background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.outline-row:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.outline-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outline-twisty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.outline-twisty-space {
+  display: inline-block;
+  width: 16px;
+}
+
+/*
+ * A grab strip straddling the border rather than sitting inside the sidebar:
+ * the pointer finds the edge where the eye says the edge is.
+ */
+.outline-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.outline-resizer:hover {
+  background: var(--vscode-sash-hoverBorder, rgba(0, 122, 204, 0.5));
+}
+
+/* ── The page column ──────────────────────────────────────────────────────── */
+
+.viewer {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+
+.shell[data-background='editor'] .viewer {
+  background: var(--vscode-editor-background);
+}
+
+.shell[data-background='white'] .viewer {
+  background: #ffffff;
+}
+
+.shell[data-background='gray'] .viewer {
+  background: #808080;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  /* `safe` so a page wider than the viewport scrolls instead of being clipped
+   * off the left edge, which is what plain centring does. */
+  align-items: safe center;
+  gap: 16px;
+  padding: 16px;
+}
+
+/*
+ * Each page keeps its box whether or not it currently holds a raster — that is
+ * what lets the scrollbar describe the whole document while only the visible
+ * band is rendered.
+ */
+.page {
+  position: relative;
+  flex: none;
+  background: #ffffff;
+  box-shadow: var(--page-shadow);
+}
+
+.page.placeholder {
+  background: var(--vscode-editorWidget-background, #f3f3f3);
+  opacity: 0.6;
+}
+
+.page-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.page-number {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  padding: 0 4px;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+  border-radius: 2px;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/*
+ * The pdf.js text layer: invisible glyph boxes over the raster, which is what
+ * makes the page selectable, findable and readable by a screen reader. Geometry
+ * is driven by pdf.js through inline styles and the --scale-factor variable.
+ */
+.page-text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+}
+
+.page-text :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.page-text ::selection {
+  background: var(--vscode-editor-selectionBackground, rgba(59, 130, 246, 0.35));
+  color: transparent;
+}
+
+/* Painted over the text layer by the CSS Custom Highlight API — no DOM of its
+ * own, which is what keeps pdf.js's glyph positioning intact while searching. */
+::highlight(pdf-find) {
+  background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+}
+
+::highlight(pdf-find-current) {
+  background-color: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.66));
+}
+
+/*
+ * Link annotations, rebuilt as our own overlay. pdf.js's annotation layer is
+ * not mounted — it renders form widgets and wires up a scripting surface, and a
+ * read-only viewer wants neither near an untrusted document.
+ */
+.page-links {
+  position: absolute;
+  inset: 0;
+}
+
+.page-link {
+  position: absolute;
+  display: block;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.page-link:hover,
+.page-link:focus-visible {
+  background: var(--vscode-editor-linkedEditingBackground, rgba(0, 122, 204, 0.18));
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+/*
+ * Colour inversion for reading white pages in a dark editor. Images are exempt
+ * so photographs are not turned into negatives — the second filter on the
+ * canvas would cancel the first, so the exemption has to be per-image, which a
+ * rasterized page cannot offer. Inverting a page inverts its photographs too,
+ * and that is the trade this mode makes.
+ */
+.column.inverted .page {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* ── State cards ──────────────────────────────────────────────────────────── */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 48px 32px;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+}
+
+.card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  overflow-wrap: anywhere;
+}
+
+.card-hint {
+  font-size: 12px;
+  max-width: 420px;
+  overflow-wrap: anywhere;
+}
+
+.card-hint.error {
+  color: var(--vscode-errorForeground);
+}
+
+.btn.wide {
+  min-width: 96px;
+}
+
+.bar {
+  width: 220px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--vscode-progressBar-background, #0e70c0);
+  transition: width 120ms linear;
+}
