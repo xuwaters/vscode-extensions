@@ -192,6 +192,26 @@ const chromeTemplate = html<PdfViewer>`
       ⤢
     </button>
     <button
+      class="btn ${(x) => (x.mode === 'single' ? 'on' : '')}"
+      title="Single page"
+      aria-label="Show one page at a time"
+      aria-pressed="${(x) => String(x.mode === 'single')}"
+      @click="${(x) => x.togglePageMode()}"
+    >
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <rect
+          x="4"
+          y="2"
+          width="8"
+          height="12"
+          rx="1"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.3"
+        />
+      </svg>
+    </button>
+    <button
       class="btn"
       title="Rotate clockwise (Shift-click for anticlockwise)"
       aria-label="Rotate clockwise"

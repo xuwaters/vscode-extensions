@@ -10,6 +10,7 @@ const place: ViewerPlace = {
   page: 3,
   zoom: 1.25,
   fit: 'fit-width',
+  mode: 'continuous',
   rotation: 90,
   inverted: false,
   outlineVisible: true,
@@ -60,6 +61,32 @@ describe('parsing a message from the webview', () => {
       parseWebviewMessage({ type: 'place', place: { ...place, outlineWidth: -1 } }),
     ).toBeNull();
     expect(parseWebviewMessage({ type: 'place', place: null })).toBeNull();
+  });
+
+  it('accepts fit-height, which is not fit-page', () => {
+    const message = parseWebviewMessage({
+      type: 'place',
+      place: { ...place, fit: 'fit-height' },
+    });
+    expect(message).toMatchObject({ place: { fit: 'fit-height' } });
+  });
+
+  /**
+   * Places outlive the version that wrote them: one parked before there was a
+   * page mode is still a good answer to "where was I", and rejecting it would
+   * drop the page number with it.
+   */
+  it('reads a place written before there was a page mode', () => {
+    const { mode: _mode, ...older } = place;
+    expect(parseWebviewMessage({ type: 'place', place: older })).toMatchObject({
+      place: { page: place.page, mode: 'continuous' },
+    });
+  });
+
+  it('does not take a page mode it does not recognise', () => {
+    expect(
+      parseWebviewMessage({ type: 'place', place: { ...place, mode: 'two-up' } }),
+    ).toMatchObject({ place: { mode: 'continuous' } });
   });
 
   it('rejects a PNG that would not survive a base64 decode', () => {

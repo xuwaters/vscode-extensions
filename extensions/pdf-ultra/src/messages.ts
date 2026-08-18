@@ -9,8 +9,23 @@
  * documents that can come from anywhere.
  */
 
-/** How the page column is fitted to the tab. A fit recomputes on resize. */
-export type FitMode = 'fit-width' | 'fit-page' | 'actual';
+/**
+ * How the page column is fitted to the tab. A fit recomputes on resize.
+ *
+ * `fit-page` is the whole page at once, so it never overflows either way;
+ * `fit-height` fills the tab's height and lets a wide page overflow sideways,
+ * which is what a reader who wants one screen per page actually asks for.
+ */
+export type FitMode = 'fit-width' | 'fit-page' | 'fit-height' | 'actual';
+
+/**
+ * Whether the column scrolls continuously or shows one page at a time.
+ *
+ * `single` is not a different renderer — it is the same column with every slot
+ * but the current one taken out of the flow, so the scrollbar describes the
+ * page rather than the document and turning the page is a swap, not a scroll.
+ */
+export type PageMode = 'continuous' | 'single';
 
 /** Quarter turns clockwise, applied on top of each page's own `/Rotate`. */
 export type Rotation = 0 | 90 | 180 | 270;
@@ -69,6 +84,9 @@ export type ViewerCommand =
   | 'zoomReset'
   | 'fitWidth'
   | 'fitPage'
+  | 'fitHeight'
+  | 'singlePage'
+  | 'continuousPages'
   | 'rotateClockwise'
   | 'rotateCounterclockwise'
   | 'toggleOutline'
@@ -85,6 +103,9 @@ export const VIEWER_COMMANDS: readonly ViewerCommand[] = [
   'zoomReset',
   'fitWidth',
   'fitPage',
+  'fitHeight',
+  'singlePage',
+  'continuousPages',
   'rotateClockwise',
   'rotateCounterclockwise',
   'toggleOutline',
@@ -99,6 +120,7 @@ export interface ViewerPlace {
   page: number;
   zoom: number;
   fit: FitMode;
+  mode: PageMode;
   rotation: Rotation;
   inverted: boolean;
   outlineVisible: boolean;
@@ -124,6 +146,13 @@ export type HostToWebview =
   | { type: 'reload'; source: DocumentSource }
   | { type: 'settings'; settings: ViewerSettings }
   | { type: 'command'; command: ViewerCommand; page?: number }
+  /**
+   * The tab came back to the front. A hidden webview runs no animation frames,
+   * and pdf.js drives a display render off them — so a page that began drawing
+   * while the tab was in the background is still half-drawn, and this is the
+   * page's cue to check its column over rather than wait for a resize.
+   */
+  | { type: 'visible' }
   | { type: 'hostError'; message: string };
 
 /** Webview → host. */
@@ -161,7 +190,12 @@ function isPageNumber(value: unknown): value is number {
 }
 
 function isFit(value: unknown): value is FitMode {
-  return value === 'fit-width' || value === 'fit-page' || value === 'actual';
+  return (
+    value === 'fit-width' ||
+    value === 'fit-page' ||
+    value === 'fit-height' ||
+    value === 'actual'
+  );
 }
 
 function isRotation(value: unknown): value is Rotation {
@@ -185,6 +219,10 @@ function parsePlace(value: unknown): ViewerPlace | null {
     page: value.page,
     zoom: value.zoom,
     fit: value.fit,
+    // Read leniently rather than rejected: places outlive the version that
+    // wrote them, and one saved before there was a page mode is still a good
+    // answer to "where was I" — it just predates the question.
+    mode: value.mode === 'single' ? 'single' : 'continuous',
     rotation: value.rotation,
     inverted: value.inverted,
     outlineVisible: value.outlineVisible,

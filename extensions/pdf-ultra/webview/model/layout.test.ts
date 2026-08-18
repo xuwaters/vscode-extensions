@@ -5,6 +5,7 @@ import {
   PAGE_GAP,
   PAGE_PAD,
   PX_PER_PT,
+  anchorAt,
   clampZoom,
   currentPage,
   fitZoom,
@@ -16,6 +17,7 @@ import {
   scrollTopAt,
   scrollTopFor,
   stackPages,
+  stackSingle,
   stepZoom,
   viewportScale,
   visibleHeight,
@@ -67,6 +69,22 @@ describe('fits', () => {
     expect(fitZoom('fit-page', view, LETTER)).toBeCloseTo(1);
   });
 
+  it('fits the height to the height alone, whatever the width does', () => {
+    const view = { w: 10_000, h: 792 * PX_PER_PT + PAGE_PAD * 2 };
+    expect(fitZoom('fit-height', view, LETTER)).toBeCloseTo(1);
+  });
+
+  /**
+   * The whole difference between the two: `fit-page` refuses to overflow
+   * either way, `fit-height` fills the height and lets a wide page run off
+   * the sides — which is the one a reader asking for a screen per page wants.
+   */
+  it('lets fit-height overflow sideways where fit-page will not', () => {
+    const view = { w: 200, h: 792 * PX_PER_PT + PAGE_PAD * 2 };
+    expect(fitZoom('fit-height', view, LETTER)).toBeCloseTo(1);
+    expect(fitZoom('fit-page', view, LETTER)).toBeLessThan(1);
+  });
+
   it('leaves actual size alone whatever the scroller measures', () => {
     expect(fitZoom('actual', { w: 37, h: 12 }, LETTER)).toBe(1);
   });
@@ -111,6 +129,55 @@ describe('stacking', () => {
     const [box] = stackPages([LETTER], 0.0001);
     expect(box!.h).toBeGreaterThan(0);
     expect(box!.w).toBeGreaterThan(0);
+  });
+});
+
+describe('stacking one page at a time', () => {
+  const geoms = [LETTER, LETTER, LETTER];
+
+  it('gives the shown page the whole extent and the rest nothing', () => {
+    const boxes = stackSingle(geoms, 1, 1);
+    expect(boxes[0]).toEqual({ w: 0, h: 0, top: 0 });
+    expect(boxes[1]).toEqual({ w: 612, h: 792, top: PAGE_PAD });
+    expect(boxes[2]).toEqual({ w: 0, h: 0, top: 0 });
+  });
+
+  /** Every index still means the same page, or find would step to the wrong one. */
+  it('keeps a box per page so the indices still line up', () => {
+    expect(stackSingle(geoms, 0, 1)).toHaveLength(3);
+  });
+
+  it('cannot be mistaken for the page the reader is on', () => {
+    const boxes = stackSingle(geoms, 2, 1);
+    expect(currentPage(boxes, PAGE_PAD, 800)).toBe(3);
+  });
+});
+
+describe('the anchor a zoom holds still', () => {
+  const boxes = stackPages([LETTER, LETTER, LETTER], 1);
+
+  it('finds the page under a point and how far into it', () => {
+    // Half way down page 2.
+    const y = boxes[1]!.top + 396;
+    expect(anchorAt(boxes, y, 0)).toEqual({ page: 2, ratio: 0.5 });
+  });
+
+  it('reads the point relative to the viewport, not the document', () => {
+    expect(anchorAt(boxes, boxes[1]!.top, 396)).toEqual({ page: 2, ratio: 0.5 });
+  });
+
+  /** A wheel past the end of the document still has to zoom something. */
+  it('falls back to the last page rather than nothing', () => {
+    expect(anchorAt(boxes, 1_000_000, 0)?.page).toBe(3);
+  });
+
+  it('skips the pages single mode has taken out of the flow', () => {
+    const single = stackSingle([LETTER, LETTER, LETTER], 2, 1);
+    expect(anchorAt(single, 0, 0)?.page).toBe(3);
+  });
+
+  it('has no answer for a document with no pages', () => {
+    expect(anchorAt([], 0, 0)).toBeNull();
   });
 });
 

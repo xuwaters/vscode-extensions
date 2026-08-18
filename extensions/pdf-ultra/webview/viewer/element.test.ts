@@ -162,6 +162,73 @@ describe('the chrome, once a document is open', () => {
     expect(event.defaultPrevented).toBe(true);
     expect(viewer.page).toBe(2);
   });
+
+  it('turns the page with the arrow keys', () => {
+    must('.viewer').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    expect(viewer.page).toBe(2);
+    must('.viewer').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+    expect(viewer.page).toBe(1);
+  });
+
+  /**
+   * A page zoomed past the width of the tab has somewhere to go sideways, and
+   * turning the page instead would leave no way to read its right-hand edge
+   * without a mouse.
+   */
+  it('leaves the arrow keys to the scroller while there is width to scroll', () => {
+    Object.defineProperty(viewer.scrollEl, 'scrollWidth', { value: 2000, configurable: true });
+    Object.defineProperty(viewer.scrollEl, 'clientWidth', { value: 800, configurable: true });
+    const event = new KeyboardEvent('keydown', { key: 'ArrowRight', cancelable: true });
+    must('.viewer').dispatchEvent(event);
+    expect(viewer.page).toBe(1);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('takes the scroll away from an Alt-wheel and leaves a plain one alone', () => {
+    // happy-dom drops the modifier flags out of a `WheelEvent` init, so they
+    // are stated on the event itself rather than passed to the constructor.
+    const wheel = (altKey: boolean): WheelEvent => {
+      const event = new WheelEvent('wheel', { deltaY: -120, cancelable: true });
+      Object.defineProperty(event, 'altKey', { value: altKey });
+      return event;
+    };
+
+    const alt = wheel(true);
+    window.dispatchEvent(alt);
+    expect(alt.defaultPrevented).toBe(true);
+
+    const plain = wheel(false);
+    window.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(false);
+  });
+
+  /**
+   * VSCode forwards every keystroke a webview sees to its own keybinding
+   * resolver whatever the page does with the event — so a shortcut answered
+   * here as well as by a `pdfUltra.*` command is answered twice, and the zoom
+   * moves two steps for one press. They belong to the host alone.
+   */
+  it('leaves the modifier shortcuts to the host rather than answering them twice', () => {
+    for (const key of ['=', '-', '0', '1', '8', '9', 'f']) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, metaKey: true }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true }));
+    }
+    expect(viewer.zoom).toBe(1);
+    expect(viewer.fit).toBe('fit-width');
+    expect(viewer.mode).toBe('continuous');
+  });
+
+  it('switches to one page at a time from the toolbar, and back', async () => {
+    const button = must<HTMLButtonElement>('[aria-label="Show one page at a time"]');
+    button.click();
+    await Updates.next();
+    expect(viewer.mode).toBe('single');
+    expect(must('[aria-label="Show one page at a time"]').className).toContain('on');
+
+    must<HTMLButtonElement>('[aria-label="Show one page at a time"]').click();
+    await Updates.next();
+    expect(viewer.mode).toBe('continuous');
+  });
 });
 
 describe('the outline sidebar', () => {

@@ -37,6 +37,10 @@ export function activate(context: vscode.ExtensionContext): void {
     command('zoomReset', () => provider.run('zoomReset')),
     command('fitWidth', () => provider.run('fitWidth')),
     command('fitPage', () => provider.run('fitPage')),
+    command('fitHeight', () => provider.run('fitHeight')),
+
+    command('singlePage', () => provider.run('singlePage')),
+    command('continuousPages', () => provider.run('continuousPages')),
 
     command('rotateClockwise', () => provider.run('rotateClockwise')),
     command('rotateCounterclockwise', () => provider.run('rotateCounterclockwise')),

@@ -2,7 +2,7 @@
   "name": "wx-vsce-pdf-ultra",
   "displayName": "PDF Ultra",
   "description": "PDF viewer as a native custom editor — continuous virtualized pages on pdf.js, selectable text, find-in-document, outline, zoom and fits, colour inversion, and live reload when the file is rebuilt",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -100,6 +100,24 @@
         "icon": "$(screen-full)"
       },
       {
+        "command": "pdfUltra.fitHeight",
+        "title": "Fit Height",
+        "category": "PDF Ultra",
+        "icon": "$(arrow-both)"
+      },
+      {
+        "command": "pdfUltra.singlePage",
+        "title": "Single Page",
+        "category": "PDF Ultra",
+        "icon": "$(file)"
+      },
+      {
+        "command": "pdfUltra.continuousPages",
+        "title": "Continuous Pages",
+        "category": "PDF Ultra",
+        "icon": "$(list-flat)"
+      },
+      {
         "command": "pdfUltra.rotateClockwise",
         "title": "Rotate Clockwise",
         "category": "PDF Ultra",
@@ -193,6 +211,18 @@
         },
         {
           "command": "pdfUltra.fitPage",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.fitHeight",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.singlePage",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.continuousPages",
           "when": "pdfUltra.active"
         },
         {
@@ -293,15 +323,57 @@
         "when": "activeCustomEditorId == pdfUltra.editor"
       },
       {
+        "command": "pdfUltra.zoomIn",
+        "key": "ctrl+shift+=",
+        "mac": "cmd+shift+=",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.zoomIn",
+        "key": "ctrl+numpad_add",
+        "mac": "cmd+numpad_add",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
         "command": "pdfUltra.zoomOut",
         "key": "ctrl+-",
         "mac": "cmd+-",
         "when": "activeCustomEditorId == pdfUltra.editor"
       },
       {
+        "command": "pdfUltra.zoomOut",
+        "key": "ctrl+numpad_subtract",
+        "mac": "cmd+numpad_subtract",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
         "command": "pdfUltra.zoomReset",
         "key": "ctrl+0",
         "mac": "cmd+0",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.fitWidth",
+        "key": "ctrl+9",
+        "mac": "cmd+9",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.fitHeight",
+        "key": "ctrl+8",
+        "mac": "cmd+8",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.singlePage",
+        "key": "ctrl+1",
+        "mac": "cmd+1",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.continuousPages",
+        "key": "ctrl+2",
+        "mac": "cmd+2",
         "when": "activeCustomEditorId == pdfUltra.editor"
       },
       {
@@ -331,7 +403,14 @@
           "enum": [
             "fit-width",
             "fit-page",
+            "fit-height",
             "actual"
+          ],
+          "enumDescriptions": [
+            "The page fills the width of the tab.",
+            "The whole page is visible at once.",
+            "The page fills the height of the tab, overflowing sideways if it is wide.",
+            "100%."
           ],
           "default": "fit-width",
           "description": "Zoom a document opens at. A fit recomputes as the tab is resized; `actual` is 100%."

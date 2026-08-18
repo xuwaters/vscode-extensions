@@ -73,8 +73,12 @@ export function fitZoom(
   const availW = Math.max(1, view.w - PAGE_PAD * 2);
   const availH = Math.max(1, view.h - PAGE_PAD * 2);
   const widthZoom = availW / (base.w * PX_PER_PT);
+  const heightZoom = availH / (base.h * PX_PER_PT);
   if (fit === 'fit-width') return clampZoom(widthZoom);
-  return clampZoom(Math.min(widthZoom, availH / (base.h * PX_PER_PT)));
+  // `fit-height` fills the height and lets a wide page overflow sideways;
+  // `fit-page` takes whichever of the two is the smaller, so nothing overflows.
+  if (fit === 'fit-height') return clampZoom(heightZoom);
+  return clampZoom(Math.min(widthZoom, heightZoom));
 }
 
 /** The next zoom step in `direction`, or the end of the range. */
@@ -105,6 +109,61 @@ export function stackPages(
     top += h + PAGE_GAP;
   }
   return boxes;
+}
+
+/**
+ * Stack one page and take the rest out of the flow — single-page mode.
+ *
+ * The pages that are not shown keep a slot in the array, so every index still
+ * means the same page, but their boxes are empty: nothing measures them, the
+ * scroll extent is the one page, and `currentPage` cannot pick one of them.
+ * The column hides their elements to match, because a zero-height flex item
+ * still collects the column's gap.
+ */
+export function stackSingle(
+  geoms: readonly PageGeom[],
+  index: number,
+  scale: number,
+  rotation: Rotation = 0,
+): PageBox[] {
+  return geoms.map((geom, at) => {
+    if (at !== index) return { w: 0, h: 0, top: 0 };
+    const display = rotated(geom, rotation);
+    return {
+      w: Math.max(1, Math.round(display.w * scale)),
+      h: Math.max(1, Math.round(display.h * scale)),
+      top: PAGE_PAD,
+    };
+  });
+}
+
+/**
+ * Which page a point in the scroller falls on, and how far into it — the
+ * anchor a zoom holds still, so the page under the pointer stays under it.
+ *
+ * Distinct from {@link currentPage}, which answers "what is the reader
+ * looking at": this one is about a single y, and it never returns null,
+ * because a wheel that lands past the last page still has to zoom something.
+ */
+export function anchorAt(
+  boxes: readonly PageBox[],
+  scrollTop: number,
+  viewportY: number,
+): { page: number; ratio: number } | null {
+  if (boxes.length === 0) return null;
+  const y = scrollTop + viewportY;
+  const index = boxes.findIndex((box) => box.h > 0 && y < box.top + box.h);
+  const at = index === -1 ? lastVisible(boxes) : index;
+  const box = boxes[at];
+  if (!box) return null;
+  return { page: at + 1, ratio: box.h > 0 ? (y - box.top) / box.h : 0 };
+}
+
+function lastVisible(boxes: readonly PageBox[]): number {
+  for (let index = boxes.length - 1; index >= 0; index -= 1) {
+    if (boxes[index]!.h > 0) return index;
+  }
+  return 0;
 }
 
 /**

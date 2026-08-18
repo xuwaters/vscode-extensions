@@ -76,6 +76,14 @@ export class ViewerSession {
         if (!event.affectsConfiguration(CONFIG_SECTION, this.uri)) return;
         this.send({ type: 'settings', settings: readSettings(this.uri) });
       }),
+      // A retained webview is kept alive in the background, and a background
+      // webview is given no animation frames — which is what pdf.js continues a
+      // page render on. So a tab returning to the front may be carrying pages
+      // that stopped drawing half way, and this is the only event that says so:
+      // nothing about the document, the settings or the scroller has changed.
+      panel.onDidChangeViewState(() => {
+        if (panel.visible) this.send({ type: 'visible' });
+      }),
     );
   }
 

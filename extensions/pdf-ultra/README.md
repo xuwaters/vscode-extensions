@@ -21,10 +21,11 @@ CDN, no web fonts, no telemetry, no remote origin of any kind.
 - Link annotations work: internal ones jump within the document, external ones
   are handed to the host — the page itself never navigates
 - Zoom by step, by typed percentage (`150`, `150%`, `1.5x` all read the same),
-  fit-width, fit-page, or 100%
+  by `Alt`-wheel about the pointer, fit-width, fit-height, fit-page, or 100%
+- One page at a time when you want it, continuous when you don't
 - Rotation, and colour inversion for reading white pages in a dark editor
-- Page numbers, `PageUp`/`PageDown`/`Home`/`End`, and the page you are on in the
-  status bar
+- Page numbers, arrow keys, `PageUp`/`PageDown`/`Home`/`End`, and the page you
+  are on in the status bar
 
 **Living beside a build**
 
@@ -63,19 +64,30 @@ point the association elsewhere:
 | Find in Document | `Cmd/Ctrl+F` |
 | Go to Page… | `Cmd/Ctrl+G` |
 | Zoom In / Out / 100% | `Cmd/Ctrl+=` / `Cmd/Ctrl+-` / `Cmd/Ctrl+0` |
+| Fit Width / Fit Height | `Cmd/Ctrl+9` / `Cmd/Ctrl+8` |
+| Single Page / Continuous | `Cmd/Ctrl+1` / `Cmd/Ctrl+2` |
 | Toggle Outline | `Cmd/Ctrl+K Cmd/Ctrl+O` |
 | Toggle Colour Inversion | `Cmd/Ctrl+K Cmd/Ctrl+I` |
 | Reload Document | `Cmd/Ctrl+K Cmd/Ctrl+R` |
 
-Also in the palette, under **PDF Ultra**: next/previous page, fit width, fit
-page, rotate either way, export the current page as a PNG, and open the file in
-whatever the operating system uses for PDFs.
+In the page itself: `←` / `→` turn the page — unless the page is zoomed wider
+than the tab, in which case they scroll it, because otherwise there would be no
+way to reach its right-hand edge without a mouse. `Alt`-wheel zooms about the
+pointer, so the spot you are looking at stays where it is.
+
+Every shortcut above is an ordinary VS Code keybinding scoped to this editor, so
+`Preferences: Open Keyboard Shortcuts` rebinds any of them — and if one of them
+does something else on your setup, that is where the conflict will show.
+
+Also in the palette, under **PDF Ultra**: next/previous page, fit page, rotate
+either way, export the current page as a PNG, and open the file in whatever the
+operating system uses for PDFs.
 
 ## Settings
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `pdfUltra.defaultZoom` | `fit-width` | Zoom a document opens at |
+| `pdfUltra.defaultZoom` | `fit-width` | Zoom a document opens at: `fit-width`, `fit-page`, `fit-height`, `actual` |
 | `pdfUltra.background` | `editor` | Colour behind the pages |
 | `pdfUltra.invertColors` | `never` | `always`, or `auto` to follow the theme |
 | `pdfUltra.textLayer` | `true` | Selection, find, and screen-reader text |

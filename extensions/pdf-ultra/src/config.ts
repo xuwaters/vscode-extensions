@@ -44,7 +44,11 @@ export function readRememberPosition(uri?: vscode.Uri): boolean {
 }
 
 function asFit(value: string | undefined): FitMode {
-  return asEnum(value, ['fit-width', 'fit-page', 'actual'] as const, 'fit-width');
+  return asEnum(
+    value,
+    ['fit-width', 'fit-page', 'fit-height', 'actual'] as const,
+    'fit-width',
+  );
 }
 
 function asEnum<T extends string>(

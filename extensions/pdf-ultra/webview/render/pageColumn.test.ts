@@ -18,19 +18,75 @@ vi.mock('./pdfjs.js', () => ({
 
 const { PageColumn } = await import('./pageColumn.js');
 
-/** Just enough document for `open` — every page is US Letter. */
-function fakeDoc(numPages: number): PDFDocumentProxy {
+/**
+ * How many renders a document has going at once, and the worst it ever got.
+ * Two on one canvas is the defect this counts: pdf.js refuses the second
+ * outright, and the two wipe each other's output on the way down.
+ */
+interface Renders {
+  /** Every render ever started. */
+  calls: number;
+  live: number;
+  peak: number;
+}
+
+/**
+ * Just enough document for `open` — every page is US Letter.
+ *
+ * Given a {@link Renders}, pages also rasterize: `render` returns a task that
+ * stays in flight until it is cancelled, which is what a real one does for
+ * long enough to matter and what the column's bookkeeping has to survive.
+ */
+function fakeDoc(numPages: number, renders?: Renders): PDFDocumentProxy {
+  const render = (): unknown => {
+    if (!renders) throw new Error('this document does not rasterize');
+    renders.calls += 1;
+    renders.live += 1;
+    renders.peak = Math.max(renders.peak, renders.live);
+    let stop: (reason: Error) => void = () => {};
+    const promise = new Promise<void>((_resolve, reject) => {
+      stop = reject;
+    });
+    promise.catch(() => {});
+    return {
+      promise,
+      cancel: () => {
+        renders.live -= 1;
+        stop(new Error('RenderingCancelledException'));
+      },
+    };
+  };
+
   return {
     numPages,
     getPage: async () => ({
       rotate: 0,
       getViewport: () => ({ width: 612, height: 792 }),
+      render,
     }),
   } as unknown as PDFDocumentProxy;
 }
 
-function mount(): { scroll: HTMLElement; host: HTMLElement; column: InstanceType<typeof PageColumn> } {
-  const scroll = document.createElement('div');
+/** Let every pending microtask and timer settle. */
+const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
+ * A scroller with a box.
+ *
+ * happy-dom lays nothing out, so every element it makes measures zero — which
+ * the column reads, correctly, as a tab that is not in front, and refuses to
+ * lay out against. Stating a size here is what tells it otherwise.
+ */
+function sized(el: HTMLElement, w: number, h: number): HTMLElement {
+  Object.defineProperty(el, 'clientWidth', { value: w, configurable: true });
+  Object.defineProperty(el, 'clientHeight', { value: h, configurable: true });
+  return el;
+}
+
+function mount(
+  view: { w: number; h: number } = { w: 1000, h: 800 },
+): { scroll: HTMLElement; host: HTMLElement; column: InstanceType<typeof PageColumn> } {
+  const scroll = sized(document.createElement('div'), view.w, view.h);
   const host = document.createElement('div');
   scroll.append(host);
   document.body.replaceChildren(scroll);
@@ -41,6 +97,19 @@ function mount(): { scroll: HTMLElement; host: HTMLElement; column: InstanceType
     { textLayer: false, links: false, maxCanvasPixels: 1 << 20, renderAhead: 0 },
   );
   return { scroll, host, column };
+}
+
+/**
+ * Open a document and lay it out — the two steps the element takes in order,
+ * because the second one needs the page geometry the first one measures.
+ */
+async function opened(
+  column: InstanceType<typeof PageColumn>,
+  doc: PDFDocumentProxy,
+  zoom = 1,
+): Promise<void> {
+  await column.open(doc);
+  column.setView(zoom, 0);
 }
 
 describe('taking a document', () => {
@@ -58,10 +127,22 @@ describe('taking a document', () => {
 
   it('sizes every slot from the document rather than leaving it collapsed', async () => {
     const { host, column } = mount();
-    await column.open(fakeDoc(3));
+    await opened(column, fakeDoc(3));
     const first = host.querySelector<HTMLElement>('.page');
     expect(first?.style.width).toBe('816px');
     expect(first?.style.height).toBe('1056px');
+  });
+
+  /**
+   * The caller resolves its fit against the geometry `open` measures, so a
+   * column that laid itself out first would rasterize a screen of pages at the
+   * zoom it happened to be carrying only to throw the result away — and leave
+   * that draw racing the one that replaced it.
+   */
+  it('leaves the layout to the caller rather than guessing a zoom', async () => {
+    const { host, column } = mount();
+    await column.open(fakeDoc(3));
+    expect(host.querySelector<HTMLElement>('.page')?.style.width).toBe('');
   });
 
   it('replaces the previous document’s slots on a reopen', async () => {
@@ -69,5 +150,134 @@ describe('taking a document', () => {
     await column.open(fakeDoc(4));
     await column.open(fakeDoc(2));
     expect(host.querySelectorAll('.page')).toHaveLength(2);
+  });
+});
+
+/**
+ * A slot may have exactly one draw in flight. It is the whole of what `draw`
+ * promises, and pdf.js depends on it: a second render against a canvas that
+ * already has one is refused outright, and on the way down the two wipe each
+ * other — the reader gets a page under its placeholder mask, or a black one
+ * with a few runs of text on it, and nothing fixes it but a scroll or resize.
+ *
+ * The window is every document's first moment on screen: the column is laid
+ * out once, then again as soon as the fit resolves against the geometry it
+ * just measured. An abandoned draw finishing across that used to report that
+ * no draw was running while one was.
+ */
+describe('one draw per slot', () => {
+  /**
+   * Two zooms, so two renders — the one the column was opened at and the one
+   * the fit resolved to. A third is the abandoned draw's doing: it reported the
+   * slot idle on its way out, and the next pass over the viewport believed it.
+   */
+  it('starts no draw the zoom did not ask for', async () => {
+    const renders: Renders = { calls: 0, live: 0, peak: 0 };
+    const { column } = mount();
+
+    await opened(column, fakeDoc(1, renders));
+    // The fit lands on a different zoom while the first draw is still going.
+    column.setView(1.43, 0);
+    await flush();
+    // Any pass over the viewport — a scroll, a jump, a resize — used to find
+    // the slot claiming to be idle and start a second draw on the same canvas.
+    column.goToPage(1);
+    await flush();
+
+    expect(renders.calls).toBe(2);
+  });
+
+  it('never has two renders live on one canvas', async () => {
+    const renders: Renders = { calls: 0, live: 0, peak: 0 };
+    const { column } = mount();
+
+    await opened(column, fakeDoc(1, renders));
+    column.setView(1.43, 0);
+    await flush();
+    column.goToPage(1);
+    await flush();
+
+    expect(renders.peak).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * A tab VSCode is keeping alive in the background is laid out at nothing, and
+ * everything the column would do about that is wrong: a fit measured against a
+ * zero-width scroller is a nonsense zoom, and a render started now stops part
+ * way — pdf.js continues a display render on an animation frame, and a hidden
+ * webview is given none. Which is what a page stuck dark and half-drawn is.
+ */
+describe('a tab that is not in front', () => {
+  it('does not lay the column out against a scroller with no box', async () => {
+    const { host, column } = mount({ w: 0, h: 0 });
+    await opened(column, fakeDoc(3));
+    const first = host.querySelector<HTMLElement>('.page');
+    expect(first?.style.width).toBe('');
+  });
+
+  it('lays it out on the refresh that follows the tab coming back', async () => {
+    const { scroll, host, column } = mount({ w: 0, h: 0 });
+    await opened(column, fakeDoc(3));
+    sized(scroll, 1000, 800);
+    column.refresh();
+    const first = host.querySelector<HTMLElement>('.page');
+    expect(first?.style.width).toBe('816px');
+    expect(first?.style.height).toBe('1056px');
+  });
+
+  /**
+   * The refresh runs every time the tab comes back, which is often. A column
+   * that is already right has to come through it untouched, or a click away
+   * and back would cost the visible band a re-rasterization.
+   */
+  it('leaves a column that is already laid out alone', async () => {
+    const { host, column } = mount();
+    await opened(column, fakeDoc(2));
+    const first = host.querySelector<HTMLElement>('.page');
+    // A relayout would rewrite this; a refresh over a correct column must not.
+    first!.style.width = '7px';
+    column.refresh();
+    expect(first?.style.width).toBe('7px');
+  });
+});
+
+describe('single-page mode', () => {
+  it('takes every page but the current one out of the flow', async () => {
+    const { host, column } = mount();
+    await opened(column, fakeDoc(4));
+    column.setMode('single');
+    const pages = [...host.querySelectorAll<HTMLElement>('.page')];
+    expect(pages.map((page) => page.style.display)).toEqual(['', 'none', 'none', 'none']);
+  });
+
+  it('swaps which page is in the flow rather than scrolling to it', async () => {
+    const { scroll, host, column } = mount();
+    await opened(column, fakeDoc(4));
+    column.setMode('single');
+    column.goToPage(3);
+    const pages = [...host.querySelectorAll<HTMLElement>('.page')];
+    expect(pages.map((page) => page.style.display)).toEqual(['none', 'none', '', 'none']);
+    expect(column.page).toBe(3);
+    expect(scroll.scrollTop).toBe(0);
+  });
+
+  it('puts every page back when it returns to continuous', async () => {
+    const { host, column } = mount();
+    await opened(column, fakeDoc(3));
+    column.setMode('single');
+    column.setMode('continuous');
+    const pages = [...host.querySelectorAll<HTMLElement>('.page')];
+    expect(pages.map((page) => page.style.display)).toEqual(['', '', '']);
+  });
+
+  it('keeps the reader on the page they were on across the switch', async () => {
+    const { column } = mount();
+    await opened(column, fakeDoc(5));
+    column.goToPage(4);
+    column.setMode('single');
+    expect(column.page).toBe(4);
+    column.setMode('continuous');
+    expect(column.page).toBe(4);
   });
 });

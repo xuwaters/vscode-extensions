@@ -6,6 +6,7 @@ const place = (page: number): ViewerPlace => ({
   page,
   zoom: 1,
   fit: 'fit-width',
+  mode: 'continuous',
   rotation: 0,
   inverted: false,
   outlineVisible: false,

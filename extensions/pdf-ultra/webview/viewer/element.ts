@@ -4,6 +4,7 @@ import type {
   DocumentSource,
   FitMode,
   HostToWebview,
+  PageMode,
   PdfAssetUrls,
   Rotation,
   ViewerCommand,
@@ -28,6 +29,20 @@ const NOTICE_MS = 2400;
 
 /** The resolution an exported page is rendered at, relative to actual size. */
 const EXPORT_ZOOM = 2;
+
+/**
+ * How hard a wheel notch pushes the zoom.
+ *
+ * Applied as `exp(-delta * WHEEL_ZOOM)`, so the zoom is continuous rather than
+ * the toolbar's discrete steps and a notch costs the same fraction whichever
+ * end of the range it is at. A trackpad sends many small deltas and a mouse
+ * sends few large ones; the exponent is what makes both feel the same.
+ */
+const WHEEL_ZOOM = 0.0022;
+
+/** Line- and page-mode wheel deltas, in the pixels they stand for. */
+const WHEEL_LINE_PX = 16;
+const WHEEL_PAGE_PX = 400;
 
 /** What the element needs from the extension host. */
 export interface ViewerHost {
@@ -75,6 +90,7 @@ export class PdfViewer extends FASTElement {
   @observable zoom = 1;
   @observable zoomField = '100%';
   @observable fit: FitMode = 'fit-width';
+  @observable mode: PageMode = 'continuous';
   @observable rotation: Rotation = 0;
   @observable inverted = false;
 
@@ -132,25 +148,35 @@ export class PdfViewer extends FASTElement {
   private resizeObserver: ResizeObserver | null = null;
   private resizeAttached: HTMLElement | null = null;
   private resizePointer: { id: number; startX: number; startWidth: number } | null = null;
+  /** Whether the last thing the resize observer saw was a tab with no box. */
+  private wasOffScreen = false;
 
-  private readonly onWindowKeydown = (event: KeyboardEvent): void => {
-    if (!(event.ctrlKey || event.metaKey)) return;
-    if (event.key === '+' || event.key === '=') this.zoomBy(1);
-    else if (event.key === '-') this.zoomBy(-1);
-    else if (event.key === '0') this.applyFit('actual');
-    else if (event.key === 'f') this.focusFind();
-    else return;
+  /**
+   * Alt-wheel zooms, about the pointer.
+   *
+   * Only Alt. Ctrl- and Cmd-wheel belong to the editor around us, and this is
+   * the one modifier nothing else in a VSCode window claims. Nor are the
+   * keyboard shortcuts handled here: VSCode forwards every keystroke a webview
+   * sees to its own keybinding resolver whatever the page does with it, so a
+   * shortcut answered in both places is answered twice. They arrive as
+   * `command` messages instead — which is also what makes them rebindable.
+   */
+  private readonly onWheel = (event: WheelEvent): void => {
+    if (!event.altKey || event.ctrlKey || event.metaKey) return;
+    if (this.state !== 'ready') return;
     event.preventDefault();
+    this.zoomAbout(this.zoom * Math.exp(-wheelPixels(event) * WHEEL_ZOOM), event);
   };
 
   override connectedCallback(): void {
     super.connectedCallback();
-    window.addEventListener('keydown', this.onWindowKeydown);
+    // Not passive: the whole point is to take the scroll away and zoom instead.
+    window.addEventListener('wheel', this.onWheel, { passive: false });
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
-    window.removeEventListener('keydown', this.onWindowKeydown);
+    window.removeEventListener('wheel', this.onWheel);
     this.teardown();
   }
 
@@ -184,6 +210,10 @@ export class PdfViewer extends FASTElement {
         void this.runCommand(message.command, message.page);
         break;
 
+      case 'visible':
+        this.revalidate();
+        break;
+
       case 'hostError':
         this.fail(message.message);
         break;
@@ -215,6 +245,15 @@ export class PdfViewer extends FASTElement {
         break;
       case 'fitPage':
         this.applyFit('fit-page');
+        break;
+      case 'fitHeight':
+        this.applyFit('fit-height');
+        break;
+      case 'singlePage':
+        this.applyPageMode('single');
+        break;
+      case 'continuousPages':
+        this.applyPageMode('continuous');
         break;
       case 'rotateClockwise':
         this.rotateBy(1);
@@ -356,19 +395,23 @@ export class PdfViewer extends FASTElement {
 
   /** Rebuild the column against the template's freshly mounted scroller. */
   private mountColumn(): void {
-    if (this.column && this.resizeAttached === this.scrollEl) return;
-    this.column?.destroy();
-    this.column = new PageColumn(
-      this.scrollEl,
-      this.columnEl,
-      {
-        onPage: (page) => this.onPageChanged(page),
-        onLink: (target) => void this.followLink(target),
-        onTextLayer: () => this.search.repaint(),
-      },
-      this.columnOptions(),
-    );
-    this.observeResize();
+    if (!this.column || this.resizeAttached !== this.scrollEl) {
+      this.column?.destroy();
+      this.column = new PageColumn(
+        this.scrollEl,
+        this.columnEl,
+        {
+          onPage: (page) => this.onPageChanged(page),
+          onLink: (target) => void this.followLink(target),
+          onTextLayer: () => this.search.repaint(),
+        },
+        this.columnOptions(),
+      );
+      this.observeResize();
+    }
+    // Before the document is taken, so the first layout is already the right
+    // shape rather than a continuous column that flickers into a single page.
+    this.column.setMode(this.mode);
   }
 
   private columnOptions() {
@@ -450,6 +493,8 @@ export class PdfViewer extends FASTElement {
     this.page = place.page;
     this.zoom = clampZoom(place.zoom);
     this.fit = place.fit;
+    this.mode = place.mode;
+    this.column?.setMode(place.mode);
     this.rotation = place.rotation;
     this.inverted = place.inverted;
     this.outlineVisible = place.outlineVisible;
@@ -471,6 +516,7 @@ export class PdfViewer extends FASTElement {
       page: this.page,
       zoom: this.zoom,
       fit: this.fit,
+      mode: this.mode,
       rotation: this.rotation,
       inverted: this.inverted,
       outlineVisible: this.outlineVisible,
@@ -490,14 +536,19 @@ export class PdfViewer extends FASTElement {
 
   // ── Zoom, rotation, navigation ─────────────────────────────────────────────
 
-  /** Resolve the current fit into a scale and hand it to the column. */
+  /**
+   * Resolve the current fit into a scale and hand it to the column.
+   *
+   * A tab with no box is left alone: a fit measured against a zero-width
+   * scroller resolves to the bottom of the zoom range, and writing that into
+   * the layout is how a document comes back from the background at 10%.
+   */
   private applyZoom(): void {
     const column = this.column;
     if (!column) return;
-    const zoom =
-      this.fit === 'actual'
-        ? this.zoom
-        : fitZoom(this.fit, column.viewSize, column.baseGeom);
+    const view = column.viewSize;
+    if (this.fit !== 'actual' && (view.w === 0 || view.h === 0)) return;
+    const zoom = this.fit === 'actual' ? this.zoom : fitZoom(this.fit, view, column.baseGeom);
     this.zoom = zoom;
     this.showZoom();
     column.setView(zoom, this.rotation);
@@ -508,6 +559,22 @@ export class PdfViewer extends FASTElement {
     if (fit === 'actual') this.zoom = 1;
     this.applyZoom();
     this.reportPlace();
+  }
+
+  /** Continuous scrolling, or one page at a time. */
+  applyPageMode(mode: PageMode): void {
+    if (this.mode === mode) return;
+    this.mode = mode;
+    this.column?.setMode(mode);
+    // A fit is the same number either way, but the column has restacked and
+    // the page the reader is on may have changed with it.
+    this.page = this.column?.page ?? this.page;
+    this.showPage();
+    this.reportPlace();
+  }
+
+  togglePageMode(): void {
+    this.applyPageMode(this.mode === 'single' ? 'continuous' : 'single');
   }
 
   zoomBy(direction: 1 | -1): void {
@@ -521,6 +588,37 @@ export class PdfViewer extends FASTElement {
     this.fit = 'actual';
     this.zoom = clampZoom(zoom);
     this.applyZoom();
+    this.reportPlace();
+  }
+
+  /**
+   * Zoom while holding the spot under the pointer still.
+   *
+   * Without the anchor a wheel zoom walks away from whatever the reader was
+   * looking at, because the column's own relayout holds the *top of the
+   * viewport* in place — which is the right answer for the toolbar's buttons
+   * and the wrong one for a pointer that is halfway down the page.
+   */
+  private zoomAbout(zoom: number, at: { clientX: number; clientY: number }): void {
+    const column = this.column;
+    const el = this.scrollEl;
+    const next = clampZoom(zoom);
+    if (!column || !el || next === this.zoom) return;
+
+    const rect = el.getBoundingClientRect();
+    const x = at.clientX - rect.left;
+    const y = at.clientY - rect.top;
+    const anchor = column.anchor(y);
+    // Horizontal has no page to anchor to — the column is one centred stack,
+    // so the offset simply scales with the zoom.
+    const factor = next / this.zoom;
+    const left = (el.scrollLeft + x) * factor - x;
+
+    this.fit = 'actual';
+    this.zoom = next;
+    this.applyZoom();
+    if (anchor) column.holdAnchor(anchor.page, anchor.ratio, y);
+    el.scrollLeft = Math.max(0, left);
     this.reportPlace();
   }
 
@@ -612,9 +710,22 @@ export class PdfViewer extends FASTElement {
     else if (event.key === 'PageUp') this.goToPage(this.page - 1);
     else if (event.key === 'Home') this.goToPage(1);
     else if (event.key === 'End') this.goToPage(this.pageCount);
-    else return true;
+    else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      // A page zoomed past the width of the tab has somewhere to go sideways,
+      // and taking that away would leave no way to read its right-hand edge
+      // without a mouse. Only when there is nothing to scroll do these turn
+      // the page — which is the rule pdf.js's own viewer follows.
+      if (this.scrollsSideways()) return true;
+      this.goToPage(this.page + (event.key === 'ArrowRight' ? 1 : -1));
+    } else return true;
     event.preventDefault();
     return true;
+  }
+
+  /** Whether the column is wider than the tab, so there is width to scroll. */
+  private scrollsSideways(): boolean {
+    const el = this.scrollEl as HTMLElement | undefined;
+    return el !== undefined && el.scrollWidth > el.clientWidth + 1;
   }
 
   toggleInvert(): void {
@@ -787,17 +898,70 @@ export class PdfViewer extends FASTElement {
     }, NOTICE_MS);
   }
 
-  /** Recompute a fit when the tab is resized. */
+  /**
+   * Recompute a fit when the tab is resized — and notice when it was not
+   * resized at all but taken away and given back.
+   *
+   * VSCode keeps this webview alive in the background and lays it out at
+   * nothing while it is there, so a hidden tab arrives here as a 0×0
+   * observation. Both of the things this normally does are wrong to do then,
+   * and the observation that follows — the same size the tab had before it
+   * went away — would otherwise look like nothing had happened at all.
+   */
   private observeResize(): void {
     if (typeof ResizeObserver === 'undefined') return;
     this.resizeObserver?.disconnect();
     this.resizeAttached = this.scrollEl;
     this.resizeObserver = new ResizeObserver(() => {
+      const view = this.column?.viewSize;
+      if (!view || view.w === 0 || view.h === 0) {
+        this.wasOffScreen = true;
+        return;
+      }
+      if (this.wasOffScreen) {
+        this.revalidate();
+        return;
+      }
       this.applyZoom();
       this.column?.relayout();
     });
     this.resizeObserver.observe(this.scrollEl);
   }
+
+  /**
+   * Take the column over after the tab was away.
+   *
+   * A hidden webview is given no animation frames, and pdf.js continues a
+   * display render on one — so a page that started drawing as the tab went
+   * into the background is still part-drawn, still wearing its placeholder,
+   * and nothing about the scroller changed while it was gone for the usual
+   * guards to catch. This is the cue to lay out and draw again regardless.
+   */
+  private revalidate(): void {
+    const column = this.column;
+    if (!column) return;
+    const view = column.viewSize;
+    // The host's `visible` can land before the tab has been laid out again.
+    // Leaving the flag set is what makes the resize observation that follows
+    // come back here rather than treat the tab as one that never went away.
+    if (view.w === 0 || view.h === 0) return;
+    this.wasOffScreen = false;
+    this.applyZoom();
+    column.refresh();
+  }
+}
+
+/**
+ * A wheel event's vertical delta in pixels, whatever unit it arrived in.
+ *
+ * `deltaMode` is not decoration: a mouse wheel in Firefox reports lines and a
+ * page-mode device reports screens, and reading either as pixels turns one
+ * notch into no zoom at all.
+ */
+function wheelPixels(event: WheelEvent): number {
+  if (event.deltaMode === 1) return event.deltaY * WHEEL_LINE_PX;
+  if (event.deltaMode === 2) return event.deltaY * WHEEL_PAGE_PX;
+  return event.deltaY;
 }
 
 function prefersDark(): boolean {

@@ -1,7 +1,8 @@
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
-import type { Rotation } from '../../src/messages.js';
+import type { PageMode, Rotation } from '../../src/messages.js';
 import type { PageItem } from '../model/find.js';
 import {
+  anchorAt,
   currentPage,
   isWithinBand,
   offsetRatio,
@@ -10,6 +11,7 @@ import {
   scrollTopAt,
   scrollTopFor,
   stackPages,
+  stackSingle,
   viewportScale,
   type PageBox,
   type PageGeom,
@@ -85,6 +87,9 @@ export class PageColumn {
   private base: PageGeom = { w: 612, h: 792 };
   private zoom = 1;
   private rotation: Rotation = 0;
+  private mode: PageMode = 'continuous';
+  /** The page single-page mode is showing. Meaningless while continuous. */
+  private single = 1;
   private options: ColumnOptions;
   /** Lazily extracted page text, for find. */
   private readonly textCache = new Map<number, PageItem[]>();
@@ -123,12 +128,26 @@ export class PageColumn {
 
   /** The page the reader is looking at, 1-based. */
   get page(): number {
+    if (this.mode === 'single') return this.single;
     const at = currentPage(
       this.slots.map((slot) => slot.box),
       this.scroll.scrollTop,
       this.scroll.clientHeight,
     );
     return at ?? 1;
+  }
+
+  /**
+   * Whether the scroller has a box at all.
+   *
+   * A tab that is not in front is laid out at nothing, and both things this
+   * gates on it are wrong to do then: a fit computed against a zero-width
+   * scroller is a nonsense zoom that would be written into the layout, and a
+   * render started now would stall — pdf.js drives a display render off
+   * `requestAnimationFrame`, and a hidden webview runs no frames.
+   */
+  private get onScreen(): boolean {
+    return this.scroll.clientWidth > 0 && this.scroll.clientHeight > 0;
   }
 
   /** How far into the current page the viewport starts. */
@@ -163,8 +182,13 @@ export class PageColumn {
 
   /**
    * Take a document: one slot per page, sized from page 1's geometry and
-   * corrected per page as pages actually render. Only the boxes are built here;
-   * rasterizing is the viewport sync's job.
+   * corrected per page as pages actually render.
+   *
+   * Deliberately stops short of laying the column out. The caller's next move
+   * is to resolve its fit against the page-1 geometry this just measured, and
+   * a column that laid itself out first would rasterize a screen of pages at
+   * whatever zoom it happened to be carrying only to throw the result away a
+   * moment later — wasted work, and a draw racing the one that replaces it.
    */
   async open(doc: PDFDocumentProxy): Promise<void> {
     // Dropping the old document is itself a generation bump, so this one has to
@@ -222,54 +246,112 @@ export class PageColumn {
     this.host.replaceChildren(fragment);
     this.slots = slots;
     this.laidOutFor = '';
-    this.relayout();
   }
 
-  /** Set the zoom and rotation, keeping the reader where they were. */
+  /**
+   * Set the zoom and rotation, keeping the reader where they were.
+   *
+   * Always goes on to {@link relayout}, even when neither number moved: the
+   * signature guard in there is what decides whether there is anything to do,
+   * and it knows about the cases this cannot see — a column that has taken a
+   * document but has never been laid out, most of all.
+   */
   setView(zoom: number, rotation: Rotation): void {
-    if (zoom === this.zoom && rotation === this.rotation) return;
     this.zoom = zoom;
     this.rotation = rotation;
     this.relayout();
   }
 
+  /** Continuous scrolling, or one page at a time. */
+  setMode(mode: PageMode): void {
+    if (mode === this.mode) return;
+    // Whichever page the reader was on is the one single mode opens on, and
+    // the one continuous mode scrolls back to.
+    const was = this.page;
+    this.mode = mode;
+    this.single = clamp(was, 1, Math.max(1, this.slots.length));
+    this.relayout({ force: true });
+    if (mode === 'single') {
+      this.scroll.scrollTop = 0;
+      this.syncViewport();
+    } else {
+      this.goToPage(was);
+    }
+  }
+
   /**
    * Recompute every slot's box and keep the reader in place — the same spot on
    * the same page, not the top of the document.
+   *
+   * Skipped when nothing about the layout has changed, because a resize that
+   * changes neither the scroller nor the zoom — a scrollbar appearing and
+   * disappearing — must not start a relayout loop. {@link refresh} is the way
+   * past that guard when the boxes are right but the rasters are not.
    */
-  relayout(): void {
-    if (this.slots.length === 0) return;
+  relayout(options: { force?: boolean } = {}): void {
+    if (this.slots.length === 0 || !this.onScreen) return;
     const view = this.viewSize;
-    const signature = `${view.w}x${view.h}@${this.zoom}r${this.rotation}`;
-    if (signature === this.laidOutFor) return;
+    const signature = `${view.w}x${view.h}@${this.zoom}r${this.rotation}${this.mode}${this.single}`;
+    if (!options.force && signature === this.laidOutFor) return;
     this.laidOutFor = signature;
 
     const anchorIndex = Math.min(this.page, this.slots.length) - 1;
     const anchor = this.slots[anchorIndex]!;
     const within = offsetRatio(anchor.box, this.scroll.scrollTop);
 
-    const boxes = stackPages(
-      this.slots.map((slot) => this.geom.get(slot.n) ?? this.base),
-      viewportScale(this.zoom),
-      this.rotation,
-    );
+    const geoms = this.slots.map((slot) => this.geom.get(slot.n) ?? this.base);
+    const scale = viewportScale(this.zoom);
+    const boxes =
+      this.mode === 'single'
+        ? stackSingle(geoms, this.single - 1, scale, this.rotation)
+        : stackPages(geoms, scale, this.rotation);
+
     this.slots.forEach((slot, index) => {
       const box = boxes[index]!;
       slot.box = box;
+      const shown = this.shows(slot.n);
+      // A zero-height flex item still collects the column's gap, so a page
+      // single mode is not showing has to leave the flow outright.
+      slot.el.style.display = shown ? '' : 'none';
       slot.el.style.width = `${box.w}px`;
       slot.el.style.height = `${box.h}px`;
-      // Every resident raster is now the wrong size for its box.
-      if (slot.drawnAt !== this.zoom) this.release(slot);
+      // Every resident raster is now the wrong size for its box, and every
+      // draw in flight is drawing the wrong one. A slot holding neither is
+      // left alone: on a freshly opened document that is all of them.
+      if (!shown || slot.drawnAt !== this.zoom) {
+        if (slot.drawnAt !== 0 || slot.drawingAt !== 0) this.release(slot);
+      }
     });
     this.scroll.scrollTop = scrollTopAt(this.slots[anchorIndex]!.box, within);
     this.syncViewport();
   }
 
+  /**
+   * Pick the column's work back up after the tab was away.
+   *
+   * While it was hidden the webview ran no animation frames, so any page that
+   * was drawing when it went is still half-drawn — and since neither the
+   * scroller's size nor the zoom changed while it was gone, nothing else here
+   * would notice. A draw that is still nominally in flight is dropped rather
+   * than waited on: its continuation was scheduled in a frame that never came.
+   *
+   * Deliberately not a forced relayout. This runs whenever the tab comes back
+   * — which is often — and a page that is already drawn correctly must come
+   * through it untouched, or every click away and back would cost the whole
+   * visible band a re-rasterization.
+   */
+  refresh(): void {
+    if (!this.onScreen) return;
+    for (const slot of this.slots) if (slot.drawingAt !== 0) this.release(slot);
+    this.relayout();
+    this.syncViewport();
+  }
+
   /** Scroll a page to the top of the viewport. 1-based. */
   goToPage(page: number): void {
-    const slot = this.slots[clamp(page, 1, this.slots.length) - 1];
+    const slot = this.reveal(page);
     if (!slot) return;
-    this.scroll.scrollTop = scrollTopFor(slot.box);
+    this.scroll.scrollTop = this.mode === 'single' ? 0 : scrollTopFor(slot.box);
     this.syncViewport();
   }
 
@@ -279,9 +361,30 @@ export class PageColumn {
    * they were rather than at the top of the page they were on.
    */
   revealRatio(page: number, ratio: number): void {
-    const slot = this.slots[clamp(page, 1, this.slots.length) - 1];
+    const slot = this.reveal(page);
     if (!slot) return;
     this.scroll.scrollTop = scrollTopAt(slot.box, ratio);
+    this.syncViewport();
+  }
+
+  /**
+   * The anchor a zoom holds still: which page a point in the viewport is over,
+   * and how far into it. Paired with {@link holdAnchor}, that is what keeps the
+   * spot under the pointer under the pointer across an Alt-wheel zoom.
+   */
+  anchor(viewportY: number): { page: number; ratio: number } | null {
+    return anchorAt(
+      this.slots.map((slot) => slot.box),
+      this.scroll.scrollTop,
+      viewportY,
+    );
+  }
+
+  /** Put `ratio` of the way into `page` back at `viewportY`. */
+  holdAnchor(page: number, ratio: number, viewportY: number): void {
+    const slot = this.slots[clamp(page, 1, this.slots.length) - 1];
+    if (!slot) return;
+    this.scroll.scrollTop = Math.max(0, slot.box.top + ratio * slot.box.h - viewportY);
     this.syncViewport();
   }
 
@@ -291,12 +394,12 @@ export class PageColumn {
    * as clipped to the top edge.
    */
   revealPoint(page: number, point: { x: number; y: number } | null): void {
-    const slot = this.slots[clamp(page, 1, this.slots.length) - 1];
-    if (!slot) return;
     if (!point) {
       this.goToPage(page);
       return;
     }
+    const slot = this.reveal(page);
+    if (!slot) return;
     const base = this.geom.get(slot.n) ?? this.base;
     const on = pointOnPage(base, this.rotation, point, viewportScale(this.zoom));
     this.scroll.scrollTop = Math.max(
@@ -306,11 +409,36 @@ export class PageColumn {
     this.syncViewport();
   }
 
-  /** Ensure a page holds a raster before something is measured against it. */
+  /**
+   * Ensure a page holds a raster before something is measured against it.
+   *
+   * In single-page mode a page that is not the one on screen has no box to
+   * draw into, so this brings it forward first — which is what lets find step
+   * to a match on another page without the caller knowing which mode it is in.
+   */
   async ensureDrawn(page: number): Promise<void> {
-    const slot = this.slots[page - 1];
+    const slot = this.reveal(page);
     if (!slot) return;
     await this.draw(slot);
+  }
+
+  /** Whether a page has a box in the current mode. */
+  private shows(page: number): boolean {
+    return this.mode !== 'single' || page === this.single;
+  }
+
+  /**
+   * The slot for a page, brought into the flow first if single-page mode was
+   * showing a different one. Null when the page is not in the document.
+   */
+  private reveal(page: number): PageSlot | undefined {
+    if (this.slots.length === 0) return undefined;
+    const target = clamp(page, 1, this.slots.length);
+    if (this.mode === 'single' && this.single !== target) {
+      this.single = target;
+      this.relayout({ force: true });
+    }
+    return this.slots[target - 1];
   }
 
   /** The text runs of a rendered page, in `textDivs` order, or null. */
@@ -393,21 +521,28 @@ export class PageColumn {
    * not, and report the page the reader is actually looking at.
    */
   private syncViewport(): void {
-    if (this.slots.length === 0) return;
+    // Nothing is drawn for a tab that is not in front: pdf.js continues a
+    // display render on an animation frame, and a hidden webview is given
+    // none — so a draw started now stops part-way and stays that way. `refresh`
+    // is what picks the work up when the tab comes back.
+    if (this.slots.length === 0 || !this.onScreen) return;
     const top = this.scroll.scrollTop;
     const view = this.scroll.clientHeight;
     for (const slot of this.slots) {
-      if (isWithinBand(slot.box, top, view, this.options.renderAhead)) {
+      if (this.shows(slot.n) && isWithinBand(slot.box, top, view, this.options.renderAhead)) {
         void this.draw(slot);
       } else if (slot.drawnAt !== 0 || slot.drawingAt !== 0) {
         this.release(slot);
       }
     }
-    const at = currentPage(
-      this.slots.map((slot) => slot.box),
-      top,
-      view,
-    );
+    const at =
+      this.mode === 'single'
+        ? this.single
+        : currentPage(
+            this.slots.map((slot) => slot.box),
+            top,
+            view,
+          );
     if (at !== null && at !== this.reported) {
       this.reported = at;
       this.callbacks.onPage(at);
@@ -452,6 +587,13 @@ export class PageColumn {
         window.devicePixelRatio || 1,
         this.options.maxCanvasPixels,
       );
+      // A render still on this canvas belongs to an attempt this one has
+      // superseded. pdf.js refuses two renders on one canvas outright, and the
+      // refusal would land on *this* draw while the older one carried on
+      // painting into a bitmap we are about to resize out from under it — so
+      // the older one is stopped first, deliberately, rather than raced.
+      slot.task?.cancel();
+
       // Only the bitmap is sized here — the canvas and the layers over it are
       // stretched across the slot by CSS, so nothing they carry can outlive the
       // raster and stretch the scroll extent.
@@ -463,7 +605,6 @@ export class PageColumn {
         transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
       });
       await slot.task.promise;
-      slot.task = null;
       if (stale()) return;
       slot.el.classList.remove('placeholder');
 
@@ -486,15 +627,23 @@ export class PageColumn {
       if (this.options.links) await this.drawLinks(slot, proxy, stale);
 
       slot.drawnAt = zoom;
-      slot.drawingAt = 0;
     } catch {
       // A cancelled render (scrolled away, rezoomed) or a page that will not
       // rasterize is not a dead document — the slot stays blank at the right
       // size and the next pass over it retries.
-      if (slot.drawingAt === zoom) slot.drawingAt = 0;
-      slot.task = null;
     } finally {
-      if (slot.pending !== null && slot.drawingAt !== zoom) slot.pending = null;
+      // Only the draw that is still the slot's own clears the slot's in-flight
+      // bookkeeping. An older attempt finishing late used to report that no
+      // draw was running while one was, which cost `draw` its one guarantee —
+      // that a slot has at most one draw in flight — and put two pdf.js render
+      // tasks on one canvas. Each then wiped the other: what the reader got was
+      // a page under its placeholder mask, or a black one with a few runs of
+      // text on it, and nothing to fix it until a scroll or a resize.
+      if (!stale()) {
+        slot.task = null;
+        slot.drawingAt = 0;
+        slot.pending = null;
+      }
     }
   }
 
@@ -579,6 +728,9 @@ export class PageColumn {
     const previous = this.geom.get(slot.n);
     if (previous && previous.w === w && previous.h === h) return;
     this.geom.set(slot.n, { w, h });
+    // Single mode has one page in the flow, so there is nothing below it to
+    // slide and no scroll position to compensate — only its own box to correct.
+    if (this.mode === 'single' && slot.n !== this.single) return;
 
     const scale = viewportScale(this.zoom);
     const display =
@@ -591,7 +743,7 @@ export class PageColumn {
     slot.box = { ...slot.box, w: nextW, h: nextH };
     slot.el.style.width = `${nextW}px`;
     slot.el.style.height = `${nextH}px`;
-    if (delta === 0) return;
+    if (delta === 0 || this.mode === 'single') return;
     for (const other of this.slots) {
       if (other.n > slot.n) other.box = { ...other.box, top: other.box.top + delta };
     }
@@ -607,6 +759,7 @@ export class PageColumn {
     this.geom.clear();
     this.textCache.clear();
     this.reported = 0;
+    this.single = 1;
     this.laidOutFor = '';
     this.host.replaceChildren();
     this.scroll.scrollTop = 0;
