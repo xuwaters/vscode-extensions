@@ -34,11 +34,11 @@
   },
   "onEnterRules": [
     {
-      "beforeText": "^\\s*(?:[-+*])\\s+\\S",
+      "beforeText": "^\\s*-\\s+\\S",
       "action": { "indent": "none", "appendText": "- " }
     },
     {
-      "beforeText": "^\\s*(?:[-+*])\\s*$",
+      "beforeText": "^\\s*-\\s*$",
       "action": { "indent": "none", "removeText": 2 }
     },
     {
