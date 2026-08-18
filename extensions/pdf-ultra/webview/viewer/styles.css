@@ -26,6 +26,7 @@
 }
 
 .shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -152,6 +153,47 @@
   height: 16px;
   margin: 0 2px;
   background: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
+}
+
+/*
+ * What a toolbar glyph means, said in the editor's own hover colours.
+ *
+ * Positioned by the element, in the shell's coordinate space, so it can hang
+ * over the page column without being clipped by it — and `visibility` rather
+ * than `display`, because a tip is centred under the control from its own
+ * width, which an unrendered box does not have. Never a target: a tooltip the
+ * pointer can land on is a tooltip that dismisses itself under the pointer.
+ */
+.tip {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 320px;
+  padding: 2px 7px;
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+  border: 1px solid
+    var(--vscode-editorHoverWidget-border, var(--vscode-editorWidget-border, transparent));
+  border-radius: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+/* The shortcut, when the control has one — quieter than the name it belongs to. */
+.tip-keys {
+  color: var(--vscode-descriptionForeground);
+}
+
+.tip-keys:empty {
+  display: none;
 }
 
 /* Below the toolbar, not over it: a notice must not swallow the zoom. */

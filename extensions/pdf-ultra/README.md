@@ -29,6 +29,8 @@ CDN, no web fonts, no telemetry, no remote origin of any kind.
 - Rotation, and colour inversion for reading white pages in a dark editor
 - Page numbers, arrow keys, `PageUp`/`PageDown`/`Home`/`End`, and the page you
   are on in the status bar
+- Every button in the toolbar says what it is on hover or focus, in the editor's
+  own hover colours, with the keyboard shortcut that does the same thing
 
 **Living beside a build**
 
@@ -65,7 +67,7 @@ point the association elsewhere:
 | Command | Key |
 | --- | --- |
 | Find in Document | `Cmd/Ctrl+F` |
-| Go to Page… | `Cmd/Ctrl+G` |
+| Go to Page… (selects the toolbar's page box) | `Cmd/Ctrl+G` |
 | Go Back | `Cmd+[` / `Alt+←` |
 | Zoom In / Out / 100% | `Cmd/Ctrl+=` / `Cmd/Ctrl+-` / `Cmd/Ctrl+0` |
 | Fit Width / Fit Height | `Cmd/Ctrl+9` / `Cmd/Ctrl+8` |

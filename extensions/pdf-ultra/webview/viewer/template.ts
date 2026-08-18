@@ -16,7 +16,24 @@ import type { OutlineRow } from '../model/outline.js';
  * blocks the system UI fonts do not reliably cover, and a button that renders
  * as tofu is worse than no button. Inline markup is document, not a fetch, so
  * the CSP does not apply to it.
+ *
+ * Which leaves a row of unlabelled pictures, so every control carries a
+ * `data-tip` and, where one exists, the `data-keys` shortcut that does the same
+ * thing. The toolbar shows them itself — see `PdfViewer.onTipOver` for why not
+ * `title` — and `aria-label` stays alongside for the screen reader, which wants
+ * the name and not the tooltip's furniture. The `.tip` box below the toolbar is
+ * always in the DOM and hidden until it has been measured: it is centred under
+ * the control from its own width, which an unrendered box does not have.
  */
+
+/**
+ * A shortcut written out for the eye, in the notation of the platform the
+ * reader is on. These are the bindings `package.json` contributes, per
+ * platform, and the two have to be kept in step by hand.
+ */
+const apple =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+const shortcut = (windows: string, mac: string): string => (apple ? mac : windows);
 
 const outlineTemplate = html<PdfViewer>`
   <aside
@@ -82,10 +99,19 @@ const outlineTemplate = html<PdfViewer>`
 `;
 
 const chromeTemplate = html<PdfViewer>`
-  <div class="chrome" role="toolbar" aria-label="Document tools">
+  <div
+    class="chrome"
+    role="toolbar"
+    aria-label="Document tools"
+    @pointerover="${(x, c) => x.onTipOver(c.event)}"
+    @pointerleave="${(x) => x.onTipLeave()}"
+    @focusin="${(x, c) => x.onTipFocus(c.event)}"
+    @focusout="${(x) => x.onTipLeave()}"
+  >
     <button
       class="btn ${(x) => (x.outlineVisible ? 'on' : '')}"
-      title="Outline"
+      data-tip="Outline"
+      data-keys="${shortcut('Ctrl+K Ctrl+O', '⌘K ⌘O')}"
       aria-label="Toggle outline"
       aria-pressed="${(x) => String(x.outlineVisible)}"
       @click="${(x) => x.toggleOutline()}"
@@ -105,7 +131,8 @@ const chromeTemplate = html<PdfViewer>`
 
     <button
       class="btn"
-      title="Back to where you jumped from"
+      data-tip="Back to where you jumped from"
+      data-keys="${shortcut('Alt+←', '⌘[')}"
       aria-label="Go back"
       ?disabled="${(x) => !x.history.canGoBack}"
       @click="${(x) => x.goBack()}"
@@ -124,7 +151,8 @@ const chromeTemplate = html<PdfViewer>`
 
     <button
       class="btn"
-      title="Previous page"
+      data-tip="Previous page"
+      data-keys="Page Up"
       aria-label="Previous page"
       ?disabled="${(x) => x.page <= 1}"
       @click="${(x) => x.goToPage(x.page - 1)}"
@@ -144,7 +172,8 @@ const chromeTemplate = html<PdfViewer>`
       class="field-input"
       type="text"
       inputmode="numeric"
-      title="Go to page"
+      data-tip="Go to page"
+      data-keys="${shortcut('Ctrl+G', '⌘G')}"
       aria-label="Page number"
       ${ref('pageInput')}
       :value="${(x) => x.pageField}"
@@ -156,7 +185,8 @@ const chromeTemplate = html<PdfViewer>`
     <span class="count">/ ${(x) => x.pageCount}</span>
     <button
       class="btn"
-      title="Next page"
+      data-tip="Next page"
+      data-keys="Page Down"
       aria-label="Next page"
       ?disabled="${(x) => x.page >= x.pageCount}"
       @click="${(x) => x.goToPage(x.page + 1)}"
@@ -175,14 +205,21 @@ const chromeTemplate = html<PdfViewer>`
 
     <span class="separator"></span>
 
-    <button class="btn" title="Zoom out" aria-label="Zoom out" @click="${(x) => x.zoomBy(-1)}">
+    <button
+      class="btn"
+      data-tip="Zoom out"
+      data-keys="${shortcut('Ctrl+-', '⌘-')}"
+      aria-label="Zoom out"
+      @click="${(x) => x.zoomBy(-1)}"
+    >
       −
     </button>
     <input
       class="field-input wide"
       type="text"
       inputmode="decimal"
-      title="Zoom — type a percentage and press Enter"
+      data-tip="Zoom — type a percentage and press Enter"
+      data-keys="${shortcut('Ctrl+0 for 100%', '⌘0 for 100%')}"
       aria-label="Zoom percentage"
       ${ref('zoomInput')}
       :value="${(x) => x.zoomField}"
@@ -191,12 +228,19 @@ const chromeTemplate = html<PdfViewer>`
       @blur="${(x) => x.showZoom()}"
       @keydown="${(x, c) => x.onZoomKeydown(c.event as KeyboardEvent)}"
     />
-    <button class="btn" title="Zoom in" aria-label="Zoom in" @click="${(x) => x.zoomBy(1)}">
+    <button
+      class="btn"
+      data-tip="Zoom in"
+      data-keys="${shortcut('Ctrl+=', '⌘=')}"
+      aria-label="Zoom in"
+      @click="${(x) => x.zoomBy(1)}"
+    >
       +
     </button>
     <button
       class="btn ${(x) => (x.fit === 'fit-width' ? 'on' : '')}"
-      title="Fit width"
+      data-tip="Fit width"
+      data-keys="${shortcut('Ctrl+9', '⌘9')}"
       aria-label="Fit width"
       @click="${(x) => x.applyFit('fit-width')}"
     >
@@ -204,7 +248,7 @@ const chromeTemplate = html<PdfViewer>`
     </button>
     <button
       class="btn ${(x) => (x.fit === 'fit-page' ? 'on' : '')}"
-      title="Fit page"
+      data-tip="Fit page"
       aria-label="Fit page"
       @click="${(x) => x.applyFit('fit-page')}"
     >
@@ -212,7 +256,8 @@ const chromeTemplate = html<PdfViewer>`
     </button>
     <button
       class="btn ${(x) => (x.mode === 'single' ? 'on' : '')}"
-      title="Single page"
+      data-tip="One page at a time"
+      data-keys="${shortcut('Ctrl+1 for continuous', '⌘1 for continuous')}"
       aria-label="Show one page at a time"
       aria-pressed="${(x) => String(x.mode === 'single')}"
       @click="${(x) => x.togglePageMode()}"
@@ -232,7 +277,8 @@ const chromeTemplate = html<PdfViewer>`
     </button>
     <button
       class="btn ${(x) => (x.mode === 'dual' ? 'on' : '')}"
-      title="Two pages side by side"
+      data-tip="Two pages side by side"
+      data-keys="${shortcut('Ctrl+2', '⌘2')}"
       aria-label="Show two pages side by side"
       aria-pressed="${(x) => String(x.mode === 'dual')}"
       @click="${(x) => x.toggleDualMode()}"
@@ -262,7 +308,8 @@ const chromeTemplate = html<PdfViewer>`
     </button>
     <button
       class="btn"
-      title="Rotate clockwise (Shift-click for anticlockwise)"
+      data-tip="Rotate clockwise"
+      data-keys="Shift-click to go the other way"
       aria-label="Rotate clockwise"
       @click="${(x, c) => x.rotateBy((c.event as MouseEvent).shiftKey ? -1 : 1)}"
     >
@@ -279,7 +326,8 @@ const chromeTemplate = html<PdfViewer>`
     </button>
     <button
       class="btn ${(x) => (x.inverted ? 'on' : '')}"
-      title="Invert colours"
+      data-tip="Invert colours"
+      data-keys="${shortcut('Ctrl+K Ctrl+I', '⌘K ⌘I')}"
       aria-label="Invert colours"
       aria-pressed="${(x) => String(x.inverted)}"
       @click="${(x) => x.toggleInvert()}"
@@ -296,6 +344,8 @@ const chromeTemplate = html<PdfViewer>`
       class="find"
       type="search"
       placeholder="Find in document"
+      data-tip="Find in document"
+      data-keys="${shortcut('Ctrl+F', '⌘F')}"
       aria-label="Find in document"
       ${ref('findInput')}
       :value="${(x) => x.search.query}"
@@ -305,7 +355,8 @@ const chromeTemplate = html<PdfViewer>`
     <span class="find-count" aria-live="polite">${(x) => x.search.label}</span>
     <button
       class="btn"
-      title="Previous match (Shift+Enter)"
+      data-tip="Previous match"
+      data-keys="Shift+Enter"
       aria-label="Previous match"
       ?disabled="${(x) => x.search.total === 0}"
       @click="${(x) => x.search.step(-1)}"
@@ -323,7 +374,8 @@ const chromeTemplate = html<PdfViewer>`
     </button>
     <button
       class="btn"
-      title="Next match (Enter)"
+      data-tip="Next match"
+      data-keys="Enter"
       aria-label="Next match"
       ?disabled="${(x) => x.search.total === 0}"
       @click="${(x) => x.search.step(1)}"
@@ -348,6 +400,10 @@ export const template = html<PdfViewer>`
     html<PdfViewer>`
       <div class="shell" data-background="${(x) => x.settings.background}">
         ${chromeTemplate}
+        <div class="tip" role="tooltip" aria-hidden="true" ${ref('tipEl')}>
+          <span>${(x) => x.tip?.text ?? ''}</span>
+          <span class="tip-keys">${(x) => x.tip?.keys ?? ''}</span>
+        </div>
         ${when(
           (x) => x.notice !== '',
           html<PdfViewer>`<div class="notice" role="status">${(x) => x.notice}</div>`,

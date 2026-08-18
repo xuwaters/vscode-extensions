@@ -81,6 +81,8 @@ export type ViewerCommand =
   | 'nextPage'
   | 'previousPage'
   | 'goToPage'
+  /** Put the reader in the toolbar's page box, the way `find` does the find box. */
+  | 'focusPage'
   /** Back to where the last jump — a link, an outline entry — started. */
   | 'goBack'
   | 'zoomIn'
@@ -103,6 +105,7 @@ export const VIEWER_COMMANDS: readonly ViewerCommand[] = [
   'nextPage',
   'previousPage',
   'goToPage',
+  'focusPage',
   'goBack',
   'zoomIn',
   'zoomOut',

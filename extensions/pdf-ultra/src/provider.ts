@@ -122,31 +122,24 @@ export class PdfEditorProvider
   }
 
   /**
-   * Ask for a page number, then go there.
+   * Ask for a page number — in the viewer's own page box, not in a quick-pick
+   * over the top of the document.
    *
-   * A number past either end of the document is answered with that end rather
-   * than refused: someone typing 900 into a 300-page document is asking for
-   * the back of it, and the same is true of 0 and the front. Only text that is
-   * not a page number at all is rejected.
+   * The box is already on screen, already showing the page the reader is on,
+   * and already knows what to do with a number typed into it: a number past
+   * either end of the document goes to that end rather than being refused, and
+   * text that is not a number leaves the reader where they are. A host input
+   * box would have been a second way to say the same thing, in the one place
+   * the reader is not looking.
+   *
+   * The tab comes forward first, because this is also the status bar's command
+   * and a webview that is not in front cannot take focus.
    */
-  async goToPage(): Promise<void> {
+  goToPage(): void {
     const session = this.target();
     if (!session) return this.noDocument();
-    const count = session.pages;
-    const answer = await vscode.window.showInputBox({
-      title: 'PDF Ultra',
-      prompt: count > 0 ? `Page number (1–${count})` : 'Page number',
-      value: String(session.page ?? 1),
-      validateInput: (text) =>
-        Number.isInteger(Number(text.trim())) && text.trim() !== ''
-          ? undefined
-          : 'Enter a page number.',
-    });
-    if (answer === undefined) return;
-    const page = Number(answer.trim());
-    const last = count > 0 ? count : Number.MAX_SAFE_INTEGER;
-    session.command('goToPage', Math.min(Math.max(1, page), last));
     session.reveal();
+    session.command('focusPage');
   }
 
   /** Open a PDF in this viewer, by name rather than by association. */

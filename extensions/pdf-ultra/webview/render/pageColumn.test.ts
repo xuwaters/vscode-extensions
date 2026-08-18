@@ -252,6 +252,72 @@ describe('a tab that is not in front', () => {
   });
 });
 
+/**
+ * A rotation is not a zoom, and a raster keyed only by zoom cannot tell the
+ * difference. The box turns, the bitmap does not, and the stylesheet stretches
+ * the old landscape image across the new portrait box — a page whose content is
+ * skewed, at the right size, with nothing but another zoom to fix it.
+ */
+describe('rotating the pages', () => {
+  /**
+   * A document whose pages finish drawing, so a slot ends up *holding* a raster
+   * rather than perpetually starting one. That is the state the defect lives in:
+   * a page still mid-draw is released by any relayout whatever it was keyed on.
+   */
+  function drawnDoc(numPages: number, drawn: { calls: number }): PDFDocumentProxy {
+    return {
+      numPages,
+      getPage: async () => ({
+        rotate: 0,
+        getViewport: ({ scale = 1 }: { scale?: number }) => ({
+          width: 612 * scale,
+          height: 792 * scale,
+          scale,
+        }),
+        render: () => {
+          drawn.calls += 1;
+          return { promise: Promise.resolve(), cancel: () => {} };
+        },
+      }),
+    } as unknown as PDFDocumentProxy;
+  }
+
+  it('turns every box a quarter turn', async () => {
+    const { host, column } = mount();
+    await opened(column, fakeDoc(2));
+    column.setView(1, 90);
+    const first = host.querySelector<HTMLElement>('.page');
+    expect(first?.style.width).toBe('1056px');
+    expect(first?.style.height).toBe('816px');
+  });
+
+  it('draws a page that is already drawn again, though the zoom did not move', async () => {
+    const drawn = { calls: 0 };
+    const { column } = mount();
+    await opened(column, drawnDoc(1, drawn));
+    await flush();
+    expect(drawn.calls).toBe(1);
+
+    column.setView(1, 90);
+    await flush();
+    expect(drawn.calls).toBe(2);
+  });
+
+  it('leaves a page that is already the right way up alone', async () => {
+    const drawn = { calls: 0 };
+    const { column } = mount();
+    await opened(column, drawnDoc(1, drawn));
+    await flush();
+    column.setView(1, 90);
+    await flush();
+    // The same view again: a scroll, a resize, a tab coming back to the front.
+    column.setView(1, 90);
+    column.goToPage(1);
+    await flush();
+    expect(drawn.calls).toBe(2);
+  });
+});
+
 describe('dual-column mode', () => {
   it('groups the pages into rows of two', async () => {
     const { host, column } = mount();

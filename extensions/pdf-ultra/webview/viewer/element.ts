@@ -28,6 +28,12 @@ import { template } from './template.js';
 /** How long a transient notice stays on screen. */
 const NOTICE_MS = 2400;
 
+/** How long the pointer rests on a toolbar control before it explains itself. */
+const TIP_MS = 350;
+
+/** How far under a control its tooltip sits. */
+const TIP_GAP = 4;
+
 /** The resolution an exported page is rendered at, relative to actual size. */
 const EXPORT_ZOOM = 2;
 
@@ -98,6 +104,9 @@ export class PdfViewer extends FASTElement {
   @observable outlineVisible = false;
   @observable outlineWidth = 240;
 
+  /** What the toolbar's tooltip says, or null while nothing is explaining itself. */
+  @observable tip: { text: string; keys: string } | null = null;
+
   /**
    * The controllers the chrome binds through. All are constant references
    * holding observables of their own, so a template that reads
@@ -132,6 +141,7 @@ export class PdfViewer extends FASTElement {
   findInput!: HTMLInputElement;
   pageInput!: HTMLInputElement;
   zoomInput!: HTMLInputElement;
+  tipEl!: HTMLElement;
 
   private assets: PdfAssetUrls | null = null;
   private doc: PDFDocumentProxy | null = null;
@@ -147,6 +157,10 @@ export class PdfViewer extends FASTElement {
 
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private placeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** The control the tooltip is describing, and the wait before it appears. */
+  private tipAnchor: HTMLElement | null = null;
+  private tipTimer: ReturnType<typeof setTimeout> | undefined;
 
   private resizeObserver: ResizeObserver | null = null;
   private resizeAttached: HTMLElement | null = null;
@@ -233,6 +247,9 @@ export class PdfViewer extends FASTElement {
         break;
       case 'goToPage':
         if (page !== undefined) this.jumpToPage(page);
+        break;
+      case 'focusPage':
+        this.focusPage();
         break;
       case 'goBack':
         this.goBack();
@@ -470,6 +487,7 @@ export class PdfViewer extends FASTElement {
     this.search.dispose();
     if (this.noticeTimer) clearTimeout(this.noticeTimer);
     if (this.placeTimer) clearTimeout(this.placeTimer);
+    if (this.tipTimer) clearTimeout(this.tipTimer);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.column?.destroy();
@@ -647,11 +665,27 @@ export class PdfViewer extends FASTElement {
     this.rotation = ((((this.rotation + direction * 90) % 360) + 360) % 360) as Rotation;
     // A quarter turn trades a page's width for its height, so a fit means
     // something different than it did a moment ago — and the boxes have to be
-    // restacked even when the zoom lands on the same number.
+    // restacked, and every page on screen rasterized again, even when the zoom
+    // lands on the same number. `setView` after the fit is what covers the tab
+    // that is not in front: `applyZoom` leaves a fit alone there, and the column
+    // still has to be told which way up it will be when it comes back.
     this.applyZoom();
     this.column?.setView(this.zoom, this.rotation);
-    this.column?.relayout();
     this.reportPlace();
+  }
+
+  /**
+   * The Go to Page command: the toolbar's own page box, selected and ready to
+   * be typed over.
+   *
+   * Not a host input box. The number is already on screen, beside the page
+   * count and the buttons that step through it — asking for it in a quick-pick
+   * over the top of the document puts the answer somewhere the reader is not
+   * looking, and leaves the box that says the same thing inert.
+   */
+  focusPage(): void {
+    this.pageInput?.focus();
+    this.pageInput?.select();
   }
 
   goToPage(page: number, options: { report?: boolean } = {}): void {
@@ -793,6 +827,87 @@ export class PdfViewer extends FASTElement {
   toggleInvert(): void {
     this.inverted = !this.inverted;
     this.reportPlace();
+  }
+
+  // ── The toolbar's tooltips ─────────────────────────────────────────────────
+
+  /**
+   * The toolbar explains itself.
+   *
+   * A row of glyphs is unreadable until something names them, and `title` is
+   * the wrong instrument for it: a second of hover before anything appears, an
+   * OS tooltip that knows nothing of the editor's theme, and nowhere to put the
+   * shortcut that does the same thing. So the tip is ours.
+   *
+   * Wired once on the toolbar rather than per control: `pointerover` and
+   * `focusin` bubble, so one pair of handlers covers everything in it — and a
+   * control added later needs nothing but its `data-tip`. `pointerover` also
+   * fires for the toolbar's own background, which is what dismisses a tip when
+   * the pointer slides off a button into the gap beside it.
+   */
+  onTipOver(event: Event): boolean {
+    this.armTip(tipTarget(event.target), false);
+    return true;
+  }
+
+  /** The same, for a reader on the keyboard: no hover, so no wait either. */
+  onTipFocus(event: Event): boolean {
+    const target = tipTarget(event.target);
+    // Buttons only. A tip hanging under the box the reader is typing in is in
+    // the way of the thing they are typing at.
+    this.armTip(target?.classList.contains('btn') === true ? target : null, true);
+    return true;
+  }
+
+  onTipLeave(): boolean {
+    this.hideTip();
+    return true;
+  }
+
+  private armTip(target: HTMLElement | null, now: boolean): void {
+    if (target === this.tipAnchor) return;
+    // Once one tip is up the next follows the pointer without a wait, which is
+    // what makes a row of unlabelled buttons readable in a single pass.
+    const following = this.tip !== null;
+    this.hideTip();
+    if (!target) return;
+    this.tipAnchor = target;
+    if (now || following) this.showTip(target);
+    else this.tipTimer = setTimeout(() => this.showTip(target), TIP_MS);
+  }
+
+  private showTip(target: HTMLElement): void {
+    this.tipTimer = undefined;
+    if (this.tipAnchor !== target) return;
+    this.tip = { text: target.dataset.tip ?? '', keys: target.dataset.keys ?? '' };
+    // Hidden until it has been measured: a tip is placed from its own width,
+    // and its width is not known until this text is in it.
+    if (this.tipEl) this.tipEl.style.visibility = 'hidden';
+    void Updates.next().then(() => this.placeTip(target));
+  }
+
+  /**
+   * Centre the tip under the control, clamped to the viewer's own edges — the
+   * tips at either end of the toolbar would otherwise hang off the side of the
+   * tab, where nothing can be read.
+   */
+  private placeTip(target: HTMLElement): void {
+    const el = this.tipEl;
+    if (!el || this.tipAnchor !== target || !target.isConnected) return;
+    const host = this.getBoundingClientRect();
+    const box = target.getBoundingClientRect();
+    const left = box.left - host.left + (box.width - el.offsetWidth) / 2;
+    el.style.left = `${Math.round(clampTip(left, host.width - el.offsetWidth))}px`;
+    el.style.top = `${Math.round(box.bottom - host.top + TIP_GAP)}px`;
+    el.style.visibility = 'visible';
+  }
+
+  private hideTip(): void {
+    if (this.tipTimer) clearTimeout(this.tipTimer);
+    this.tipTimer = undefined;
+    this.tipAnchor = null;
+    this.tip = null;
+    if (this.tipEl) this.tipEl.style.visibility = 'hidden';
   }
 
   // ── The outline ────────────────────────────────────────────────────────────
@@ -1028,6 +1143,16 @@ function wheelPixels(event: WheelEvent): number {
   if (event.deltaMode === 1) return event.deltaY * WHEEL_LINE_PX;
   if (event.deltaMode === 2) return event.deltaY * WHEEL_PAGE_PX;
   return event.deltaY;
+}
+
+/** The control a pointer or focus event landed on, if it has anything to say. */
+function tipTarget(target: EventTarget | null): HTMLElement | null {
+  return target instanceof Element ? target.closest<HTMLElement>('[data-tip]') : null;
+}
+
+/** Keep a tip's left edge inside the viewer, with a margin either side. */
+function clampTip(left: number, max: number): number {
+  return Math.min(Math.max(left, TIP_GAP), Math.max(TIP_GAP, max - TIP_GAP));
 }
 
 function prefersDark(): boolean {

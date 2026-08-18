@@ -140,6 +140,16 @@ describe('the chrome, once a document is open', () => {
     expect(must('.column').className).toContain('inverted');
   });
 
+  /**
+   * Go to Page is the box that is already on screen, selected and ready to be
+   * typed over — not a quick-pick over the top of the document asking for a
+   * number the toolbar is already showing.
+   */
+  it('puts the reader in the page box when the host asks for a page', () => {
+    viewer.handle({ type: 'command', command: 'focusPage' });
+    expect(viewer.shadowRoot?.activeElement).toBe(must('.field-input'));
+  });
+
   it('goes to a page typed into the box', async () => {
     const field = must<HTMLInputElement>('.field-input');
     field.value = '5';
@@ -280,6 +290,93 @@ describe('the chrome, once a document is open', () => {
     must<HTMLButtonElement>('[aria-label="Show one page at a time"]').click();
     await Updates.next();
     expect(viewer.mode).toBe('continuous');
+  });
+});
+
+/**
+ * A toolbar of unlabelled glyphs is a puzzle until something names them, and
+ * `title` is not the instrument: a second of hover before anything appears, an
+ * OS tooltip that knows nothing of the editor's theme, and nowhere to put the
+ * shortcut that does the same thing.
+ */
+describe('the toolbar explaining itself', () => {
+  beforeEach(async () => {
+    viewer.state = 'ready';
+    viewer.pageCount = 12;
+    await Updates.next();
+  });
+
+  /** Every control in the toolbar, whether it is a glyph or a box. */
+  const controls = (): HTMLElement[] => [
+    ...(viewer.shadowRoot?.querySelectorAll<HTMLElement>('.chrome .btn, .chrome input') ?? []),
+  ];
+
+  it('leaves no control in the toolbar unexplained', () => {
+    expect(controls().length).toBeGreaterThan(10);
+    for (const control of controls()) {
+      expect(control.dataset.tip, control.getAttribute('aria-label') ?? '').toBeTruthy();
+    }
+  });
+
+  /** The old instrument, in the one place it cannot be styled or hurried. */
+  it('does not fall back on the browser’s own tooltip', () => {
+    for (const control of controls()) expect(control.hasAttribute('title')).toBe(false);
+  });
+
+  it('names a button the moment it takes focus, with the key that does the same', async () => {
+    must<HTMLElement>('[aria-label="Rotate clockwise"]').dispatchEvent(
+      new FocusEvent('focusin', { bubbles: true }),
+    );
+    await Updates.next();
+    expect(viewer.tip?.text).toBe('Rotate clockwise');
+    expect(must('.tip').textContent).toContain('Rotate clockwise');
+
+    must<HTMLElement>('[aria-label="Toggle outline"]').dispatchEvent(
+      new FocusEvent('focusin', { bubbles: true }),
+    );
+    await Updates.next();
+    expect(must('.tip-keys').textContent).toMatch(/K/);
+  });
+
+  /**
+   * The wait is what keeps a tooltip out of the way of a reader who is only
+   * passing over the toolbar; dropping it for the *second* control is what
+   * makes a row of glyphs readable in one pass rather than one wait per icon.
+   */
+  it('waits for the first tip and then follows the pointer without waiting', () => {
+    vi.useFakeTimers();
+    try {
+      const over = (label: string): void => {
+        must<HTMLElement>(`[aria-label="${label}"]`).dispatchEvent(
+          new Event('pointerover', { bubbles: true }),
+        );
+      };
+
+      over('Fit width');
+      expect(viewer.tip).toBeNull();
+      vi.advanceTimersByTime(400);
+      expect(viewer.tip?.text).toBe('Fit width');
+
+      over('Fit page');
+      expect(viewer.tip?.text).toBe('Fit page');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops explaining when the pointer leaves the toolbar', () => {
+    must<HTMLElement>('[aria-label="Fit page"]').dispatchEvent(
+      new FocusEvent('focusin', { bubbles: true }),
+    );
+    expect(viewer.tip).not.toBeNull();
+    must('.chrome').dispatchEvent(new Event('pointerleave'));
+    expect(viewer.tip).toBeNull();
+  });
+
+  /** A tip under the box the reader is typing in is in the way of the typing. */
+  it('says nothing when a text box takes focus', () => {
+    must<HTMLElement>('.find').dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(viewer.tip).toBeNull();
   });
 });
 

@@ -53,10 +53,19 @@ interface PageSlot {
   readonly text: HTMLElement;
   readonly links: HTMLElement;
   box: PageBox;
-  /** Zoom the resident raster was drawn at; 0 when the slot is empty. */
-  drawnAt: number;
-  /** Zoom of the in-flight draw, if any. */
-  drawingAt: number;
+  /**
+   * The view the resident raster was drawn for — see {@link PageColumn.viewKey}.
+   * Empty when the slot holds no raster.
+   *
+   * A zoom alone is not enough. A quarter turn trades a page's width for its
+   * height without necessarily changing the zoom at all, and a raster keyed only
+   * by zoom is then considered current: the box turns, the bitmap does not, and
+   * CSS stretches the old landscape image over the new portrait box. Which is
+   * exactly the skewed page a rotate used to produce.
+   */
+  drawnFor: string;
+  /** The view of the in-flight draw, if any. */
+  drawingFor: string;
   task: RenderTask | null;
   /** The in-flight draw, so a caller that needs the page can await it. */
   pending: Promise<void> | null;
@@ -161,6 +170,14 @@ export class PageColumn {
     return this.zoom;
   }
 
+  /**
+   * Everything about the current view that a raster is only valid for. A slot
+   * whose {@link PageSlot.drawnFor} is this is drawn; anything else has to go.
+   */
+  private get viewKey(): string {
+    return `${this.zoom}r${this.rotation}`;
+  }
+
   /** Page 1's unrotated size, which the fits are computed against. */
   get baseGeom(): PageGeom {
     return this.base;
@@ -234,8 +251,8 @@ export class PageColumn {
         text,
         links,
         box: { w: 0, h: 0, top: 0 },
-        drawnAt: 0,
-        drawingAt: 0,
+        drawnFor: '',
+        drawingFor: '',
         task: null,
         pending: null,
         textDivs: null,
@@ -328,6 +345,7 @@ export class PageColumn {
     const within = offsetRatio(anchor.box, this.scroll.scrollTop);
 
     const boxes = this.computeBoxes();
+    const key = this.viewKey;
     this.slots.forEach((slot, index) => {
       const box = boxes[index]!;
       slot.box = box;
@@ -337,11 +355,11 @@ export class PageColumn {
       slot.el.style.display = shown ? '' : 'none';
       slot.el.style.width = `${box.w}px`;
       slot.el.style.height = `${box.h}px`;
-      // Every resident raster is now the wrong size for its box, and every
-      // draw in flight is drawing the wrong one. A slot holding neither is
-      // left alone: on a freshly opened document that is all of them.
-      if (!shown || slot.drawnAt !== this.zoom) {
-        if (slot.drawnAt !== 0 || slot.drawingAt !== 0) this.release(slot);
+      // Every raster drawn for a different view is now the wrong shape for its
+      // box, and every draw in flight is drawing the wrong one. A slot holding
+      // neither is left alone: on a freshly opened document that is all of them.
+      if (!shown || slot.drawnFor !== key) {
+        if (slot.drawnFor !== '' || slot.drawingFor !== '') this.release(slot);
       }
     });
     this.scroll.scrollTop = scrollTopAt(this.slots[anchorIndex]!.box, within);
@@ -400,7 +418,7 @@ export class PageColumn {
    */
   refresh(): void {
     if (!this.onScreen) return;
-    for (const slot of this.slots) if (slot.drawingAt !== 0) this.release(slot);
+    for (const slot of this.slots) if (slot.drawingFor !== '') this.release(slot);
     this.relayout();
     this.syncViewport();
   }
@@ -589,7 +607,7 @@ export class PageColumn {
     for (const slot of this.slots) {
       if (this.shows(slot.n) && isWithinBand(slot.box, top, view, this.options.renderAhead)) {
         void this.draw(slot);
-      } else if (slot.drawnAt !== 0 || slot.drawingAt !== 0) {
+      } else if (slot.drawnFor !== '' || slot.drawingFor !== '') {
         // Scrolling away is the one release that has to spare a live selection:
         // the boxes it is anchored in are still where the reader put them, and
         // dropping them mid-drag would collapse a selection that started on the
@@ -615,22 +633,32 @@ export class PageColumn {
   /**
    * Rasterize one page into its slot and rebuild its text and link layers.
    *
-   * Idempotent per zoom, so the sync pass can call it for every visible slot on
+   * Idempotent per view, so the sync pass can call it for every visible slot on
    * every frame — and a caller that needs the page *now* (find, export) gets
    * the draw already in flight rather than a second one.
    */
   private draw(slot: PageSlot): Promise<void> {
-    const zoom = this.zoom;
-    if (slot.drawnAt === zoom) return Promise.resolve();
-    if (slot.drawingAt === zoom && slot.pending) return slot.pending;
-    slot.pending = this.drawNow(slot, zoom);
+    const key = this.viewKey;
+    if (slot.drawnFor === key) return Promise.resolve();
+    if (slot.drawingFor === key && slot.pending) return slot.pending;
+    slot.pending = this.drawNow(slot, this.zoom, this.rotation, key);
     return slot.pending;
   }
 
-  private async drawNow(slot: PageSlot, zoom: number): Promise<void> {
+  /**
+   * The view is passed in rather than read back off the column: a draw outlives
+   * several awaits, and the zoom and rotation it was started for are what its
+   * viewport, its text layer and its link boxes all have to agree on.
+   */
+  private async drawNow(
+    slot: PageSlot,
+    zoom: number,
+    rotation: Rotation,
+    key: string,
+  ): Promise<void> {
     const doc = this.doc;
     if (!doc) return;
-    slot.drawingAt = zoom;
+    slot.drawingFor = key;
     const seq = ++slot.seq;
     const generation = this.generation;
     const stale = (): boolean => generation !== this.generation || seq !== slot.seq;
@@ -643,7 +671,7 @@ export class PageColumn {
 
       const viewport = proxy.getViewport({
         scale: viewportScale(zoom),
-        rotation: (proxy.rotate + this.rotation) % 360,
+        rotation: (proxy.rotate + rotation) % 360,
       });
       const ratio = rasterRatio(
         slot.box,
@@ -694,9 +722,9 @@ export class PageColumn {
         this.callbacks.onTextLayer(slot.n);
       }
 
-      if (this.options.links) await this.drawLinks(slot, proxy, stale);
+      if (this.options.links) await this.drawLinks(slot, proxy, zoom, rotation, stale);
 
-      slot.drawnAt = zoom;
+      slot.drawnFor = key;
     } catch {
       // A cancelled render (scrolled away, rezoomed) or a page that will not
       // rasterize is not a dead document — the slot stays blank at the right
@@ -711,7 +739,7 @@ export class PageColumn {
       // text on it, and nothing to fix it until a scroll or a resize.
       if (!stale()) {
         slot.task = null;
-        slot.drawingAt = 0;
+        slot.drawingFor = '';
         slot.pending = null;
       }
     }
@@ -728,6 +756,8 @@ export class PageColumn {
   private async drawLinks(
     slot: PageSlot,
     proxy: Awaited<ReturnType<PDFDocumentProxy['getPage']>>,
+    zoom: number,
+    rotation: Rotation,
     stale: () => boolean,
   ): Promise<void> {
     const annotations = await proxy.getAnnotations({ intent: 'display' });
@@ -735,7 +765,7 @@ export class PageColumn {
     slot.links.replaceChildren();
 
     const base = this.geom.get(slot.n) ?? this.base;
-    const scale = viewportScale(this.zoom);
+    const scale = viewportScale(zoom);
     for (const annotation of annotations) {
       if (annotation.subtype !== 'Link') continue;
       const target: LinkTarget | null =
@@ -747,8 +777,8 @@ export class PageColumn {
       if (!target) continue;
 
       const [x1, y1, x2, y2] = annotation.rect as [number, number, number, number];
-      const a = pointOnPage(base, this.rotation, { x: x1, y: y1 }, scale);
-      const b = pointOnPage(base, this.rotation, { x: x2, y: y2 }, scale);
+      const a = pointOnPage(base, rotation, { x: x1, y: y1 }, scale);
+      const b = pointOnPage(base, rotation, { x: x2, y: y2 }, scale);
 
       const element = document.createElement('a');
       element.className = 'page-link';
@@ -786,8 +816,8 @@ export class PageColumn {
     slot.task?.cancel();
     slot.task = null;
     slot.pending = null;
-    slot.drawnAt = 0;
-    slot.drawingAt = 0;
+    slot.drawnFor = '';
+    slot.drawingFor = '';
     slot.canvas.width = 0;
     slot.canvas.height = 0;
     if (!(options.sparingSelection === true && holdsSelection(slot.text))) {
