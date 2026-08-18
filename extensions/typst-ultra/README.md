@@ -111,17 +111,6 @@ which is a departure from the other Rust-backed extensions in this repo: a cold
 compile blocks for up to 262 ms, the WASM heap is never returned to the OS, and
 a compiler panic would otherwise take down every extension in the window.
 
-### Building
-
-```sh
-pnpm run build:wasm    # cargo + wasm-pack → wasm/  (~19 MB, one artifact)
-pnpm run build:fonts   # typst's default font set → assets/fonts/  (9.2 MB)
-pnpm run build         # tsdown → dist/ (host, server, webview)
-pnpm test              # vitest
-cargo test             # the engine, natively, with no WASM toolchain needed
-```
-
-`pnpm run package` does all of it and produces the VSIX.
 
 ## What it deliberately does not do
 
@@ -131,9 +120,6 @@ preview. [tinymist](https://github.com/Myriad-Dreamin/tinymist) does all of
 those and does them well; it also maintains a patched fork of the typst compiler
 and ships a per-platform binary. This is the ~20% of the surface that covers
 ~95% of daily editing, on a maintenance base that stays cheap.
-
-The full reasoning, including every measurement behind these choices, lives in
-the repository under `docs/rfc/010-typst-ultra/`.
 
 ## License
 
