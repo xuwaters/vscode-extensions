@@ -13,13 +13,16 @@
 //!   `2..6 Strong`. LSP tokens may not overlap, so we tag leaves with the
 //!   innermost tag on their ancestor chain.
 //! * **Tokens may not span lines.** A raw block does, so it is split.
+//! * **A language-tagged raw block is not ours to colour.** ```` ```rust ````
+//!   is handed to rust's TextMate grammar, and semantic tokens outrank grammar
+//!   scopes — so the body is deliberately left untagged (decision 0013).
 
 use lsp_types::{
     SemanticToken, SemanticTokenType, SemanticTokens, SemanticTokensDelta,
     SemanticTokensDeltaParams, SemanticTokensEdit, SemanticTokensFullDeltaResult,
     SemanticTokensLegend, SemanticTokensParams, SemanticTokensResult,
 };
-use typst::syntax::{LinkedNode, Source, Tag, highlight};
+use typst::syntax::{LinkedNode, Source, SyntaxKind, Tag, highlight};
 
 use crate::settings::SemanticTokensMode;
 use crate::{Ports, Server};
@@ -189,6 +192,24 @@ fn collect(
     // heading is bold rather than heading-coloured.
     let tag = highlight(node).or(inherited);
 
+    // ```rust … ``` belongs to rust's TextMate grammar, which the extension
+    // wires up through `contributes.grammars` (decision 0013). Semantic tokens
+    // win over grammar scopes in VSCode, so a flat `raw` over the body would
+    // erase that colouring entirely — the body is left untagged on purpose, and
+    // only the fence and the language tag stay ours. An untagged block has no
+    // embedded grammar to defer to and is coloured here as before.
+    if node.kind() == SyntaxKind::Raw && has_language_tag(node) {
+        for child in node.children() {
+            if matches!(child.kind(), SyntaxKind::RawDelim | SyntaxKind::RawLang) {
+                let range = child.range();
+                if !range.is_empty() {
+                    push_split_by_line(range, token_index(Tag::Raw), source, out);
+                }
+            }
+        }
+        return;
+    }
+
     if node.children().len() == 0 {
         let range = node.range();
         if range.is_empty() {
@@ -203,6 +224,12 @@ fn collect(
     for child in node.children() {
         collect(&child, tag, source, out);
     }
+}
+
+/// Whether a `Raw` node names a language — ```` ```rust ```` rather than
+/// ```` ``` ````. Only a tagged block has a grammar to defer to.
+fn has_language_tag(node: &LinkedNode) -> bool {
+    node.children().any(|child| child.kind() == SyntaxKind::RawLang)
 }
 
 /// LSP tokens may not span lines, so a multi-line leaf (a raw block, a block
@@ -382,6 +409,28 @@ mod tests {
             raw_lines.windows(2).all(|pair| pair[0] != pair[1] || pair.is_empty()),
             "each line should carry its own token"
         );
+    }
+
+    /// The body of ```` ```rust ```` has to come back with no token at all, or
+    /// the `raw` colour would sit on top of what rust's grammar painted. The
+    /// fence and the tag still do, so a tagged block reads like an untagged one
+    /// at its edges.
+    #[test]
+    fn a_language_tagged_raw_block_leaves_its_body_to_the_grammar() {
+        let source = Source::detached("```rust\nfn main() {}\n```\n");
+        let tokens = absolute(&source);
+
+        assert!(
+            !tokens.iter().any(|token| token.line == 1),
+            "the body line carries a semantic token: {tokens:?}"
+        );
+
+        let fence: Vec<u32> = tokens
+            .iter()
+            .filter(|token| type_name(token.token_type) == "raw")
+            .map(|token| token.line)
+            .collect();
+        assert_eq!(fence, vec![0, 0, 2], "opening fence, tag, closing fence");
     }
 
     #[test]

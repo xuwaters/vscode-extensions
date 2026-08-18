@@ -10,6 +10,10 @@ examples/
 # (typst-ultra). The bundle lands in dist/server.js like every other entry.
 server/
 **/*.test.ts
+# Build-time scripts and the tables they read — for extensions that generate
+# part of what they ship, such as typst-ultra's embedded-language grammar. The
+# generated file ships; what expands into it does not.
+scripts/
 
 # Build configuration.
 tsconfig.json

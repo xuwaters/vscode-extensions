@@ -203,6 +203,10 @@ Two things the implementation had to work out, neither obvious from upstream's s
   `2..6 Strong`; LSP tokens may not overlap. Resolved by tagging **leaves only**, carrying the innermost
   tag from the ancestor chain — so bold text inside a heading is bold, not heading-coloured.
 - **A token may not span lines**, which a raw block or block comment does. Those are split per line.
+- **A language-tagged raw block is not ours to colour.** ` ```rust ` is handed to rust's TextMate grammar,
+  and semantic tokens outrank grammar scopes — so `Tag::Raw` is emitted for the fence and the language tag
+  only, and the body is deliberately left untagged. An untagged block has no grammar to defer to and is
+  coloured here as before. See [decision 0013](../decisions/0013-embedded-raw-languages.md).
 
 And one trap worth naming: the token cache holds what the **client** has, so `didChange` must *not* clear
 it. Clearing it turns every delta request into a full resend and silently deletes the feature. Caught by

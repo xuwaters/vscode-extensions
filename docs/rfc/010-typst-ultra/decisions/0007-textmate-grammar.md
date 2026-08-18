@@ -1,8 +1,15 @@
 # 0007 — Minimal TextMate grammar; semantic tokens do the real work
 
-**Status**: Accepted
+**Status**: Accepted, amended by [0013](0013-embedded-raw-languages.md)
 **Date**: 2026-08-17
 **Resolves**: OQ 1
+
+> **Amendment (2026-08-18).** Everything below still holds for typst's own syntax — the grammar stays
+> minimal and semantic tokens do the colouring. The exception is a raw block that names a language:
+> `` ```rust `` is handed to rust's grammar, the server emits no semantic token over its body, and the
+> rule set for that is generated from a table. So "no grammar-generation build step" now has an asterisk,
+> for the one construct where a regex approximation was never the alternative — the alternative was no
+> colouring at all. See [0013](0013-embedded-raw-languages.md).
 
 ## Context
 

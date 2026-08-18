@@ -14,12 +14,13 @@ without reading the whole RFC or digging through chat logs.
 | [0004](0004-bundle-default-fonts.md) | Bundle typst's default fonts as VSIX assets | Accepted, amended by 0012 | OQ 5 |
 | [0005](0005-cache-eviction-policy.md) | Compile then evict; default eviction age `1` | Accepted | OQ 4 |
 | [0006](0006-preview-rendering.md) | Per-page SVG preview; PNG as a low-memory mode | Accepted | OQ 2 |
-| [0007](0007-textmate-grammar.md) | Minimal TextMate grammar; semantic tokens do the real work | Accepted | OQ 1 |
+| [0007](0007-textmate-grammar.md) | Minimal TextMate grammar; semantic tokens do the real work | Accepted, amended by 0013 | OQ 1 |
 | [0008](0008-compile-root.md) | Follow the focused file by default; pin a main file for projects | Accepted | OQ 6 |
 | [0009](0009-file-extensions.md) | Claim `.typ` and `.typc` under one language id | Accepted | OQ 8 |
 | [0010](0010-naming.md) | `typst-ultra`, four crates under `crates/typst/` | Accepted | OQ 7 |
 | [0011](0011-bibtex-support.md) | Speak BibTeX in the same server, with our own parser | Accepted | — |
 | [0012](0012-fonts-in-a-companion-extension.md) | Ship the bundled fonts in a companion extension | Accepted | — |
+| [0013](0013-embedded-raw-languages.md) | Colour ```` ```rust ```` with rust's own grammar, from a generated table | Accepted | — |
 
 "OQ n" refers to the numbered open questions in [proposal.md §11](../proposal.md#11-open-questions), which
 now points here rather than restating the answers.

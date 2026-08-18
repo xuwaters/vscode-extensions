@@ -2,11 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "Typst",
   "scopeName": "source.typst",
-  "_comment": "Deliberately minimal. This grammar only has to make a file look like Typst in the moments before semantic tokens arrive, and in themes or contexts where they do not. The real colouring comes from the actual parser via textDocument/semanticTokens — see decisions/0007.",
+  "_comment": "Deliberately minimal. This grammar only has to make a file look like Typst in the moments before semantic tokens arrive, and in themes or contexts where they do not. The real colouring comes from the actual parser via textDocument/semanticTokens — see decisions/0007. The one permanent exception is a raw block with a language tag: `source.typst.embedded` hands those to the language's own grammar, and the server emits no semantic tokens over them so nothing paints on top — see decisions/0013.",
   "patterns": [
     { "include": "#comment" },
     { "include": "#heading" },
     { "include": "#math" },
+    { "include": "source.typst.embedded" },
     { "include": "#raw-block" },
     { "include": "#raw-inline" },
     { "include": "#label" },
@@ -54,14 +55,16 @@
       ]
     },
     "raw-block": {
+      "_comment": "A raw block whose language tag matched nothing in `source.typst.embedded`, which is tried first — or one with no tag at all. The fence closes with the run of backticks that opened it, hence the back-reference.",
       "name": "markup.raw.block.typst",
-      "begin": "```",
-      "end": "```",
+      "begin": "(`{3,})([\\w+#-]*)",
+      "end": "(\\1)",
       "beginCaptures": {
-        "0": { "name": "punctuation.definition.raw.typst" }
+        "1": { "name": "punctuation.definition.raw.typst" },
+        "2": { "name": "fenced_code.block.language.typst" }
       },
       "endCaptures": {
-        "0": { "name": "punctuation.definition.raw.typst" }
+        "1": { "name": "punctuation.definition.raw.typst" }
       }
     },
     "raw-inline": {

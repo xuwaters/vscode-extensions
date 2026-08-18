@@ -56,6 +56,23 @@ before: whole-document scaffolds (`article`, `report`, `book`, `letter`,
 Every one is compiled by the real typst in the test suite, so a snippet cannot
 ship broken.
 
+**Code in your document, in its own colours** — a raw block that names a
+language is coloured by that language's grammar, the same one the rest of your
+editor uses:
+
+````typst
+```rust
+fn main() { println!("hi"); }
+```
+````
+
+73 languages and 149 tags, aliases included, so `` ```rs ``, `` ```c++ `` and
+`` ```Python `` all land. The block is a real embedded region, not just paint:
+`Cmd/Ctrl+/` inside it comments the way that language comments. Tags nothing
+recognises stay raw-coloured as before, and a handful of languages VS Code does
+not bundle a grammar for — `toml`, `kotlin`, `zig`, `wgsl`, `proto` — light up
+as soon as an extension for them is installed.
+
 **Export** to PDF, SVG, PNG, and HTML, all in-process — from the title-bar
 button, the preview's own toolbar, or the palette. The save dialog opens on the
 document's own folder, so exporting next to the source is one keystroke.
@@ -209,6 +226,14 @@ The server runs as a child process rather than inside the extension host,
 which is a departure from the other Rust-backed extensions in this repo: a cold
 compile blocks for up to 262 ms, the WASM heap is never returned to the OS, and
 a compiler panic would otherwise take down every extension in the window.
+
+The TextMate grammar is deliberately minimal — it only has to make a file look
+like Typst in the moments before the first semantic-token response (decision
+0007). Embedded raw blocks are the one part of it that does real work, and the
+one part that is generated: `scripts/embedded/languages.json` is the table of
+languages, `pnpm run build:grammar` expands it into
+`syntaxes/typst-embedded.tmLanguage.json` and into the `embeddedLanguages` map
+in `package.json`, and the test suite fails if either is stale (decision 0013).
 
 It ships as two packages. This one is 10.4 MB, almost all of it the WASM
 artifact, which moves whenever the Rust does. The fonts are another 6.4 MB that
