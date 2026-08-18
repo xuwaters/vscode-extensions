@@ -85,11 +85,43 @@ describe('the chrome, once a document is open', () => {
     expect(must('.count').textContent).toContain('12');
   });
 
-  it('disables the back button on the first page and forward on the last', async () => {
-    expect(must<HTMLButtonElement>('.chrome .btn:nth-of-type(2)').disabled).toBe(true);
+  it('disables the previous-page button on the first page and next on the last', async () => {
+    expect(must<HTMLButtonElement>('[aria-label="Previous page"]').disabled).toBe(true);
     viewer.page = 12;
     await Updates.next();
-    expect(must<HTMLButtonElement>('.chrome .btn:nth-of-type(3)').disabled).toBe(true);
+    expect(must<HTMLButtonElement>('[aria-label="Next page"]').disabled).toBe(true);
+  });
+
+  it('offers nothing to go back to until something has jumped', () => {
+    expect(must<HTMLButtonElement>('[aria-label="Go back"]').disabled).toBe(true);
+  });
+
+  /**
+   * The page box is a jump — the reader named somewhere rather than scrolled
+   * there — so it is a move the button can undo, and it comes back to the spot
+   * they left rather than to the top of the page.
+   */
+  it('goes back to where a jump started, and then has nowhere left to go', async () => {
+    viewer.page = 4;
+    const field = must<HTMLInputElement>('.field-input');
+    field.value = '9';
+    field.dispatchEvent(new Event('change'));
+    await Updates.next();
+    expect(viewer.page).toBe(9);
+
+    const back = must<HTMLButtonElement>('[aria-label="Go back"]');
+    expect(back.disabled).toBe(false);
+    back.click();
+    await Updates.next();
+    expect(viewer.page).toBe(4);
+    expect(field.value).toBe('4');
+    expect(must<HTMLButtonElement>('[aria-label="Go back"]').disabled).toBe(true);
+  });
+
+  it('leaves a page turn out of the history: that is what the arrows are', async () => {
+    viewer.goToPage(5);
+    await Updates.next();
+    expect(must<HTMLButtonElement>('[aria-label="Go back"]').disabled).toBe(true);
   });
 
   it('marks the fit in effect as pressed', async () => {

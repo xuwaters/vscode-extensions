@@ -81,6 +81,8 @@ export type ViewerCommand =
   | 'nextPage'
   | 'previousPage'
   | 'goToPage'
+  /** Back to where the last jump — a link, an outline entry — started. */
+  | 'goBack'
   | 'zoomIn'
   | 'zoomOut'
   | 'zoomReset'
@@ -101,6 +103,7 @@ export const VIEWER_COMMANDS: readonly ViewerCommand[] = [
   'nextPage',
   'previousPage',
   'goToPage',
+  'goBack',
   'zoomIn',
   'zoomOut',
   'zoomReset',

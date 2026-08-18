@@ -31,6 +31,7 @@ export function activate(context: vscode.ExtensionContext): void {
     command('nextPage', () => provider.run('nextPage')),
     command('previousPage', () => provider.run('previousPage')),
     command('goToPage', () => provider.goToPage()),
+    command('goBack', () => provider.run('goBack')),
 
     command('zoomIn', () => provider.run('zoomIn')),
     command('zoomOut', () => provider.run('zoomOut')),

@@ -105,6 +105,25 @@ const chromeTemplate = html<PdfViewer>`
 
     <button
       class="btn"
+      title="Back to where you jumped from"
+      aria-label="Go back"
+      ?disabled="${(x) => !x.history.canGoBack}"
+      @click="${(x) => x.goBack()}"
+    >
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path
+          d="M13 8H3M7 4L3 8l4 4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+
+    <button
+      class="btn"
       title="Previous page"
       aria-label="Previous page"
       ?disabled="${(x) => x.page <= 1}"

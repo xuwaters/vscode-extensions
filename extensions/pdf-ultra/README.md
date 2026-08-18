@@ -20,6 +20,8 @@ CDN, no web fonts, no telemetry, no remote origin of any kind.
 - Outline sidebar, collapsible and resizable, that follows where you are
 - Link annotations work: internal ones jump within the document, external ones
   are handed to the host — the page itself never navigates
+- Go back from a jump: follow a link, an outline entry, or a page you typed, and
+  the toolbar's ← returns you to the exact spot you left, as far back as you went
 - Zoom by step, by typed percentage (`150`, `150%`, `1.5x` all read the same),
   by `Alt`-wheel about the pointer, fit-width, fit-height, fit-page, or 100%
 - One column or two pages side by side, both continuous — and one page at a
@@ -64,6 +66,7 @@ point the association elsewhere:
 | --- | --- |
 | Find in Document | `Cmd/Ctrl+F` |
 | Go to Page… | `Cmd/Ctrl+G` |
+| Go Back | `Cmd+[` / `Alt+←` |
 | Zoom In / Out / 100% | `Cmd/Ctrl+=` / `Cmd/Ctrl+-` / `Cmd/Ctrl+0` |
 | Fit Width / Fit Height | `Cmd/Ctrl+9` / `Cmd/Ctrl+8` |
 | One Column / Two Columns, both continuous | `Cmd/Ctrl+1` / `Cmd/Ctrl+2` |

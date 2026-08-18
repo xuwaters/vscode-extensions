@@ -19,6 +19,7 @@ import { formatZoomPercent, parseZoomPercent } from '../model/zoom.js';
 import { resolveDestination } from '../render/destinations.js';
 import { PageColumn, type LinkTarget } from '../render/pageColumn.js';
 import { bootWorker, documentParams, pdfjs } from '../render/pdfjs.js';
+import { JumpHistory } from './jumpHistory.js';
 import { OutlineState } from './outlineState.js';
 import { Search } from './search.js';
 import sheet from './styles.css';
@@ -98,12 +99,14 @@ export class PdfViewer extends FASTElement {
   @observable outlineWidth = 240;
 
   /**
-   * The two controllers the chrome binds through. Both are constant
-   * references holding observables of their own, so a template that reads
+   * The controllers the chrome binds through. All are constant references
+   * holding observables of their own, so a template that reads
    * `x.outline.shown` or `x.search.label` tracks the observable it actually
    * read — see `outlineState.ts` on why that matters for the twisty.
    */
   readonly outline = new OutlineState();
+  /** Where each jump came from, so the toolbar can undo one. */
+  readonly history = new JumpHistory();
   readonly search = new Search({
     column: () => this.column,
     pageCount: () => this.pageCount,
@@ -229,7 +232,10 @@ export class PdfViewer extends FASTElement {
         this.goToPage(this.page - 1);
         break;
       case 'goToPage':
-        if (page !== undefined) this.goToPage(page);
+        if (page !== undefined) this.jumpToPage(page);
+        break;
+      case 'goBack':
+        this.goBack();
         break;
       case 'zoomIn':
         this.zoomBy(1);
@@ -369,8 +375,10 @@ export class PdfViewer extends FASTElement {
     const previous = this.doc;
     this.doc = doc;
     this.pageCount = doc.numPages;
-    // A new document has nothing to do with the last one's results.
+    // A new document has nothing to do with the last one's results, and the
+    // places it was jumped from describe pages that are no longer there.
     this.search.reset();
+    this.history.clear();
     this.state = 'ready';
 
     // The `ready` branch of the template mounts on the next update — the page
@@ -654,6 +662,38 @@ export class PdfViewer extends FASTElement {
     if (options.report !== false) this.reportPlace();
   }
 
+  /**
+   * Go to a page the way the page box and the palette do: as a jump, which is
+   * something the reader can come back from. Turning the page is not one —
+   * a back button that undid a single page turn would be the previous-page
+   * button with a longer name.
+   */
+  jumpToPage(page: number): void {
+    this.recordJump();
+    this.goToPage(page);
+  }
+
+  /** Remember where the reader stands, before something takes them away. */
+  private recordJump(): void {
+    this.history.push({ page: this.page, offsetRatio: this.column?.offset ?? 0 });
+  }
+
+  /**
+   * Undo the last jump.
+   *
+   * Back to the exact spot, not to the top of the page it was on: a footnote
+   * link followed from halfway down a page has to come back to the sentence it
+   * was in, or the button has lost the reader's place while claiming to keep it.
+   */
+  goBack(): void {
+    const at = this.history.pop();
+    if (!at) return;
+    this.page = Math.min(at.page, Math.max(1, this.pageCount));
+    this.showPage();
+    this.column?.revealRatio(this.page, at.offsetRatio);
+    this.reportPlace();
+  }
+
   private onPageChanged(page: number): void {
     this.page = page;
     // Not while the reader is typing in it: following the scroll would rewrite
@@ -695,7 +735,7 @@ export class PdfViewer extends FASTElement {
   onPageEntered(event: Event): void {
     const text = (event.target as HTMLInputElement).value.trim();
     const value = Number(text);
-    if (text !== '' && Number.isFinite(value)) this.goToPage(value);
+    if (text !== '' && Number.isFinite(value)) this.jumpToPage(value);
     else this.showPage();
   }
 
@@ -847,7 +887,11 @@ export class PdfViewer extends FASTElement {
     const doc = this.doc;
     if (!doc) return;
     const at = await resolveDestination(doc, dest);
+    // Recorded only once the destination is known to be somewhere: a link into
+    // a page that is not there leaves the reader where they are, and a back
+    // step that goes nowhere is worse than no back step.
     if (!at) return;
+    this.recordJump();
     this.page = at.page;
     this.showPage();
     this.column?.revealPoint(at.page, at.point);

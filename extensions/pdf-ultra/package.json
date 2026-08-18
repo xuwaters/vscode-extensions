@@ -2,7 +2,7 @@
   "name": "wx-vsce-pdf-ultra",
   "displayName": "PDF Ultra",
   "description": "PDF viewer as a native custom editor — continuous virtualized pages on pdf.js, selectable text, find-in-document, outline, zoom and fits, colour inversion, and live reload when the file is rebuilt",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -68,6 +68,12 @@
         "title": "Go to Page…",
         "category": "PDF Ultra",
         "icon": "$(go-to-file)"
+      },
+      {
+        "command": "pdfUltra.goBack",
+        "title": "Go Back",
+        "category": "PDF Ultra",
+        "icon": "$(arrow-left)"
       },
       {
         "command": "pdfUltra.zoomIn",
@@ -200,6 +206,10 @@
           "when": "pdfUltra.active"
         },
         {
+          "command": "pdfUltra.goBack",
+          "when": "pdfUltra.active"
+        },
+        {
           "command": "pdfUltra.zoomIn",
           "when": "pdfUltra.active"
         },
@@ -324,6 +334,12 @@
         "command": "pdfUltra.goToPage",
         "key": "ctrl+g",
         "mac": "cmd+g",
+        "when": "activeCustomEditorId == pdfUltra.editor"
+      },
+      {
+        "command": "pdfUltra.goBack",
+        "key": "alt+left",
+        "mac": "cmd+[",
         "when": "activeCustomEditorId == pdfUltra.editor"
       },
       {
