@@ -1,4 +1,4 @@
-import type { FitMode, Rotation } from '../../src/messages.js';
+import type { FitMode, PageMode, Rotation } from '../../src/messages.js';
 
 /**
  * The continuous viewer's layout arithmetic, kept pure and away from the
@@ -28,6 +28,11 @@ export const MAX_ZOOM = 10;
 export const ZOOM_STEPS: readonly number[] = [
   0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 3, 4, 6, 8, 10,
 ];
+
+/** How many pages a mode puts side by side. */
+export function columnsFor(mode: PageMode): number {
+  return mode === 'dual' ? 2 : 1;
+}
 
 /** A page's unrotated size, in PDF points. */
 export interface PageGeom {
@@ -63,14 +68,23 @@ export function rotated(geom: PageGeom, rotation: Rotation): PageGeom {
  * The zoom a fit resolves to for a scroller of this size. Fits measure against
  * the *content* box — the column's padding is part of the page's frame, not of
  * the page — and `actual` is the identity, which is what makes 100% mean 100%.
+ *
+ * `columns` is what a fit means in a two-page spread: the width is shared
+ * between the pages of a row and the gap between them, so fitting the width
+ * fits a *pair* of pages, not one page across the whole tab.
  */
 export function fitZoom(
   fit: FitMode,
   view: { w: number; h: number },
   base: PageGeom,
+  columns = 1,
 ): number {
   if (fit === 'actual') return 1;
-  const availW = Math.max(1, view.w - PAGE_PAD * 2);
+  const perRow = Math.max(1, Math.round(columns));
+  const availW = Math.max(
+    1,
+    (view.w - PAGE_PAD * 2 - PAGE_GAP * (perRow - 1)) / perRow,
+  );
   const availH = Math.max(1, view.h - PAGE_PAD * 2);
   const widthZoom = availW / (base.w * PX_PER_PT);
   const heightZoom = availH / (base.h * PX_PER_PT);
@@ -92,21 +106,33 @@ export function stepZoom(zoom: number, direction: 1 | -1): number {
 }
 
 /**
- * Stack the pages into one column: box sizes at `scale`, and the top edge of
- * each in the scroller's coordinate space.
+ * Stack the pages into rows of `columns`: box sizes at `scale`, and the top
+ * edge of each in the scroller's coordinate space.
+ *
+ * The pages of a row share a top, and the row is as tall as the tallest of
+ * them — so a short page next to a long one leaves the gap under it rather
+ * than dragging the row below up into it. Each box keeps its *own* height,
+ * which is what the visibility arithmetic wants: an empty strip beside a page
+ * is not that page being on screen.
  */
 export function stackPages(
   geoms: readonly PageGeom[],
   scale: number,
   rotation: Rotation = 0,
+  columns = 1,
 ): PageBox[] {
+  const perRow = Math.max(1, Math.round(columns));
   const boxes: PageBox[] = [];
   let top = PAGE_PAD;
-  for (const geom of geoms) {
-    const display = rotated(geom, rotation);
-    const h = Math.max(1, Math.round(display.h * scale));
-    boxes.push({ w: Math.max(1, Math.round(display.w * scale)), h, top });
-    top += h + PAGE_GAP;
+  for (let start = 0; start < geoms.length; start += perRow) {
+    let rowH = 1;
+    for (let at = start; at < Math.min(start + perRow, geoms.length); at += 1) {
+      const display = rotated(geoms[at]!, rotation);
+      const h = Math.max(1, Math.round(display.h * scale));
+      boxes.push({ w: Math.max(1, Math.round(display.w * scale)), h, top });
+      rowH = Math.max(rowH, h);
+    }
+    top += rowH + PAGE_GAP;
   }
   return boxes;
 }

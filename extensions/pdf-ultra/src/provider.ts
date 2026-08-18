@@ -121,7 +121,14 @@ export class PdfEditorProvider
     await session.reloadNow();
   }
 
-  /** Ask for a page number, then go there. */
+  /**
+   * Ask for a page number, then go there.
+   *
+   * A number past either end of the document is answered with that end rather
+   * than refused: someone typing 900 into a 300-page document is asking for
+   * the back of it, and the same is true of 0 and the front. Only text that is
+   * not a page number at all is rejected.
+   */
   async goToPage(): Promise<void> {
     const session = this.target();
     if (!session) return this.noDocument();
@@ -130,15 +137,15 @@ export class PdfEditorProvider
       title: 'PDF Ultra',
       prompt: count > 0 ? `Page number (1–${count})` : 'Page number',
       value: String(session.page ?? 1),
-      validateInput: (text) => {
-        const page = Number(text);
-        if (!Number.isInteger(page) || page < 1) return 'Enter a page number.';
-        if (count > 0 && page > count) return `This document has ${count} pages.`;
-        return undefined;
-      },
+      validateInput: (text) =>
+        Number.isInteger(Number(text.trim())) && text.trim() !== ''
+          ? undefined
+          : 'Enter a page number.',
     });
     if (answer === undefined) return;
-    session.command('goToPage', Number(answer));
+    const page = Number(answer.trim());
+    const last = count > 0 ? count : Number.MAX_SAFE_INTEGER;
+    session.command('goToPage', Math.min(Math.max(1, page), last));
     session.reveal();
   }
 

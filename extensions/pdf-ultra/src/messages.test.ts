@@ -83,6 +83,12 @@ describe('parsing a message from the webview', () => {
     });
   });
 
+  it('keeps a reader who left in a two-page spread in one', () => {
+    expect(
+      parseWebviewMessage({ type: 'place', place: { ...place, mode: 'dual' } }),
+    ).toMatchObject({ place: { mode: 'dual' } });
+  });
+
   it('does not take a page mode it does not recognise', () => {
     expect(
       parseWebviewMessage({ type: 'place', place: { ...place, mode: 'two-up' } }),

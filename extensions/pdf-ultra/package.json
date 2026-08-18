@@ -2,7 +2,7 @@
   "name": "wx-vsce-pdf-ultra",
   "displayName": "PDF Ultra",
   "description": "PDF viewer as a native custom editor — continuous virtualized pages on pdf.js, selectable text, find-in-document, outline, zoom and fits, colour inversion, and live reload when the file is rebuilt",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -113,9 +113,15 @@
       },
       {
         "command": "pdfUltra.continuousPages",
-        "title": "Continuous Pages",
+        "title": "Single Column, Continuous",
         "category": "PDF Ultra",
         "icon": "$(list-flat)"
+      },
+      {
+        "command": "pdfUltra.dualPages",
+        "title": "Two Columns, Continuous",
+        "category": "PDF Ultra",
+        "icon": "$(split-horizontal)"
       },
       {
         "command": "pdfUltra.rotateClockwise",
@@ -223,6 +229,10 @@
         },
         {
           "command": "pdfUltra.continuousPages",
+          "when": "pdfUltra.active"
+        },
+        {
+          "command": "pdfUltra.dualPages",
           "when": "pdfUltra.active"
         },
         {
@@ -365,13 +375,13 @@
         "when": "activeCustomEditorId == pdfUltra.editor"
       },
       {
-        "command": "pdfUltra.singlePage",
+        "command": "pdfUltra.continuousPages",
         "key": "ctrl+1",
         "mac": "cmd+1",
         "when": "activeCustomEditorId == pdfUltra.editor"
       },
       {
-        "command": "pdfUltra.continuousPages",
+        "command": "pdfUltra.dualPages",
         "key": "ctrl+2",
         "mac": "cmd+2",
         "when": "activeCustomEditorId == pdfUltra.editor"

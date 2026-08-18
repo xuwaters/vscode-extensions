@@ -116,6 +116,26 @@ describe('the chrome, once a document is open', () => {
     expect(viewer.page).toBe(5);
   });
 
+  /**
+   * Out of range names an end of the document rather than a mistake, so it
+   * goes there — the alternative is a box that silently rejects what was typed
+   * into it and puts the old number back.
+   */
+  it('clamps a page past either end of the document to that end', async () => {
+    const field = must<HTMLInputElement>('.field-input');
+    field.value = '0';
+    field.dispatchEvent(new Event('change'));
+    await Updates.next();
+    expect(viewer.page).toBe(1);
+    expect(field.value).toBe('1');
+
+    field.value = '200';
+    field.dispatchEvent(new Event('change'));
+    await Updates.next();
+    expect(viewer.page).toBe(12);
+    expect(field.value).toBe('12');
+  });
+
   it('ignores a page number that is not one, leaving the reader where they are', async () => {
     const field = must<HTMLInputElement>('.field-input');
     field.value = 'nonsense';

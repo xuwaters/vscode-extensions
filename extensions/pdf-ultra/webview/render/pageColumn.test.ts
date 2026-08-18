@@ -242,6 +242,49 @@ describe('a tab that is not in front', () => {
   });
 });
 
+describe('dual-column mode', () => {
+  it('groups the pages into rows of two', async () => {
+    const { host, column } = mount();
+    await opened(column, fakeDoc(5));
+    column.setMode('dual');
+    const rows = [...host.querySelectorAll<HTMLElement>('.spread')];
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.querySelectorAll('.page').length)).toEqual([2, 2, 1]);
+  });
+
+  it('lays the pages of a row out level with each other', async () => {
+    const { scroll, column } = mount();
+    await opened(column, fakeDoc(4));
+    column.setMode('dual');
+    column.goToPage(3);
+    // Page 4 sits beside page 3, so scrolling to either lands in the same place.
+    const beside = scroll.scrollTop;
+    column.goToPage(4);
+    expect(scroll.scrollTop).toBe(beside);
+  });
+
+  it('puts the pages back in one column when it leaves', async () => {
+    const { host, column } = mount();
+    await opened(column, fakeDoc(4));
+    column.setMode('dual');
+    column.setMode('continuous');
+    expect(host.querySelectorAll('.spread')).toHaveLength(0);
+    const children = [...host.children];
+    expect(children).toHaveLength(4);
+    expect(children.every((child) => child.classList.contains('page'))).toBe(true);
+  });
+
+  it('keeps the reader on the page they were on across the switch', async () => {
+    const { column } = mount();
+    await opened(column, fakeDoc(8));
+    column.goToPage(5);
+    column.setMode('dual');
+    expect(column.page).toBe(5);
+    column.setMode('continuous');
+    expect(column.page).toBe(5);
+  });
+});
+
 describe('single-page mode', () => {
   it('takes every page but the current one out of the flow', async () => {
     const { host, column } = mount();

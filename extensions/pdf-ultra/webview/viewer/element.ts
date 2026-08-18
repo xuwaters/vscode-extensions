@@ -13,7 +13,7 @@ import type {
   WebviewToHost,
 } from '../../src/messages.js';
 import { ChunkBuffer } from '../model/chunks.js';
-import { clampZoom, fitZoom, stepZoom } from '../model/layout.js';
+import { clampZoom, columnsFor, fitZoom, stepZoom } from '../model/layout.js';
 import type { OutlineRow, RawOutlineItem } from '../model/outline.js';
 import { formatZoomPercent, parseZoomPercent } from '../model/zoom.js';
 import { resolveDestination } from '../render/destinations.js';
@@ -254,6 +254,9 @@ export class PdfViewer extends FASTElement {
         break;
       case 'continuousPages':
         this.applyPageMode('continuous');
+        break;
+      case 'dualPages':
+        this.applyPageMode('dual');
         break;
       case 'rotateClockwise':
         this.rotateBy(1);
@@ -548,7 +551,10 @@ export class PdfViewer extends FASTElement {
     if (!column) return;
     const view = column.viewSize;
     if (this.fit !== 'actual' && (view.w === 0 || view.h === 0)) return;
-    const zoom = this.fit === 'actual' ? this.zoom : fitZoom(this.fit, view, column.baseGeom);
+    const zoom =
+      this.fit === 'actual'
+        ? this.zoom
+        : fitZoom(this.fit, view, column.baseGeom, columnsFor(this.mode));
     this.zoom = zoom;
     this.showZoom();
     column.setView(zoom, this.rotation);
@@ -561,13 +567,15 @@ export class PdfViewer extends FASTElement {
     this.reportPlace();
   }
 
-  /** Continuous scrolling, or one page at a time. */
+  /** One column, two columns side by side, or one page at a time. */
   applyPageMode(mode: PageMode): void {
     if (this.mode === mode) return;
     this.mode = mode;
     this.column?.setMode(mode);
-    // A fit is the same number either way, but the column has restacked and
+    // A fit is measured per column, so the same fit is a different zoom in a
+    // spread than it is in a single column — and the column has restacked, so
     // the page the reader is on may have changed with it.
+    this.applyZoom();
     this.page = this.column?.page ?? this.page;
     this.showPage();
     this.reportPlace();
@@ -575,6 +583,11 @@ export class PdfViewer extends FASTElement {
 
   togglePageMode(): void {
     this.applyPageMode(this.mode === 'single' ? 'continuous' : 'single');
+  }
+
+  /** The toolbar's spread toggle: two pages side by side, or back to one. */
+  toggleDualMode(): void {
+    this.applyPageMode(this.mode === 'dual' ? 'continuous' : 'dual');
   }
 
   zoomBy(direction: 1 | -1): void {
@@ -671,9 +684,18 @@ export class PdfViewer extends FASTElement {
     if (this.zoomInput) this.zoomInput.value = this.zoomField;
   }
 
+  /**
+   * A page number typed into the box.
+   *
+   * Out of range is not a typo: 0 and 900 in a 300-page document both name an
+   * end of it, so they go there rather than being thrown away — {@link goToPage}
+   * clamps. Only text that is not a number at all leaves the reader where they
+   * are, with the box put back to the page they are on.
+   */
   onPageEntered(event: Event): void {
-    const value = Number((event.target as HTMLInputElement).value.trim());
-    if (Number.isInteger(value) && value >= 1) this.goToPage(value);
+    const text = (event.target as HTMLInputElement).value.trim();
+    const value = Number(text);
+    if (text !== '' && Number.isFinite(value)) this.goToPage(value);
     else this.showPage();
   }
 

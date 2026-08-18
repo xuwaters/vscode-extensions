@@ -294,6 +294,23 @@
 }
 
 /*
+ * A row of two pages, in dual-column mode. The column's own gap still separates
+ * one row from the next, so this only owns the gap *within* a spread — which is
+ * why it is the same 16 the model stacks rows by.
+ *
+ * `flex-start` so a short page sits level with the top of the one beside it
+ * rather than floating in the middle of the row, which is where the layout
+ * model puts it too.
+ */
+.spread {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: safe center;
+  gap: 16px;
+}
+
+/*
  * Each page keeps its box whether or not it currently holds a raster — that is
  * what lets the scrollbar describe the whole document while only the visible
  * band is rendered.

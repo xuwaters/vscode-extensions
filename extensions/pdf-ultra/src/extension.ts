@@ -41,6 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     command('singlePage', () => provider.run('singlePage')),
     command('continuousPages', () => provider.run('continuousPages')),
+    command('dualPages', () => provider.run('dualPages')),
 
     command('rotateClockwise', () => provider.run('rotateClockwise')),
     command('rotateCounterclockwise', () => provider.run('rotateCounterclockwise')),

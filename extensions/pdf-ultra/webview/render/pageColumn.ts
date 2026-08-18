@@ -3,6 +3,7 @@ import type { PageMode, Rotation } from '../../src/messages.js';
 import type { PageItem } from '../model/find.js';
 import {
   anchorAt,
+  columnsFor,
   currentPage,
   isWithinBand,
   offsetRatio,
@@ -204,7 +205,6 @@ export class PageColumn {
     this.base = { w: view.width, h: view.height };
     this.geom.set(1, { ...this.base });
 
-    const fragment = document.createDocumentFragment();
     const slots: PageSlot[] = [];
     for (let n = 1; n <= doc.numPages; n += 1) {
       const el = document.createElement('div');
@@ -227,7 +227,6 @@ export class PageColumn {
       number.textContent = String(n);
 
       el.append(canvas, text, links, number);
-      fragment.append(el);
       slots.push({
         n,
         el,
@@ -243,9 +242,37 @@ export class PageColumn {
         seq: 0,
       });
     }
-    this.host.replaceChildren(fragment);
     this.slots = slots;
+    this.applyFlow();
     this.laidOutFor = '';
+  }
+
+  /**
+   * Put the slots into the shape the mode asks for.
+   *
+   * One page per row is the column's own flow, so the slots are its children
+   * directly; a spread pairs them inside a `.spread` row, which is what keeps
+   * the vertical rhythm — the column's gap between rows — while the row itself
+   * owns the gap between the two pages of a pair.
+   *
+   * Reparenting a slot does not disturb it: a canvas carries its bitmap with
+   * it, so a mode switch at the same zoom rearranges what is already drawn
+   * rather than rasterizing the visible band again.
+   */
+  private applyFlow(): void {
+    const fragment = document.createDocumentFragment();
+    if (this.mode === 'dual') {
+      const perRow = columnsFor(this.mode);
+      for (let at = 0; at < this.slots.length; at += perRow) {
+        const row = document.createElement('div');
+        row.className = 'spread';
+        for (const slot of this.slots.slice(at, at + perRow)) row.append(slot.el);
+        fragment.append(row);
+      }
+    } else {
+      for (const slot of this.slots) fragment.append(slot.el);
+    }
+    this.host.replaceChildren(fragment);
   }
 
   /**
@@ -262,14 +289,15 @@ export class PageColumn {
     this.relayout();
   }
 
-  /** Continuous scrolling, or one page at a time. */
+  /** One column, two columns side by side, or one page at a time. */
   setMode(mode: PageMode): void {
     if (mode === this.mode) return;
     // Whichever page the reader was on is the one single mode opens on, and
-    // the one continuous mode scrolls back to.
+    // the one the others scroll back to.
     const was = this.page;
     this.mode = mode;
     this.single = clamp(was, 1, Math.max(1, this.slots.length));
+    this.applyFlow();
     this.relayout({ force: true });
     if (mode === 'single') {
       this.scroll.scrollTop = 0;
@@ -299,13 +327,7 @@ export class PageColumn {
     const anchor = this.slots[anchorIndex]!;
     const within = offsetRatio(anchor.box, this.scroll.scrollTop);
 
-    const geoms = this.slots.map((slot) => this.geom.get(slot.n) ?? this.base);
-    const scale = viewportScale(this.zoom);
-    const boxes =
-      this.mode === 'single'
-        ? stackSingle(geoms, this.single - 1, scale, this.rotation)
-        : stackPages(geoms, scale, this.rotation);
-
+    const boxes = this.computeBoxes();
     this.slots.forEach((slot, index) => {
       const box = boxes[index]!;
       slot.box = box;
@@ -324,6 +346,42 @@ export class PageColumn {
     });
     this.scroll.scrollTop = scrollTopAt(this.slots[anchorIndex]!.box, within);
     this.syncViewport();
+  }
+
+  /** Every slot's box at the current zoom, rotation and mode. */
+  private computeBoxes(): PageBox[] {
+    const geoms = this.slots.map((slot) => this.geom.get(slot.n) ?? this.base);
+    const scale = viewportScale(this.zoom);
+    return this.mode === 'single'
+      ? stackSingle(geoms, this.single - 1, scale, this.rotation)
+      : stackPages(geoms, scale, this.rotation, columnsFor(this.mode));
+  }
+
+  /**
+   * Restack after a page turned out not to be the size it was assumed to be,
+   * holding the page the reader is looking at where it is on screen.
+   *
+   * The correction can move any number of boxes — in a spread it can move the
+   * page beside it as well as everything below — so the compensation is read
+   * off the anchor page rather than computed from one page's delta: if the
+   * anchor moved, the scroll moves with it, and if it did not, the reader is
+   * already where they should be.
+   */
+  private restack(): void {
+    const boxes = this.computeBoxes();
+    const anchorIndex = Math.min(this.page, this.slots.length) - 1;
+    const before = this.slots[anchorIndex]?.box.top ?? 0;
+    this.slots.forEach((slot, index) => {
+      const box = boxes[index]!;
+      if (box.w === slot.box.w && box.h === slot.box.h && box.top === slot.box.top) {
+        return;
+      }
+      slot.box = box;
+      slot.el.style.width = `${box.w}px`;
+      slot.el.style.height = `${box.h}px`;
+    });
+    const after = this.slots[anchorIndex]?.box.top ?? 0;
+    if (after !== before) this.scroll.scrollTop += after - before;
   }
 
   /**
@@ -721,35 +779,16 @@ export class PageColumn {
 
   /**
    * A page turned out not to be page 1's size. Correct its box and slide the
-   * pages below it, compensating the scroll position when the correction lands
-   * above the viewport so the reader does not jump.
+   * pages below it, without moving what the reader is looking at.
    */
   private noteGeometry(slot: PageSlot, w: number, h: number): void {
     const previous = this.geom.get(slot.n);
     if (previous && previous.w === w && previous.h === h) return;
     this.geom.set(slot.n, { w, h });
-    // Single mode has one page in the flow, so there is nothing below it to
-    // slide and no scroll position to compensate — only its own box to correct.
+    // Single mode has one page in the flow: a correction to any other one is
+    // recorded for when that page comes forward, and changes nothing now.
     if (this.mode === 'single' && slot.n !== this.single) return;
-
-    const scale = viewportScale(this.zoom);
-    const display =
-      this.rotation === 90 || this.rotation === 270 ? { w: h, h: w } : { w, h };
-    const nextW = Math.max(1, Math.round(display.w * scale));
-    const nextH = Math.max(1, Math.round(display.h * scale));
-    if (nextW === slot.box.w && nextH === slot.box.h) return;
-
-    const delta = nextH - slot.box.h;
-    slot.box = { ...slot.box, w: nextW, h: nextH };
-    slot.el.style.width = `${nextW}px`;
-    slot.el.style.height = `${nextH}px`;
-    if (delta === 0 || this.mode === 'single') return;
-    for (const other of this.slots) {
-      if (other.n > slot.n) other.box = { ...other.box, top: other.box.top + delta };
-    }
-    if (slot.box.top + slot.box.h <= this.scroll.scrollTop) {
-      this.scroll.scrollTop += delta;
-    }
+    this.restack();
   }
 
   private teardown(): void {

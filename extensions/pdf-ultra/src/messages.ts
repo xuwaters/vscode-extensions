@@ -19,13 +19,15 @@
 export type FitMode = 'fit-width' | 'fit-page' | 'fit-height' | 'actual';
 
 /**
- * Whether the column scrolls continuously or shows one page at a time.
+ * How the pages are laid out down the column.
  *
- * `single` is not a different renderer — it is the same column with every slot
- * but the current one taken out of the flow, so the scrollbar describes the
- * page rather than the document and turning the page is a swap, not a scroll.
+ * `continuous` is one page per row, `dual` two side by side — a spread, the way
+ * the document was printed — and both scroll. `single` is not a different
+ * renderer either: it is the same column with every slot but the current one
+ * taken out of the flow, so the scrollbar describes the page rather than the
+ * document and turning the page is a swap, not a scroll.
  */
-export type PageMode = 'continuous' | 'single';
+export type PageMode = 'continuous' | 'dual' | 'single';
 
 /** Quarter turns clockwise, applied on top of each page's own `/Rotate`. */
 export type Rotation = 0 | 90 | 180 | 270;
@@ -87,6 +89,7 @@ export type ViewerCommand =
   | 'fitHeight'
   | 'singlePage'
   | 'continuousPages'
+  | 'dualPages'
   | 'rotateClockwise'
   | 'rotateCounterclockwise'
   | 'toggleOutline'
@@ -106,6 +109,7 @@ export const VIEWER_COMMANDS: readonly ViewerCommand[] = [
   'fitHeight',
   'singlePage',
   'continuousPages',
+  'dualPages',
   'rotateClockwise',
   'rotateCounterclockwise',
   'toggleOutline',
@@ -220,9 +224,10 @@ function parsePlace(value: unknown): ViewerPlace | null {
     zoom: value.zoom,
     fit: value.fit,
     // Read leniently rather than rejected: places outlive the version that
-    // wrote them, and one saved before there was a page mode is still a good
-    // answer to "where was I" — it just predates the question.
-    mode: value.mode === 'single' ? 'single' : 'continuous',
+    // wrote them, and one saved before there was a page mode — or before it
+    // grew a spread — is still a good answer to "where was I". It just
+    // predates the question.
+    mode: value.mode === 'single' || value.mode === 'dual' ? value.mode : 'continuous',
     rotation: value.rotation,
     inverted: value.inverted,
     outlineVisible: value.outlineVisible,

@@ -212,6 +212,36 @@ const chromeTemplate = html<PdfViewer>`
       </svg>
     </button>
     <button
+      class="btn ${(x) => (x.mode === 'dual' ? 'on' : '')}"
+      title="Two pages side by side"
+      aria-label="Show two pages side by side"
+      aria-pressed="${(x) => String(x.mode === 'dual')}"
+      @click="${(x) => x.toggleDualMode()}"
+    >
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <rect
+          x="1"
+          y="2"
+          width="6"
+          height="12"
+          rx="1"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.3"
+        />
+        <rect
+          x="9"
+          y="2"
+          width="6"
+          height="12"
+          rx="1"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.3"
+        />
+      </svg>
+    </button>
+    <button
       class="btn"
       title="Rotate clockwise (Shift-click for anticlockwise)"
       aria-label="Rotate clockwise"

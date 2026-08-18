@@ -85,6 +85,22 @@ describe('fits', () => {
     expect(fitZoom('fit-page', view, LETTER)).toBeLessThan(1);
   });
 
+  /**
+   * A fit in a spread fits the *pair*: two pages and the gap between them
+   * share the width, so the same tab that fits one page at 100% fits two at
+   * rather less than half of it.
+   */
+  it('shares the width between the columns of a spread', () => {
+    const view = { w: 612 * PX_PER_PT * 2 + PAGE_PAD * 2 + PAGE_GAP, h: 400 };
+    expect(fitZoom('fit-width', view, LETTER, 2)).toBeCloseTo(1);
+    expect(fitZoom('fit-width', view, LETTER, 1)).toBeCloseTo(2, 1);
+  });
+
+  it('fits the height to one page however many columns there are', () => {
+    const view = { w: 400, h: 792 * PX_PER_PT + PAGE_PAD * 2 };
+    expect(fitZoom('fit-height', view, LETTER, 2)).toBeCloseTo(1);
+  });
+
   it('leaves actual size alone whatever the scroller measures', () => {
     expect(fitZoom('actual', { w: 37, h: 12 }, LETTER)).toBe(1);
   });
@@ -129,6 +145,39 @@ describe('stacking', () => {
     const [box] = stackPages([LETTER], 0.0001);
     expect(box!.h).toBeGreaterThan(0);
     expect(box!.w).toBeGreaterThan(0);
+  });
+});
+
+describe('stacking two pages side by side', () => {
+  it('gives the pages of a row the same top and starts the next below them', () => {
+    const boxes = stackPages([LETTER, LETTER, LETTER, LETTER], 1, 0, 2);
+    expect(boxes[0]!.top).toBe(PAGE_PAD);
+    expect(boxes[1]!.top).toBe(PAGE_PAD);
+    expect(boxes[2]!.top).toBe(PAGE_PAD + 792 + PAGE_GAP);
+    expect(boxes[3]!.top).toBe(PAGE_PAD + 792 + PAGE_GAP);
+  });
+
+  /** The gap under a short page belongs to it, not to the row below. */
+  it('makes a row as tall as its tallest page and no taller', () => {
+    const boxes = stackPages([{ w: 100, h: 100 }, LETTER, LETTER], 1, 0, 2);
+    expect(boxes[0]!.h).toBe(100);
+    expect(boxes[1]!.h).toBe(792);
+    expect(boxes[2]!.top).toBe(PAGE_PAD + 792 + PAGE_GAP);
+  });
+
+  it('leaves an odd last page in a row of its own', () => {
+    const boxes = stackPages([LETTER, LETTER, LETTER], 1, 0, 2);
+    expect(boxes).toHaveLength(3);
+    expect(boxes[2]!.top).toBe(PAGE_PAD + 792 + PAGE_GAP);
+  });
+
+  it('picks the left-hand page of a row as the one being read', () => {
+    const boxes = stackPages([LETTER, LETTER], 1, 0, 2);
+    expect(currentPage(boxes, PAGE_PAD, 800)).toBe(1);
+  });
+
+  it('is the plain column again at one page per row', () => {
+    expect(stackPages([LETTER, LETTER], 1, 0, 1)).toEqual(stackPages([LETTER, LETTER], 1));
   });
 });
 

@@ -22,7 +22,8 @@ CDN, no web fonts, no telemetry, no remote origin of any kind.
   are handed to the host — the page itself never navigates
 - Zoom by step, by typed percentage (`150`, `150%`, `1.5x` all read the same),
   by `Alt`-wheel about the pointer, fit-width, fit-height, fit-page, or 100%
-- One page at a time when you want it, continuous when you don't
+- One column or two pages side by side, both continuous — and one page at a
+  time when you want the scrollbar to describe the page rather than the document
 - Rotation, and colour inversion for reading white pages in a dark editor
 - Page numbers, arrow keys, `PageUp`/`PageDown`/`Home`/`End`, and the page you
   are on in the status bar
@@ -65,7 +66,7 @@ point the association elsewhere:
 | Go to Page… | `Cmd/Ctrl+G` |
 | Zoom In / Out / 100% | `Cmd/Ctrl+=` / `Cmd/Ctrl+-` / `Cmd/Ctrl+0` |
 | Fit Width / Fit Height | `Cmd/Ctrl+9` / `Cmd/Ctrl+8` |
-| Single Page / Continuous | `Cmd/Ctrl+1` / `Cmd/Ctrl+2` |
+| One Column / Two Columns, both continuous | `Cmd/Ctrl+1` / `Cmd/Ctrl+2` |
 | Toggle Outline | `Cmd/Ctrl+K Cmd/Ctrl+O` |
 | Toggle Colour Inversion | `Cmd/Ctrl+K Cmd/Ctrl+I` |
 | Reload Document | `Cmd/Ctrl+K Cmd/Ctrl+R` |
