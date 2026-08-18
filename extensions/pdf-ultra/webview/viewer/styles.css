@@ -386,6 +386,13 @@
   --min-font-size: 1;
   --min-font-size-inv: calc(1 / var(--min-font-size));
   --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  /* The runs below carry pdf.js's own `z-index: 1`, which is meant to order
+   * them against each other. Without a stacking context here it orders them
+   * against the *page* instead, and every glyph box lifts above the link
+   * overlay — a link then looks live and hovers, but the click lands on the
+   * word over it. Isolating the layer keeps that ordering internal, so plain
+   * DOM order is what puts the annotation boxes on top. */
+  isolation: isolate;
 }
 
 .page-text :is(span, br) {
