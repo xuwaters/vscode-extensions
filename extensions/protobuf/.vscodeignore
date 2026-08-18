@@ -23,6 +23,7 @@ temp
 **/*.ts.map
 **/*.d.ts
 
-# Repo bookkeeping.
+# Repo bookkeeping. README.md and LICENSE.md ship; developer docs do not.
 .gitignore
 wasm/.gitignore
+CONTRIBUTING.md
