@@ -113,6 +113,18 @@ describe('webview message validation', () => {
       parseWebviewMessage({ type: 'state', zoom: 1, fit: 'width', inverted: false }),
     ).toEqual({ type: 'state', zoom: 1, fit: 'width', inverted: false });
   });
+
+  // The toolbar's two buttons carry no payload, so the whole guard is the name:
+  // anything extra is dropped rather than passed on to a command.
+  it('accepts the toolbar buttons and nothing they might smuggle', () => {
+    expect(parseWebviewMessage({ type: 'export' })).toEqual({ type: 'export' });
+    expect(parseWebviewMessage({ type: 'openSource' })).toEqual({
+      type: 'openSource',
+    });
+    expect(
+      parseWebviewMessage({ type: 'export', uri: 'file:///etc/passwd' }),
+    ).toEqual({ type: 'export' });
+  });
 });
 
 describe('the link allowlist', () => {

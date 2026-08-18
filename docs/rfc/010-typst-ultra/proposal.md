@@ -1,11 +1,12 @@
 # RFC 010: Typst Ultra — a WASM Typst language server and live preview
 
-**Status**: Implemented — 60 / 62 tasks ([tasks/](tasks/README.md))
+**Status**: Implemented — 70 / 72 tasks ([tasks/](tasks/README.md))
 **Date**: 2026-08-17 · **Implemented**: 2026-08-17
 **Extension name**: `wx-vsce-typst-ultra`
 **Rust crates**: `crates/typst/typst-session`, `crates/typst/typst-lsp-core`, `crates/typst/typst-preview-core`, `crates/typst/typst-lsp-wasm` (all new)
 **References**: [`temp/typst`](../../../temp/typst) — typst 0.15.1, Apache-2.0; [`temp/tinymist`](../../../temp/tinymist) — tinymist 0.15.4-rc1, Apache-2.0
 **Affected components**: `extensions/typst-ultra` (new), `crates/typst/` (new), root `Cargo.toml` (workspace members)
+**Amendments**: [001 — Preview UX parity with Markdown Preview Ultra](proposal-amendment-001-preview-ux.md) (2026-08-17, amends §7)
 
 ---
 
@@ -271,6 +272,11 @@ to any extension shipping native toolchains.
 
 ## 7. Extension Surface
 
+> **Amended** by [Amendment 001 — Preview UX parity](proposal-amendment-001-preview-ux.md) (2026-08-17):
+> commands moved to the **Typst Ultra** category and grew a three-mode view switcher; the custom editor's
+> view type is now `typstUltra.editor`, leaving `typstUltra.preview` to the panel. The counts below are as
+> the RFC was written.
+
 Full listing in [lsp-features.md §7](design/lsp-features.md#7-commands-and-settings) and
 [preview.md](design/preview.md). Summary:
 
@@ -417,6 +423,11 @@ land on it in the source.**
 Inlay hints, code actions, code lenses, on-enter list continuation, `svg_merged` whole-document export,
 optional PNG preview mode, an `Instant`-free trace/profiling view, HTML export, a browser-worker build for
 vscode.dev.
+
+### Phase 5 — Preview UX parity *(added by [Amendment 001](proposal-amendment-001-preview-ux.md))*
+Three view modes on markdown-preview-ultra's keys and icons, following the active editor all the way down
+to the compiler, a preview pin and a group lock, and export with a destination. Extension-only; no Rust
+change. **Milestone: `cmd+shift+v` means the same thing in both of this repo's preview extensions.**
 
 ## 13. Testing
 

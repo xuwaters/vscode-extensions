@@ -40,8 +40,6 @@ export function html(webview: vscode.Webview, extensionUri: vscode.Uri): string 
     <title>Typst Preview</title>
   </head>
   <body class="typst-preview">
-    <div id="status" class="status" hidden></div>
-    <div id="pages" class="pages" tabindex="0"></div>
     <div id="chrome" class="chrome">
       <button id="zoom-out" title="Zoom out">−</button>
       <span id="zoom-level">100%</span>
@@ -49,10 +47,15 @@ export function html(webview: vscode.Webview, extensionUri: vscode.Uri): string 
       <button id="fit-width" title="Fit width">↔</button>
       <button id="fit-page" title="Fit page">⤢</button>
       <button id="invert" title="Invert colors">◐</button>
+      <span class="separator"></span>
+      <button id="edit-source" title="Edit — show the source in a text editor">✎</button>
+      <button id="export" title="Export… — PDF, SVG, PNG, or HTML">⭳</button>
       <span class="spacer"></span>
       <input id="go-to-page" type="number" min="1" value="1" title="Go to page" />
       <span id="page-count">/ 0</span>
     </div>
+    <div id="status" class="status" hidden></div>
+    <div id="pages" class="pages" tabindex="0"></div>
     <script nonce="${nonce}" type="module" src="${script}"></script>
   </body>
 </html>`;

@@ -1,7 +1,8 @@
 # RFC 010: Typst Ultra — a WASM Typst language server and live preview
 
-**Status**: Implemented · **Implementation**: 60 / 62 tasks complete
+**Status**: Implemented · **Implementation**: 70 / 72 tasks complete
 **Date**: 2026-08-17 · **Last updated**: 2026-08-17
+**Amendments**: [001 — Preview UX parity with Markdown Preview Ultra](proposal-amendment-001-preview-ux.md)
 **Extension**: `wx-vsce-typst-ultra` ([`extensions/typst-ultra`](../../../extensions/typst-ultra))
 **Rust crates**: [`crates/typst/{typst-session,typst-lsp-core,typst-preview-core,typst-lsp-wasm}`](../../../crates/typst)
 **Upstream**: [typst 0.15.1](../../../temp/typst) (Apache-2.0) · [tinymist 0.15.4-rc1](../../../temp/tinymist) (Apache-2.0, reference only)
@@ -21,8 +22,8 @@ plus a preview webview that receives per-page patches and syncs both ways with t
 
 | | |
 | --- | --- |
-| Tasks complete | 60 / 62 ([tasks/](tasks/README.md)) — 1 scoped, 1 blocked on hardware |
-| Tests | 751 Rust · 91 extension, including the real artifact and the built server over LSP |
+| Tasks complete | 70 / 72 ([tasks/](tasks/README.md)) — 1 scoped, 1 blocked on hardware |
+| Tests | 751 Rust · 116 extension, including the real artifact and the built server over LSP |
 | Artifact | 26.5 MB `.wasm`, 10 MB gzipped · **16 MB VSIX** |
 | Open questions | 0 of 8 — all resolved in [decisions/](decisions/README.md) |
 | Research debts | 4 of 7 closed; the 3 open ones each need hardware or a network |
@@ -55,15 +56,17 @@ The transport result is the important one: it is what kept
 010-typst-ultra/
 ├── README.md          ← you are here: status, orientation, maintenance rules
 ├── proposal.md        ← the RFC: motivation, goals, non-goals, phases, risks
+├── proposal-amendment-001-preview-ux.md   ← scope change: preview UX parity with MPU
 ├── decisions/         ← why things are the way they are (ADRs, 10 records)
 ├── design/            ← how it works (living documents, updated as built)
 ├── research/          ← what was measured, and what we owe upstream
-└── tasks/             ← what is done and what is next (4 phases, 62 tasks)
+└── tasks/             ← what is done and what is next (5 phases, 72 tasks)
 ```
 
 | Read this | If you want to |
 | --- | --- |
 | [proposal.md](proposal.md) | **Start here.** The argument, the scope, the plan, the risks |
+| [Amendment 001](proposal-amendment-001-preview-ux.md) | See what the preview's UX borrowed from markdown-preview-ultra, and what it refused |
 | [tasks/](tasks/README.md) | See what is done, what is not, and why |
 | [research/spike.md](research/spike.md) | Check whether this could work. The feasibility numbers |
 | [research/transport.md](research/transport.md) | The preview latency budget, measured |

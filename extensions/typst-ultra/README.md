@@ -25,12 +25,17 @@ download, no code signing.
 **Preview**
 
 - Repaints as you type, rendering pages as SVG
+- Three view modes — Edit, Split, Preview — from the editor title bar, the
+  status bar, or `Cmd/Ctrl+Shift+V`
+- Follows the active editor: click a second `.typ` and the preview switches to it
 - Two-way sync: cursor → page position, click on a page → source position
 - Virtualized — a 200-page document keeps the DOM bounded
 - Zoom, fit-width/page, colour inversion, page numbers, find-in-page
 - A compile error dims the last good pages rather than blanking the preview
 
-**Export** to PDF, SVG, and PNG, all in-process.
+**Export** to PDF, SVG, PNG, and HTML, all in-process — from the title-bar
+button, the preview's own toolbar, or the palette. The save dialog opens on the
+document's own folder, so exporting next to the source is one keystroke.
 
 **Packages** from [Typst Universe](https://typst.app/universe) are downloaded
 and cached in typst's standard cache directory, shared with `typst-cli` so
@@ -46,26 +51,51 @@ typst document, and the compile root follows whichever file you are looking at.
 
 For a project with chapters, pin the entry file so editing a chapter still
 checks the whole document: click the status bar item, or run
-**Typst: Pin This File as Compile Root**. The extension offers this once, the
+**Typst Ultra: Pin This File as Compile Root**. The extension offers this once, the
 first time it sees a project with a `main.typ`.
 
-`Cmd/Ctrl+K V` opens the preview beside the editor.
+`Cmd/Ctrl+Shift+V` puts the preview beside the editor; press it again from
+either side and you are still in Split. The editor title bar carries the same
+three modes as buttons, plus Export.
+
+## View modes
+
+| Mode | Layout | Entered by |
+| --- | --- | --- |
+| **Edit** | the text editor only | closing the preview, or the `$(edit)` button |
+| **Split** | editor and preview side by side | `Cmd/Ctrl+Shift+V`, `Cmd/Ctrl+K V` |
+| **Preview** | the document alone, in the tab the source was in | the `$(preview)` button |
+
+The preview follows whichever `.typ` you are looking at. Pin it with
+`Cmd/Ctrl+K Cmd/Ctrl+L` (from inside the preview) to keep it on one file while
+you edit another. The group the side preview opens in is locked, so files you
+open next land in the main group rather than on top of the preview
+(`preview.lockPreviewGroup`).
 
 ## Commands
 
+All under the **Typst Ultra** category.
+
 | Command | Default keybinding |
 | --- | --- |
-| Typst: Show Preview | `Cmd/Ctrl+Shift+V` |
-| Typst: Show Preview to the Side | `Cmd/Ctrl+K V` |
-| Typst: Sync Preview to Cursor | `Cmd/Ctrl+K Cmd/Ctrl+J` |
-| Typst: Pin This File as Compile Root | |
-| Typst: Unpin Compile Root | |
-| Typst: Export… | |
-| Typst: Export PDF | |
-| Typst: Toggle Preview Color Inversion | |
-| Typst: Restart Language Server | |
-| Typst: Show Log | |
-| Typst: Clear Package Cache | |
+| Typst Ultra: Switch to Split View | `Cmd/Ctrl+Shift+V` |
+| Typst Ultra: Open Preview to the Side | `Cmd/Ctrl+K V` |
+| Typst Ultra: Toggle Focus Between Editor and Preview | `Cmd/Ctrl+K Cmd/Ctrl+V` |
+| Typst Ultra: Cycle View Mode (Edit / Split / Preview) | `Cmd/Ctrl+K Cmd/Ctrl+M` |
+| Typst Ultra: Toggle Edit / Preview View | `Cmd/Ctrl+K Cmd/Ctrl+P` |
+| Typst Ultra: Toggle Preview Pin | `Cmd/Ctrl+K Cmd/Ctrl+L` (in the preview) |
+| Typst Ultra: Sync Preview to Cursor | `Cmd/Ctrl+K Cmd/Ctrl+J` |
+| Typst Ultra: Open Preview | |
+| Typst Ultra: Switch to Edit View / Preview View / Switch View Mode… | |
+| Typst Ultra: Export… | |
+| Typst Ultra: Export PDF | |
+| Typst Ultra: Pin This File as Compile Root | |
+| Typst Ultra: Unpin Compile Root | |
+| Typst Ultra: Select Compile Root… | |
+| Typst Ultra: Toggle Preview Color Inversion | |
+| Typst Ultra: Restart Language Server | |
+| Typst Ultra: Show Log | |
+| Typst Ultra: Clear Package Cache | |
 
 ## Settings
 
@@ -80,7 +110,10 @@ All under `typstUltra.`. The ones worth knowing about:
 | `packages.enabled` | `true` | Turn off for air-gapped setups |
 | `preview.scrollSync` | `"both"` | Which way the editor and preview follow each other |
 | `preview.invertColors` | `"never"` | `never` · `always` · `auto` |
-| `export.outputPath` | `"$dir/$name"` | Supports `$dir`, `$name`, `$root` |
+| `preview.defaultMode` | `"split"` | `split` · `preview` |
+| `preview.lockPreviewGroup` | `true` | Keep newly-opened files out of the preview's group |
+| `export.outputPath` | `"$dir/$name"` | Supports `$dir`, `$name`, `$root` — where the export dialog opens |
+| `export.askForLocation` | `true` | Ask where to save; off writes straight to `export.outputPath` |
 | `memory.evictAge` | `1` | comemo cache age — see below |
 
 `memory.evictAge` deserves a note, because `1` looks wrong next to typst-cli's

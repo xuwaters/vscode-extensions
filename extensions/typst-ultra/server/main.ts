@@ -118,6 +118,10 @@ const NOTIFICATIONS = [
   'textDocument/didSave',
   'textDocument/didClose',
   'workspace/didChangeConfiguration',
+  // The host's way of saying which document is now the subject. Editing a file
+  // is the usual way the server finds that out, but a reader switching between
+  // two files that are both already open sends no edit at all.
+  'typst/compile',
   'typst/setMain',
   'typst/workspaceFiles',
 ] as const;
@@ -256,6 +260,11 @@ for (const method of NOTIFICATIONS) {
     } else if (method === 'textDocument/didSave') {
       lastActiveUri = uriOf(params) ?? lastActiveUri;
       if (compileWhen !== 'never') scheduleCompile(0);
+    } else if (method === 'typst/compile') {
+      // Already compiled by the dispatch above; what is left is to remember the
+      // subject, so the next debounced compile does not fall back to the file
+      // the reader has moved on from.
+      lastActiveUri = compileUriOf(params) ?? lastActiveUri;
     } else if (method === 'typst/setMain') {
       scheduleCompile(0);
     }
@@ -389,6 +398,13 @@ function uriOf(params: unknown): string | undefined {
   if (typeof params !== 'object' || params === null) return undefined;
   const document = (params as { textDocument?: { uri?: unknown } }).textDocument;
   return typeof document?.uri === 'string' ? document.uri : undefined;
+}
+
+/** `typst/compile` names its subject at the top level, not under a document. */
+function compileUriOf(params: unknown): string | undefined {
+  if (typeof params !== 'object' || params === null) return undefined;
+  const uri = (params as { uri?: unknown }).uri;
+  return typeof uri === 'string' ? uri : undefined;
 }
 
 /** Fill in anything the client left out. */

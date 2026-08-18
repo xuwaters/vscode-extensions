@@ -162,6 +162,22 @@ export class PageList {
     this.reportViewport();
   }
 
+  /**
+   * Drop the whole document, back to an empty list at the top.
+   *
+   * The subject changed — the panel follows the active editor, and the reader
+   * clicked a different `.typ`. Keeping the old pages would leave the previous
+   * document on screen until the first patch of the new one lands, and keeping
+   * the scroll position would open a two-page letter at page 40 of the book it
+   * replaced.
+   */
+  reset(): void {
+    this.byHash.clear();
+    this.pages = [];
+    this.container.replaceChildren();
+    this.container.scrollTop = 0;
+  }
+
   /** Tell the host what is visible and what we already hold. */
   reportViewport(): void {
     if (this.pages.length === 0) return;

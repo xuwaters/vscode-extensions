@@ -78,6 +78,10 @@ export type WebviewToHost =
   | { type: 'scrolled'; page: number; yPt: number }
   | { type: 'openLink'; href: string }
   | { type: 'state'; zoom: number; fit: FitMode; inverted: boolean }
+  /** The toolbar's Export button: the same command as the title-bar icon. */
+  | { type: 'export' }
+  /** The toolbar's Edit button: hand the reader back to the source. */
+  | { type: 'openSource' }
   | { type: 'error'; message: string; context: string };
 
 /** What the webview persists across a reload. */
@@ -160,6 +164,12 @@ export function parseWebviewMessage(value: unknown): WebviewToHost | null {
       if (typeof value.inverted !== 'boolean') return null;
       return { type: 'state', zoom: value.zoom, fit: value.fit, inverted: value.inverted };
     }
+
+    case 'export':
+      return { type: 'export' };
+
+    case 'openSource':
+      return { type: 'openSource' };
 
     case 'error': {
       if (typeof value.message !== 'string' || typeof value.context !== 'string') {

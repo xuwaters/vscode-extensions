@@ -46,6 +46,8 @@ let fit: FitMode = restored?.fit ?? 'width';
 let inverted = restored?.inverted ?? false;
 /** Highest `seq` applied. Anything older is a superseded compile. */
 let appliedSeq = 0;
+/** The document on screen, so a change of subject can be told from an edit. */
+let shownUri: string | undefined;
 let scrollTimer: ReturnType<typeof setTimeout> | undefined;
 
 const pages = new PageList(
@@ -83,6 +85,10 @@ function handle(message: HostToWebview): void {
       // A message from a superseded compile can never overwrite a newer one.
       if (message.seq <= appliedSeq) return;
       appliedSeq = message.seq;
+      // The panel follows the active editor, so a new URI here means the reader
+      // opened a different document — not that this one changed.
+      if (shownUri !== undefined && shownUri !== message.uri) pages.reset();
+      shownUri = message.uri;
       pages.setMetrics(message.pages);
       pageCount.textContent = `/ ${pages.length}`;
       goToPage.max = String(Math.max(1, pages.length));
@@ -117,6 +123,16 @@ must<HTMLButtonElement>('zoom-out').addEventListener('click', () => setZoom(page
 must<HTMLButtonElement>('fit-width').addEventListener('click', () => applyFit('width'));
 must<HTMLButtonElement>('fit-page').addEventListener('click', () => applyFit('page'));
 must<HTMLButtonElement>('invert').addEventListener('click', () => toggleInvert());
+
+// Leaving the page: the host decides what each of these means for the surface
+// it is showing — a panel hands focus to the editor beside it, a full-tab
+// preview hands the tab itself back.
+must<HTMLButtonElement>('edit-source').addEventListener('click', () =>
+  post({ type: 'openSource' }),
+);
+must<HTMLButtonElement>('export').addEventListener('click', () =>
+  post({ type: 'export' }),
+);
 
 goToPage.addEventListener('change', () => {
   const page = Number(goToPage.value) - 1;

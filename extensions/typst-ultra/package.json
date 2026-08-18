@@ -2,7 +2,7 @@
   "name": "wx-vsce-typst-ultra",
   "displayName": "Typst Ultra",
   "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact \u2014 diagnostics, completion, hover, goto-definition, semantic tokens, formatting, two-way-synced preview, and PDF/SVG/PNG export",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -16,7 +16,7 @@
   "activationEvents": [
     "onLanguage:typst",
     "onWebviewPanel:typstUltra.preview",
-    "onCustomEditor:typstUltra.preview",
+    "onCustomEditor:typstUltra.editor",
     "onCommand:typstUltra.newFromTemplate"
   ],
   "main": "./dist/extension.js",
@@ -44,7 +44,7 @@
     ],
     "customEditors": [
       {
-        "viewType": "typstUltra.preview",
+        "viewType": "typstUltra.editor",
         "displayName": "Typst Preview",
         "priority": "option",
         "selector": [
@@ -107,67 +107,124 @@
       {
         "command": "typstUltra.newFromTemplate",
         "title": "New Project from Template\u2026",
-        "category": "Typst",
+        "category": "Typst Ultra",
         "icon": "$(new-folder)"
       },
       {
         "command": "typstUltra.showPreview",
-        "title": "Show Preview",
-        "category": "Typst",
+        "title": "Open Preview",
+        "category": "Typst Ultra",
         "icon": "$(open-preview)"
       },
       {
         "command": "typstUltra.showPreviewToSide",
-        "title": "Show Preview to the Side",
-        "category": "Typst",
+        "title": "Open Preview to the Side",
+        "category": "Typst Ultra",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "typstUltra.setModeEdit",
+        "title": "Switch to Edit View",
+        "category": "Typst Ultra",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "typstUltra.setModeSplit",
+        "title": "Switch to Split View",
+        "category": "Typst Ultra",
+        "icon": "$(layout-sidebar-right)"
+      },
+      {
+        "command": "typstUltra.setModePreview",
+        "title": "Switch to Preview View",
+        "category": "Typst Ultra",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "typstUltra.cycleMode",
+        "title": "Cycle View Mode (Edit / Split / Preview)",
+        "category": "Typst Ultra",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "typstUltra.switchMode",
+        "title": "Switch View Mode\u2026",
+        "category": "Typst Ultra",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "typstUltra.toggleEditPreview",
+        "title": "Toggle Edit / Preview View",
+        "category": "Typst Ultra",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "typstUltra.toggleFocus",
+        "title": "Toggle Focus Between Editor and Preview",
+        "category": "Typst Ultra",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "typstUltra.togglePreviewLock",
+        "title": "Toggle Preview Pin (Follow Active Editor)",
+        "category": "Typst Ultra",
+        "icon": "$(pin)"
       },
       {
         "command": "typstUltra.syncPreviewToCursor",
         "title": "Sync Preview to Cursor",
-        "category": "Typst"
+        "category": "Typst Ultra"
       },
       {
         "command": "typstUltra.pinMain",
         "title": "Pin This File as Compile Root",
-        "category": "Typst",
+        "category": "Typst Ultra",
         "icon": "$(pin)"
       },
       {
         "command": "typstUltra.unpinMain",
         "title": "Unpin Compile Root",
-        "category": "Typst",
+        "category": "Typst Ultra",
         "icon": "$(pinned-dirty)"
+      },
+      {
+        "command": "typstUltra.selectMain",
+        "title": "Select Compile Root\u2026",
+        "category": "Typst Ultra",
+        "icon": "$(file-symlink-file)"
       },
       {
         "command": "typstUltra.export",
         "title": "Export\u2026",
-        "category": "Typst"
+        "category": "Typst Ultra",
+        "icon": "$(export)"
       },
       {
         "command": "typstUltra.exportPdf",
         "title": "Export PDF",
-        "category": "Typst"
+        "category": "Typst Ultra",
+        "icon": "$(export)"
       },
       {
         "command": "typstUltra.toggleInvertColors",
         "title": "Toggle Preview Color Inversion",
-        "category": "Typst"
+        "category": "Typst Ultra",
+        "icon": "$(color-mode)"
       },
       {
         "command": "typstUltra.restartServer",
         "title": "Restart Language Server",
-        "category": "Typst"
+        "category": "Typst Ultra"
       },
       {
         "command": "typstUltra.showLog",
         "title": "Show Log",
-        "category": "Typst"
+        "category": "Typst Ultra"
       },
       {
         "command": "typstUltra.clearPackageCache",
         "title": "Clear Package Cache",
-        "category": "Typst"
+        "category": "Typst Ultra"
       }
     ],
     "menus": {
@@ -179,6 +236,38 @@
         {
           "command": "typstUltra.showPreviewToSide",
           "when": "editorLangId == typst"
+        },
+        {
+          "command": "typstUltra.setModeEdit",
+          "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        },
+        {
+          "command": "typstUltra.setModeSplit",
+          "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        },
+        {
+          "command": "typstUltra.setModePreview",
+          "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        },
+        {
+          "command": "typstUltra.cycleMode",
+          "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        },
+        {
+          "command": "typstUltra.switchMode",
+          "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        },
+        {
+          "command": "typstUltra.toggleEditPreview",
+          "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        },
+        {
+          "command": "typstUltra.toggleFocus",
+          "when": "editorLangId == typst || typstUltra.previewVisible"
+        },
+        {
+          "command": "typstUltra.togglePreviewLock",
+          "when": "typstUltra.previewVisible"
         },
         {
           "command": "typstUltra.syncPreviewToCursor",
@@ -193,16 +282,20 @@
           "when": "typstUltra.mainPinned"
         },
         {
-          "command": "typstUltra.export",
+          "command": "typstUltra.selectMain",
           "when": "editorLangId == typst"
+        },
+        {
+          "command": "typstUltra.export",
+          "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
         },
         {
           "command": "typstUltra.exportPdf",
-          "when": "editorLangId == typst"
+          "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
         },
         {
           "command": "typstUltra.toggleInvertColors",
-          "when": "typstUltra.previewVisible"
+          "when": "typstUltra.previewVisible || activeCustomEditorId == typstUltra.editor"
         },
         {
           "command": "typstUltra.newFromTemplate"
@@ -210,9 +303,34 @@
       ],
       "editor/title": [
         {
-          "command": "typstUltra.showPreviewToSide",
-          "when": "editorLangId == typst",
-          "group": "navigation"
+          "command": "typstUltra.setModeEdit",
+          "when": "(editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && typstUltra.mode != edit",
+          "group": "navigation@1"
+        },
+        {
+          "command": "typstUltra.setModePreview",
+          "when": "(editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && typstUltra.mode != preview",
+          "group": "navigation@2"
+        },
+        {
+          "command": "typstUltra.setModeSplit",
+          "when": "(editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && typstUltra.mode != split",
+          "group": "navigation@3"
+        },
+        {
+          "command": "typstUltra.export",
+          "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor",
+          "group": "navigation@4"
+        },
+        {
+          "command": "typstUltra.toggleFocus",
+          "when": "editorLangId == typst && typstUltra.previewVisible",
+          "group": "navigation@5"
+        },
+        {
+          "command": "typstUltra.togglePreviewLock",
+          "when": "activeWebviewPanelId == typstUltra.preview",
+          "group": "navigation@6"
         }
       ],
       "explorer/context": [
@@ -220,21 +338,50 @@
           "command": "typstUltra.showPreview",
           "when": "resourceExtname == .typ",
           "group": "navigation"
+        },
+        {
+          "command": "typstUltra.export",
+          "when": "resourceExtname == .typ",
+          "group": "navigation"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "typstUltra.showPreview",
+        "command": "typstUltra.setModeSplit",
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
-        "when": "editorLangId == typst"
+        "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
       },
       {
         "command": "typstUltra.showPreviewToSide",
         "key": "ctrl+k v",
         "mac": "cmd+k v",
         "when": "editorLangId == typst"
+      },
+      {
+        "command": "typstUltra.toggleFocus",
+        "key": "ctrl+k ctrl+v",
+        "mac": "cmd+k cmd+v",
+        "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview"
+      },
+      {
+        "command": "typstUltra.cycleMode",
+        "key": "ctrl+k ctrl+m",
+        "mac": "cmd+k cmd+m",
+        "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+      },
+      {
+        "command": "typstUltra.toggleEditPreview",
+        "key": "ctrl+k ctrl+p",
+        "mac": "cmd+k cmd+p",
+        "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+      },
+      {
+        "command": "typstUltra.togglePreviewLock",
+        "key": "ctrl+k ctrl+l",
+        "mac": "cmd+k cmd+l",
+        "when": "activeWebviewPanelId == typstUltra.preview"
       },
       {
         "command": "typstUltra.syncPreviewToCursor",
@@ -343,6 +490,20 @@
           "default": "",
           "description": "Package cache directory. Empty uses typst's standard location, shared with `typst-cli` so nothing is downloaded twice."
         },
+        "typstUltra.preview.defaultMode": {
+          "type": "string",
+          "enum": [
+            "split",
+            "preview"
+          ],
+          "default": "split",
+          "description": "View mode used when opening a preview without an explicit placement."
+        },
+        "typstUltra.preview.lockPreviewGroup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lock the editor group the side preview opens in, so newly-opened files land in the main group instead of replacing the preview."
+        },
         "typstUltra.preview.scrollSync": {
           "type": "string",
           "enum": [
@@ -392,7 +553,12 @@
         "typstUltra.export.outputPath": {
           "type": "string",
           "default": "$dir/$name",
-          "description": "Where exports are written, without the extension. Supports `$dir`, `$name`, and `$root`."
+          "description": "Where exports are written, without the extension. Supports `$dir`, `$name`, and `$root`. This is what the export dialog opens on — by default the document's own folder, under the document's own name."
+        },
+        "typstUltra.export.askForLocation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask where to save on every export, starting at `export.outputPath`. Turn off to write straight to that path without confirming."
         },
         "typstUltra.memory.evictAge": {
           "type": "number",

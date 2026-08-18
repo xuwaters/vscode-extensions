@@ -125,9 +125,10 @@ body.has-error .page {
   }
 }
 
+/* Below the toolbar, not over it: a compile error must not swallow the zoom. */
 .status {
   position: absolute;
-  top: 0;
+  top: var(--chrome-height);
   left: 0;
   right: 0;
   z-index: 2;
@@ -142,18 +143,21 @@ body.has-error .page {
   color: var(--vscode-inputValidation-errorForeground, #ffffff);
 }
 
+/*
+ * The toolbar sits at the top, where a document viewer's toolbar sits and where
+ * the editor's own title bar leaves off — so the controls for the page are next
+ * to the controls for the tab rather than at the far end of it. In the flow
+ * rather than absolutely positioned: the page list takes the rest of the
+ * height, so nothing has to be offset by hand.
+ */
 .chrome {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
   height: var(--chrome-height);
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 0 8px;
   background: var(--vscode-editorWidget-background);
-  border-top: 1px solid var(--vscode-editorWidget-border, transparent);
+  border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
   font-size: 12px;
 }
 
@@ -184,6 +188,14 @@ body.has-error .page {
 
 .chrome .spacer {
   flex: 1;
+}
+
+/* Reading is one group of buttons and leaving the page is another. */
+.chrome .separator {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
 }
 
 #zoom-level {

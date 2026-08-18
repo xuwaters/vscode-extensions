@@ -1,8 +1,10 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Client } from './client.js';
+import type { RootState } from './compileRoot.js';
 import * as config from './config.js';
-import { expand } from './exportPath.js';
+import { baseFor, expand } from './exportPath.js';
+import { compileNow } from './preview/rpc.js';
 
 /** What `typst/export` produces. */
 interface ExportResult {
@@ -15,6 +17,25 @@ interface ExportResult {
 /** The formats the server can produce. */
 export type Format = 'pdf' | 'svg' | 'png' | 'html';
 
+/** What each format is called, and what it is written as. */
+const FORMATS: Record<
+  Format,
+  { label: string; extension: string; description: string }
+> = {
+  pdf: { label: 'PDF', extension: 'pdf', description: 'The whole document' },
+  svg: { label: 'SVG', extension: 'svg', description: 'One file, all pages' },
+  png: {
+    label: 'PNG',
+    extension: 'png',
+    description: 'One file per page, 144 ppi',
+  },
+  html: {
+    label: 'HTML',
+    extension: 'html',
+    description: 'A separate compilation target — experimental upstream',
+  },
+};
+
 /**
  * Export a document.
  *
@@ -24,11 +45,27 @@ export type Format = 'pdf' | 'svg' | 'png' | 'html';
  */
 export async function exportDocument(
   client: Client,
+  root: RootState,
   format: Format,
   document: vscode.TextDocument,
 ): Promise<void> {
+  // Ask where it goes *before* doing the work: a reader who changes their mind
+  // at the dialog should not have paid for an export first.
+  const base = await resolveTarget(format, document);
+  if (!base) return;
+
+  // Export writes the server's last good document, which is whichever file it
+  // was last told to compile. Naming this one first is what stops "export" in a
+  // two-document workspace writing the other one's pages under this one's name.
+  // Notifications are delivered in order, and the compile is synchronous, so by
+  // the time the request below is answered the subject has changed.
+  compileNow(client, document.uri, root.pinned !== undefined);
+
   const result = await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Window, title: `Typst: exporting ${format}` },
+    {
+      location: vscode.ProgressLocation.Window,
+      title: `Typst: exporting ${format}`,
+    },
     async () =>
       client.request<ExportResult>('typst/export', {
         format,
@@ -45,13 +82,13 @@ export async function exportDocument(
     return;
   }
 
-  const written = await writeFiles(document, result);
+  const written = await writeFiles(baseFor(base, result.extension), result);
   if (written.length === 0) return;
 
   const choice = await vscode.window.showInformationMessage(
     written.length === 1
       ? `Exported ${path.basename(written[0].fsPath)}`
-      : `Exported ${written.length} files`,
+      : `Exported ${written.length} files to ${path.dirname(written[0].fsPath)}`,
     'Open',
     'Reveal in Explorer',
   );
@@ -66,32 +103,54 @@ export async function exportDocument(
 /** Ask which format, then export. */
 export async function pickAndExport(
   client: Client,
+  root: RootState,
   document: vscode.TextDocument,
 ): Promise<void> {
   const choice = await vscode.window.showQuickPick(
-    [
-      { label: 'PDF', description: 'The whole document', format: 'pdf' as const },
-      { label: 'SVG', description: 'One file, all pages', format: 'svg' as const },
-      { label: 'PNG', description: 'One file per page, 144 ppi', format: 'png' as const },
-      {
-        label: 'HTML',
-        description: 'A separate compilation target — experimental upstream',
-        format: 'html' as const,
-      },
-    ],
-    { title: 'Typst: export', placeHolder: 'Which format?' },
+    (Object.keys(FORMATS) as Format[]).map((format) => ({
+      label: FORMATS[format].label,
+      description: FORMATS[format].description,
+      format,
+    })),
+    { title: 'Typst Ultra: export', placeHolder: 'Which format?' },
   );
-  if (choice) await exportDocument(client, choice.format, document);
+  if (choice) await exportDocument(client, root, choice.format, document);
 }
 
-async function writeFiles(
+/**
+ * Where the export goes, as a path without its extension.
+ *
+ * The default is `typstUltra.export.outputPath`, which starts at `$dir/$name` —
+ * the document's own folder, under the document's own name. The save dialog
+ * opens *there*, so accepting it is one keystroke and moving it is a normal
+ * file dialog rather than a settings trip. `export.askForLocation: false` skips
+ * the dialog for anyone who has configured the path they want and would rather
+ * not confirm it every time.
+ */
+async function resolveTarget(
+  format: Format,
   document: vscode.TextDocument,
-  result: ExportResult,
-): Promise<vscode.Uri[]> {
+): Promise<string | undefined> {
   const settings = config.read(document.uri);
   const root = config.resolveRoot(settings, document.uri);
   const base = expand(settings.host.export.outputPath, document.uri.fsPath, root);
+  const { label, extension } = FORMATS[format];
 
+  if (!settings.host.export.askForLocation) return base;
+
+  const chosen = await vscode.window.showSaveDialog({
+    defaultUri: vscode.Uri.file(`${base}.${extension}`),
+    filters: { [label]: [extension] },
+    title: `Typst Ultra: export ${label}`,
+    saveLabel: 'Export',
+  });
+  return chosen?.fsPath;
+}
+
+async function writeFiles(
+  base: string,
+  result: ExportResult,
+): Promise<vscode.Uri[]> {
   const written: vscode.Uri[] = [];
   for (const [index, payload] of result.files.entries()) {
     const suffix = result.files.length > 1 ? `-${index + 1}` : '';

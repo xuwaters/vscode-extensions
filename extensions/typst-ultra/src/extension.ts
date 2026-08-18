@@ -4,6 +4,8 @@ import { CompileRoot } from './compileRoot.js';
 import * as config from './config.js';
 import { exportDocument, pickAndExport } from './export.js';
 import { PreviewManager } from './preview/manager.js';
+import { ModeManager } from './preview/modes.js';
+import { PageMemory } from './preview/pageMemory.js';
 import { TypstPreviewEditor } from './preview/customEditor.js';
 import { StatusBar } from './status.js';
 import { createFromTemplate } from './template.js';
@@ -18,11 +20,17 @@ import { createFromTemplate } from './template.js';
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Typst Ultra');
   const client = new Client(context, output);
-  const preview = new PreviewManager(context, client, output);
+  // The compile root outranks the preview's own idea of what to show, so it is
+  // built first and handed to everything that has to respect a pinned file.
   const compileRoot = new CompileRoot(context, client);
+  // Where each document was last read to, shared by both preview surfaces so a
+  // mode switch between them is continuous.
+  const pages = new PageMemory();
+  const preview = new PreviewManager(context, client, output, pages, compileRoot);
+  const modes = new ModeManager(preview);
   const status = new StatusBar(client, output);
 
-  context.subscriptions.push(output, client, preview, compileRoot, status);
+  context.subscriptions.push(output, client, preview, modes, compileRoot, status);
 
   // Start on the first typst document, and on every later one in case the
   // server was stopped in between.
@@ -71,10 +79,36 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  context.subscriptions.push(
-    TypstPreviewEditor.register(context, client, output),
+  /**
+   * Which document a command acts on. The explorer context menu and the
+   * preview's own toolbar name the file; the palette and the keybindings pass
+   * nothing and mean the active editor.
+   */
+  const requireDocument = async (
+    uri?: vscode.Uri,
+  ): Promise<vscode.TextDocument | undefined> => {
+    if (uri) return vscode.workspace.openTextDocument(uri);
 
-    vscode.window.registerWebviewPanelSerializer('typstUltra.preview', {
+    const editor = vscode.window.activeTextEditor;
+    if (editor?.document.languageId === 'typst') return editor.document;
+
+    // The focus may be inside the preview, which is no editor at all.
+    const shown = preview.currentUri;
+    if (shown) return vscode.workspace.openTextDocument(shown);
+
+    const open = vscode.workspace.textDocuments.find(
+      (document) => document.languageId === 'typst',
+    );
+    if (open) return open;
+
+    void vscode.window.showInformationMessage('Typst: open a .typ file first.');
+    return undefined;
+  };
+
+  context.subscriptions.push(
+    TypstPreviewEditor.register(context, client, output, pages, compileRoot),
+
+    vscode.window.registerWebviewPanelSerializer(PreviewManager.viewType, {
       // The panel survives a window reload; pages are re-requested from
       // scratch with an empty `knownHashes`.
       async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
@@ -87,18 +121,56 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     }),
 
-    vscode.commands.registerCommand('typstUltra.showPreview', async () => {
-      const document = await requireTypstDocument();
-      if (!document) return;
-      await client.start(document.uri);
-      await preview.show(document.uri, vscode.ViewColumn.Active);
-    }),
+    vscode.commands.registerCommand(
+      'typstUltra.showPreview',
+      async (uri?: vscode.Uri) => {
+        const document = await requireDocument(uri);
+        if (document) await preview.show(document.uri, vscode.ViewColumn.Active);
+      },
+    ),
 
-    vscode.commands.registerCommand('typstUltra.showPreviewToSide', async () => {
-      const document = await requireTypstDocument();
-      if (!document) return;
-      await client.start(document.uri);
-      await preview.show(document.uri, vscode.ViewColumn.Beside);
+    vscode.commands.registerCommand(
+      'typstUltra.showPreviewToSide',
+      async (uri?: vscode.Uri) => {
+        const document = await requireDocument(uri);
+        if (document) await preview.show(document.uri, vscode.ViewColumn.Beside);
+      },
+    ),
+
+    vscode.commands.registerCommand('typstUltra.cycleMode', () =>
+      modes.cycleMode(),
+    ),
+    vscode.commands.registerCommand('typstUltra.switchMode', () =>
+      modes.switchMode(),
+    ),
+    vscode.commands.registerCommand('typstUltra.toggleEditPreview', () =>
+      modes.toggleEditPreview(),
+    ),
+    vscode.commands.registerCommand('typstUltra.setModeEdit', () =>
+      modes.setMode('edit'),
+    ),
+    vscode.commands.registerCommand('typstUltra.setModeSplit', () =>
+      modes.setMode('split'),
+    ),
+    vscode.commands.registerCommand('typstUltra.setModePreview', () =>
+      modes.setMode('preview'),
+    ),
+
+    vscode.commands.registerCommand('typstUltra.toggleFocus', () =>
+      preview.toggleFocus(),
+    ),
+
+    vscode.commands.registerCommand('typstUltra.togglePreviewLock', () => {
+      if (!preview.hasPreview) {
+        void vscode.window.showInformationMessage('Typst: no preview is open to pin.');
+        return;
+      }
+      const locked = preview.toggleLock();
+      void vscode.window.showInformationMessage(
+        locked
+          ? 'Typst: the preview is pinned to this file.'
+          : 'Typst: the preview will follow the active editor.',
+      );
     }),
 
     vscode.commands.registerCommand('typstUltra.syncPreviewToCursor', () =>
@@ -110,7 +182,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
 
     vscode.commands.registerCommand('typstUltra.pinMain', async () => {
-      const document = await requireTypstDocument();
+      const document = await requireDocument();
       if (document) await compileRoot.pin(document.uri);
     }),
 
@@ -118,15 +190,23 @@ export function activate(context: vscode.ExtensionContext): void {
       compileRoot.unpin(),
     ),
 
-    vscode.commands.registerCommand('typstUltra.export', async () => {
-      const document = await requireTypstDocument();
-      if (document) await pickAndExport(client, document);
-    }),
+    vscode.commands.registerCommand(
+      'typstUltra.export',
+      async (uri?: vscode.Uri) => {
+        const document = await requireDocument(uri);
+        if (document) await pickAndExport(client, compileRoot, document);
+      },
+    ),
 
-    vscode.commands.registerCommand('typstUltra.exportPdf', async () => {
-      const document = await requireTypstDocument();
-      if (document) await exportDocument(client, 'pdf', document);
-    }),
+    vscode.commands.registerCommand(
+      'typstUltra.exportPdf',
+      async (uri?: vscode.Uri) => {
+        const document = await requireDocument(uri);
+        if (document) {
+          await exportDocument(client, compileRoot, 'pdf', document);
+        }
+      },
+    ),
 
     vscode.commands.registerCommand('typstUltra.restartServer', async () => {
       output.appendLine('restarting the language server');
@@ -157,20 +237,4 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   // Everything is in `context.subscriptions`.
-}
-
-/** The active typst document, complaining clearly if there is not one. */
-async function requireTypstDocument(): Promise<vscode.TextDocument | undefined> {
-  const editor = vscode.window.activeTextEditor;
-  if (editor?.document.languageId === 'typst') return editor.document;
-
-  const open = vscode.workspace.textDocuments.find(
-    (document) => document.languageId === 'typst',
-  );
-  if (open) return open;
-
-  void vscode.window.showInformationMessage(
-    'Typst: open a .typ file first.',
-  );
-  return undefined;
 }

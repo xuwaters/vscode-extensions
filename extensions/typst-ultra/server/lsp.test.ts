@@ -224,4 +224,48 @@ describe.skipIf(!READY)('the built server, over LSP', () => {
 
     expect(messages.join('\n')).toMatch(/packages\.enabled|disabled/);
   }, 60_000);
+
+  /**
+   * The host's way of saying "the reader is looking at this one now".
+   *
+   * Without it the server follows whatever was last opened, changed, or saved —
+   * which is right while typing and wrong the moment someone clicks between two
+   * files that are both already open, because no edit arrives to say so. The
+   * preview would then measure the previous document and show its pages under
+   * the new file's name.
+   */
+  it('changes the compiled document on typst/compile', async () => {
+    const onePage = `${pathToFileURL(workspace).toString()}/one.typ`;
+    const twoPages = `${pathToFileURL(workspace).toString()}/two.typ`;
+
+    client.notify('textDocument/didOpen', {
+      textDocument: {
+        uri: onePage,
+        languageId: 'typst',
+        version: 1,
+        text: 'Only one page.\n',
+      },
+    });
+    client.notify('textDocument/didOpen', {
+      textDocument: {
+        uri: twoPages,
+        languageId: 'typst',
+        version: 1,
+        text: 'First.\n#pagebreak()\nSecond.\n',
+      },
+    });
+
+    // The debounced compile that follows the second open makes it the subject.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const before = await client.request('typst/documentMetrics', { uri: twoPages });
+    expect((before.result as { pageCount: number }).pageCount).toBe(2);
+
+    // No edit, just a change of subject — which is exactly the case the
+    // notification exists for.
+    client.notify('typst/compile', { uri: onePage });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const after = await client.request('typst/documentMetrics', { uri: onePage });
+    expect((after.result as { pageCount: number }).pageCount).toBe(1);
+  }, 60_000);
 });

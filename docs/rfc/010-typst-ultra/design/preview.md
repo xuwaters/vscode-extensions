@@ -13,14 +13,43 @@ in this repo. Multiple simultaneous previews are explicitly not supported.
 
 | Surface | Contribution | When |
 | --- | --- | --- |
-| Preview panel | `WebviewPanel` beside or in the editor's column | `typstUltra.showPreview` / `showPreviewToSide` |
-| Custom editor | `typstUltra.preview`, `priority: "option"` for `.typ` | User opts in via `workbench.editorAssociations` |
+| Preview panel | `WebviewPanel` `typstUltra.preview`, beside or in the editor's column | `typstUltra.showPreview` / `showPreviewToSide`, Split mode |
+| Preview editor | `typstUltra.editor`, `priority: "option"` for `.typ` | Preview mode asks for it by name; or the user opts in via `workbench.editorAssociations` |
 | Serializer | `WebviewPanelSerializer` | Panel survives window reload |
 
-The custom editor is a `CustomTextEditorProvider` in read-only mode: it renders the same webview against
+The preview editor is a `CustomTextEditorProvider` in read-only mode: it renders the same webview against
 the document, so a `.typ` can be opened as a finished document with no flash of source. We register it at
 `priority: "option"` and **never write `workbench.editorAssociations` ourselves** — the global-settings
-mutation that MPE does is the anti-pattern RFC 009 called out, and it applies here too.
+mutation that MPE does is the anti-pattern RFC 009 called out, and it applies here too. Preview mode
+reaches it by naming the view type in `vscode.openWith`, which needs no setting at all.
+
+### View modes ([Amendment 001](../proposal-amendment-001-preview-ux.md))
+
+Three modes, derived from the layout rather than stored — a stored mode goes stale the moment a tab is
+dragged. The rule is [`modeState.ts`](../../../../extensions/typst-ultra/src/preview/modeState.ts), which
+is `vscode`-free and tested; [`modes.ts`](../../../../extensions/typst-ultra/src/preview/modes.ts) drives
+it, the title bar, and the status bar.
+
+| Mode | Layout | Entered by |
+| --- | --- | --- |
+| **Edit** | text editor only | `setModeEdit`, closing the preview |
+| **Split** | editor + preview beside, the preview's group locked | **`cmd+shift+v`**, `cmd+k v`, `setModeSplit` |
+| **Preview** | the preview *in the tab the source was in* | `setModePreview` |
+
+Transitions reuse what is on screen: with a panel open, `revealPanel` moves it between columns without
+reloading the webview; Edit ⇄ Preview swaps the editor *inside* the tab through Reopen With
+([`editors.ts`](../../../../extensions/typst-ultra/src/preview/editors.ts)), so the tab bar is the same
+width either side of a switch. The page the reader was on is carried across by
+[`pageMemory.ts`](../../../../extensions/typst-ultra/src/preview/pageMemory.ts), shared by both surfaces
+and applied once per document — not on every compile, which would snap the view to a page boundary on
+every keystroke.
+
+**Following the editor takes three parts, not one.** The panel retargets, *and* the host sends
+`typst/compile { uri }` so the server's subject follows too — it otherwise follows the last edit, and
+clicking between two open files produces none — *and* the webview drops its pages and scroll position when
+`metrics` arrives carrying a different URI. The preview editor claims the compile the same way when its tab
+becomes active, since it is not a text editor and nothing else reports it. A pinned compile root
+([0008](../decisions/0008-compile-root.md)) outranks all of this and suppresses the notification.
 
 ---
 
@@ -90,8 +119,14 @@ type WebviewToHost =
   | { type: 'scrolled'; page: number; yPt: number }              // preview→editor sync
   | { type: 'openLink'; href: string }
   | { type: 'state'; zoom: number; fit: FitMode; inverted: boolean }
+  | { type: 'export' }                                           // toolbar button
+  | { type: 'openSource' }                                       // toolbar button
   | { type: 'error'; message: string; context: string };
 ```
+
+The last two are payload-free on purpose: a button that told the host *which file* to export would be a
+webview naming a path, and the host already knows which document it is showing. They go through the same
+hand-written guard as every other variant, which drops anything they try to carry.
 
 Three differences from the RFC's sketch, each with a reason:
 
@@ -196,7 +231,9 @@ All dependency-free; the webview bundle should stay well under 50 KB.
 | **Color inversion** | A CSS filter for reading white pages in a dark editor. `never` / `always` / `auto`. Images are exempted from the filter so photos are not inverted |
 | **Background** | `editor` (VSCode variables) / `white` / `gray` |
 | **Page numbers** | A small overlay per page, plus a "go to page" input |
+| **Placement** | A toolbar across the **top**, in the flow — continuing the editor's title bar rather than sitting at the far end of the panel. The status banner sits below it, so a compile error cannot swallow the controls |
 | **Find** | `enableFindWidget: true` on the panel — free, and it works because the SVG contains real `<text>` runs |
+| **Leaving the page** | An Edit button (`✎`) and an Export button (`⭳`), separated from the reading controls. What each means is the host's business: the panel hands focus to the editor beside it, the full-tab preview hands the tab itself back |
 | **Status** | A thin bar showing compile state and time, driven by `typst/compileStatus` |
 | **Error card** | On compile failure the last good pages stay visible, dimmed, with an error banner. The preview never goes blank mid-edit |
 
@@ -215,9 +252,19 @@ destroy the preview.
 | PNG | `typst_render::render(page, &RenderOptions)` per page | `pixel_per_pt` from a PPI setting (default 144) |
 
 Export runs in the server on the last good document and returns bytes over `typst/export`; the host writes
-them using `typstUltra.export.outputPath` (`$dir`, `$name`, `$root` placeholders) and offers "Open" /
-"Reveal in Finder". Export never triggers a compile of its own — if the document currently has errors, the
-command reports that instead of silently exporting a stale file.
+them and offers "Open" / "Reveal in Finder". Export never triggers a compile of its own — if the document
+currently has errors, the command reports that instead of silently exporting a stale file.
+
+**Where it goes** ([Amendment 001 §3](../proposal-amendment-001-preview-ux.md#3-export-with-a-destination)):
+a save dialog opens on `typstUltra.export.outputPath` (`$dir`, `$name`, `$root`), which starts at the
+document's own folder under the document's own name — so accepting the default is one keystroke and moving
+it is an ordinary file dialog. The dialog comes **before** the export request, so cancelling costs nothing,
+and `export.askForLocation: false` skips it entirely. The answer is reduced to a base path by `baseFor`,
+because PNG writes one file per page and has to keep suffixing.
+
+The command also names its subject — `typst/compile { uri }` — before asking. The server exports whatever
+it last compiled, and in a two-document workspace that is not necessarily the file whose Export button was
+clicked.
 
 ---
 

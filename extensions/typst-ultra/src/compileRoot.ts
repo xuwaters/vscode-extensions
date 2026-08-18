@@ -3,6 +3,15 @@ import * as vscode from 'vscode';
 import type { Client } from './client.js';
 import * as config from './config.js';
 
+/**
+ * Whether a compile root is pinned, as everything that has to respect one sees
+ * it. Implemented by `CompileRoot`; an interface so the preview and the export
+ * command depend on the question rather than on the status bar item.
+ */
+export interface RootState {
+  readonly pinned: vscode.Uri | undefined;
+}
+
 /** Which of the three inputs decided the compile root. */
 export type RootMode =
   | { kind: 'pinned'; uri: vscode.Uri }

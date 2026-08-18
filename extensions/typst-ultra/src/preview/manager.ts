@@ -1,35 +1,23 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Client } from '../client.js';
+import type { RootState } from '../compileRoot.js';
 import * as config from '../config.js';
 import {
   isAllowedLink,
   parseWebviewMessage,
   type HostToWebview,
-  type PageMetric,
-  type PagePatch,
   type PreviewSettings,
   type WebviewToHost,
 } from './messages.js';
 import { html } from './html.js';
+import type { PageMemory } from './pageMemory.js';
+import { compileNow, fetchMetrics, fetchPages, jumpFromClick } from './rpc.js';
 import { SyncGuard } from './sync.js';
 
-/** The server's answer to `typst/documentMetrics`. */
-interface MetricsResult {
-  pageCount: number;
-  pages: PageMetric[];
-}
-
-/** The server's answer to `typst/renderPages`. */
-interface RenderResult {
-  patches: PagePatch[];
-  pageCount: number;
-}
-
-/** The server's answer to `typst/jumpFromClick`. */
-type JumpResult =
-  | { kind: 'source'; uri: string; position: { line: number; character: number } }
-  | { kind: 'url'; url: string }
-  | { kind: 'page'; page: number; xPt: number; yPt: number };
+/** Context keys the editor-title buttons and keybindings are gated on. */
+const CTX_VISIBLE = 'typstUltra.previewVisible';
+const CTX_LOCKED = 'typstUltra.previewLocked';
 
 /**
  * The preview panel.
@@ -40,24 +28,41 @@ type JumpResult =
  * is this", and every sync rule then needs a caveat.
  */
 export class PreviewManager implements vscode.Disposable {
+  public static readonly viewType = 'typstUltra.preview';
+
   private panel: vscode.WebviewPanel | undefined;
   private target: vscode.Uri | undefined;
+  /** Column the source editor lived in when the panel opened. */
+  private source: vscode.ViewColumn = vscode.ViewColumn.One;
   private locked = false;
   private seq = 0;
+  /** The document the reader has already been placed in, by URI. */
+  private placed: string | undefined;
+  /**
+   * Whether the page has announced itself. A panel exists from the moment it is
+   * created, but nothing is listening in it until its script has loaded —
+   * messages sent before that are dropped, so sending them is not just wasted,
+   * it would mark work as done that never happened.
+   */
+  private ready = false;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly guard = new SyncGuard();
+  private readonly stateEmitter = new vscode.EventEmitter<void>();
+  /** Fires when the preview opens, closes, moves, or retargets. */
+  public readonly onDidChangeState = this.stateEmitter.event;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly client: Client,
     private readonly output: vscode.OutputChannel,
+    private readonly pages: PageMemory,
+    private readonly root: RootState,
   ) {
     this.disposables.push(
-      vscode.window.onDidChangeActiveTextEditor((editor) => {
-        if (!this.locked && editor?.document.languageId === 'typst') {
-          this.retarget(editor.document.uri);
-        }
-      }),
+      this.stateEmitter,
+      vscode.window.onDidChangeActiveTextEditor((editor) =>
+        this.onActiveEditorChanged(editor),
+      ),
       vscode.window.onDidChangeTextEditorSelection((event) =>
         this.onCursorMoved(event),
       ),
@@ -80,20 +85,58 @@ export class PreviewManager implements vscode.Disposable {
     return this.panel?.visible ?? false;
   }
 
+  // ── Mode-manager surface ───────────────────────────────────────────
+
+  /** Whether a panel exists at all, on screen or behind another tab. */
+  get hasPreview(): boolean {
+    return this.panel !== undefined;
+  }
+
+  get panelColumn(): vscode.ViewColumn | undefined {
+    return this.panel?.viewColumn ?? undefined;
+  }
+
+  get sourceColumn(): vscode.ViewColumn | undefined {
+    return this.panel ? this.source : undefined;
+  }
+
+  /**
+   * The document a mode switch or an export should act on.
+   *
+   * The open panel wins: with the focus inside it there is no active editor to
+   * read, and a pinned panel is showing the file the reader means. A closed
+   * panel's last subject is not an answer — by then the active editor is.
+   */
+  get currentUri(): vscode.Uri | undefined {
+    if (this.panel && this.target) return this.target;
+    const active = vscode.window.activeTextEditor?.document;
+    return active?.languageId === 'typst' ? active.uri : undefined;
+  }
+
   /** Open, or reveal, the preview for a document. */
   async show(uri: vscode.Uri, column: vscode.ViewColumn): Promise<void> {
+    await this.client.start(uri);
+    const retargeted = this.target?.toString() !== uri.toString();
     this.target = uri;
 
     if (this.panel) {
-      this.panel.reveal(column, true);
+      if (retargeted) this.adoptTarget(uri);
+      this.panel.reveal(this.panel.viewColumn, true);
       await this.refreshMetrics();
       return;
     }
 
+    this.source =
+      vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+    const lockGroup =
+      column === vscode.ViewColumn.Beside && this.lockGroupEnabled();
+
     const panel = vscode.window.createWebviewPanel(
-      'typstUltra.preview',
-      `Preview ${uriLabel(uri)}`,
-      { viewColumn: column, preserveFocus: true },
+      PreviewManager.viewType,
+      this.title(uri),
+      // Locking a group acts on the *active* group, so when we intend to lock
+      // the new panel has to take focus first and hand it back below.
+      { viewColumn: column, preserveFocus: !lockGroup },
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -104,12 +147,66 @@ export class PreviewManager implements vscode.Disposable {
     );
 
     this.adopt(panel);
+    compileNow(this.client, uri, this.root.pinned !== undefined);
+    if (lockGroup) await this.lockGroup();
     await this.refreshMetrics();
+  }
+
+  /**
+   * Move the panel to `column`. The lock belongs to the editor group, not to
+   * the panel: a panel moving out to the side lands in a group that has never
+   * been locked, so the lock has to be re-established there.
+   */
+  async revealPanel(
+    column: vscode.ViewColumn,
+    preserveFocus = false,
+  ): Promise<void> {
+    const panel = this.panel;
+    if (!panel) return;
+    const lock = column !== this.source && this.lockGroupEnabled();
+    panel.reveal(column, preserveFocus && !lock);
+    if (lock) await this.lockGroup(preserveFocus);
+    this.stateEmitter.fire();
+  }
+
+  /** Close the panel, handing back the page it was last read to. */
+  closePreview(): number | undefined {
+    const page = this.target ? this.pages.peek(this.target.toString()) : undefined;
+    this.panel?.dispose();
+    return page;
+  }
+
+  /** Bounce focus between the source editor and its preview. */
+  async toggleFocus(): Promise<void> {
+    const panel = this.panel;
+    if (!panel) {
+      const uri = this.currentUri;
+      if (!uri) {
+        void vscode.window.showInformationMessage(
+          'Typst: open a .typ file to show its preview.',
+        );
+        return;
+      }
+      const mode = config.read(uri).host.preview.defaultMode;
+      await this.show(
+        uri,
+        mode === 'preview' ? vscode.ViewColumn.Active : vscode.ViewColumn.Beside,
+      );
+      return;
+    }
+    if (panel.active) {
+      await this.focusSource();
+      return;
+    }
+    panel.reveal(panel.viewColumn, false);
   }
 
   /** Attach to a panel, whether newly created or restored by the serializer. */
   adopt(panel: vscode.WebviewPanel): void {
     this.panel = panel;
+    this.ready = false;
+    this.source =
+      vscode.window.activeTextEditor?.viewColumn ?? this.source;
     panel.webview.html = html(panel.webview, this.context.extensionUri);
 
     panel.webview.onDidReceiveMessage((raw: unknown) => {
@@ -123,36 +220,35 @@ export class PreviewManager implements vscode.Disposable {
       void this.onMessage(message);
     });
 
+    panel.onDidChangeViewState(() => this.stateEmitter.fire());
+
     panel.onDidDispose(() => {
       this.panel = undefined;
-      void vscode.commands.executeCommand(
-        'setContext',
-        'typstUltra.previewVisible',
-        false,
-      );
+      void vscode.commands.executeCommand('setContext', CTX_VISIBLE, false);
+      void vscode.commands.executeCommand('setContext', CTX_LOCKED, false);
+      this.stateEmitter.fire();
     });
 
-    void vscode.commands.executeCommand(
-      'setContext',
-      'typstUltra.previewVisible',
-      true,
-    );
+    void vscode.commands.executeCommand('setContext', CTX_VISIBLE, true);
+    void vscode.commands.executeCommand('setContext', CTX_LOCKED, this.locked);
+    this.stateEmitter.fire();
   }
 
   /** Point the preview at a different document. */
   retarget(uri: vscode.Uri): void {
     if (this.target?.toString() === uri.toString()) return;
     this.target = uri;
-    if (this.panel) this.panel.title = `Preview ${uriLabel(uri)}`;
+    this.adoptTarget(uri);
     void this.refreshMetrics();
+    this.stateEmitter.fire();
   }
 
   /** Stop following the active editor. */
   toggleLock(): boolean {
     this.locked = !this.locked;
-    if (this.panel) {
-      this.panel.title = `${this.locked ? '$(lock) ' : ''}Preview ${uriLabel(this.target)}`;
-    }
+    if (this.panel && this.target) this.panel.title = this.title(this.target);
+    void vscode.commands.executeCommand('setContext', CTX_LOCKED, this.locked);
+    this.stateEmitter.fire();
     return this.locked;
   }
 
@@ -173,9 +269,40 @@ export class PreviewManager implements vscode.Disposable {
     this.panel?.dispose();
   }
 
+  // ── Events ─────────────────────────────────────────────────────────
+
+  /**
+   * Follow the reader to the file they just opened.
+   *
+   * This is the whole point of one shared panel: clicking a second `.typ`
+   * should show that document, not leave the previous one on screen with the
+   * wrong source beside it. A pinned preview stays where it is, and so does one
+   * whose target is simply being re-focused.
+   */
+  private onActiveEditorChanged(editor: vscode.TextEditor | undefined): void {
+    if (!this.panel || this.locked) return;
+    if (editor?.document.languageId !== 'typst') return;
+
+    this.source = editor.viewColumn ?? this.source;
+    const uri = editor.document.uri;
+    if (this.target?.toString() === uri.toString()) return;
+
+    // Preview mode: the file that just opened landed in the panel's own column
+    // and covered it. The panel owns that column, so bring it back in front
+    // once it is showing the new file — the editor stays behind as a tab.
+    const inPanelColumn =
+      editor.viewColumn !== undefined &&
+      editor.viewColumn === this.panel.viewColumn;
+
+    this.retarget(uri);
+
+    if (inPanelColumn) this.panel.reveal(this.panel.viewColumn, false);
+  }
+
   private async onMessage(message: WebviewToHost): Promise<void> {
     switch (message.type) {
       case 'ready':
+        this.ready = true;
         this.pushSettings();
         await this.refreshMetrics();
         break;
@@ -194,6 +321,7 @@ export class PreviewManager implements vscode.Disposable {
         break;
 
       case 'scrolled':
+        if (this.target) this.pages.park(this.target.toString(), message.page);
         await this.onPreviewScrolled(message.page, message.yPt);
         break;
 
@@ -203,6 +331,19 @@ export class PreviewManager implements vscode.Disposable {
         } else {
           this.output.appendLine(`preview: refused to open ${message.href}`);
         }
+        break;
+
+      case 'export':
+        // The in-page button and the title-bar icon are the same command, told
+        // which document to act on rather than left to guess from the focus —
+        // which is in the panel, and therefore names no editor at all.
+        if (this.target) {
+          await vscode.commands.executeCommand('typstUltra.export', this.target);
+        }
+        break;
+
+      case 'openSource':
+        await this.focusSource();
         break;
 
       case 'state':
@@ -228,22 +369,27 @@ export class PreviewManager implements vscode.Disposable {
     if (state === 'ok') void this.refreshMetrics();
   }
 
+  // ── Rendering ──────────────────────────────────────────────────────
+
   /** Ask the server how many pages there are and how big they are. */
   private async refreshMetrics(): Promise<void> {
-    if (!this.panel || !this.target) return;
+    if (!this.panel || !this.target || !this.ready) return;
 
-    const result = await this.client.request<MetricsResult>(
-      'typst/documentMetrics',
-      { uri: this.target.toString() },
-    );
+    const key = this.target.toString();
+    const result = await fetchMetrics(this.client, this.target);
     if (!result) return;
 
-    this.post({
-      type: 'metrics',
-      seq: ++this.seq,
-      uri: this.target.toString(),
-      pages: result.pages,
-    });
+    this.post({ type: 'metrics', seq: ++this.seq, uri: key, pages: result.pages });
+
+    // A document the reader has seen before opens where they left it — *once*,
+    // on the way in. Every compile refreshes the metrics, and placing the
+    // reader again on each of them would snap the view to a page boundary on
+    // every keystroke. The webview resets its scroll when the URI changes, so
+    // this has to follow the metrics that carry the new one.
+    if (this.placed === key) return;
+    this.placed = key;
+    const page = this.pages.peek(key);
+    if (page !== undefined && page > 0) this.post({ type: 'goToPage', page });
   }
 
   /** Fetch the pages in view that the webview does not already hold. */
@@ -255,30 +401,26 @@ export class PreviewManager implements vscode.Disposable {
   ): Promise<void> {
     if (!this.target) return;
 
-    const pages: number[] = [];
-    for (let index = first; index <= last; index += 1) pages.push(index);
-
-    const mode = config.read(this.target).host.preview.renderMode;
-    const result = await this.client.request<RenderResult>('typst/renderPages', {
-      uri: this.target.toString(),
-      pages,
-      knownHashes: known,
-      mode,
-      // A raster page is baked at one resolution, so it has to be rendered for
-      // the zoom it will be shown at. 96 dpi is 1:1 with a CSS pixel.
-      ppi: mode === 'svg' ? undefined : Math.min(600, Math.max(72, 96 * zoom)),
-    });
+    const result = await fetchPages(
+      this.client,
+      this.target,
+      first,
+      last,
+      known,
+      zoom,
+    );
     if (!result) return;
 
     this.post({ type: 'pages', seq: ++this.seq, patches: result.patches });
   }
 
   /** Preview → editor. */
-  private async jumpFromClick(page: number, xPt: number, yPt: number): Promise<void> {
-    const result = await this.client.request<JumpResult | null>(
-      'typst/jumpFromClick',
-      { page, xPt, yPt },
-    );
+  private async jumpFromClick(
+    page: number,
+    xPt: number,
+    yPt: number,
+  ): Promise<void> {
+    const result = await jumpFromClick(this.client, page, xPt, yPt);
     if (!result) return;
 
     if (result.kind === 'url') {
@@ -296,10 +438,15 @@ export class PreviewManager implements vscode.Disposable {
     const document = await vscode.workspace.openTextDocument(uri);
     const editor = await vscode.window.showTextDocument(document, {
       preserveFocus: false,
-      viewColumn: vscode.ViewColumn.One,
+      // The source belongs where the source has been all along. Opening it in
+      // the active column would put it over the page that was just clicked.
+      viewColumn: this.source,
     });
 
-    const position = new vscode.Position(result.position.line, result.position.character);
+    const position = new vscode.Position(
+      result.position.line,
+      result.position.character,
+    );
     this.guard.markPreviewOrigin();
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(
@@ -315,10 +462,7 @@ export class PreviewManager implements vscode.Disposable {
     if (mode !== 'both' && mode !== 'previewToEditor') return;
     if (this.guard.isEditorOrigin()) return;
 
-    const result = await this.client.request<JumpResult | null>(
-      'typst/jumpFromClick',
-      { page, xPt: 20, yPt },
-    );
+    const result = await jumpFromClick(this.client, page, 20, yPt);
     if (!result || result.kind !== 'source') return;
 
     const editor = vscode.window.visibleTextEditors.find(
@@ -346,7 +490,10 @@ export class PreviewManager implements vscode.Disposable {
     this.guard.debounce(50, () => void this.sendCursor(event.textEditor, false));
   }
 
-  private async sendCursor(editor: vscode.TextEditor, force: boolean): Promise<void> {
+  private async sendCursor(
+    editor: vscode.TextEditor,
+    force: boolean,
+  ): Promise<void> {
     if (!this.panel) return;
 
     const settings = config.read(editor.document.uri);
@@ -367,7 +514,51 @@ export class PreviewManager implements vscode.Disposable {
     if (!first) return;
 
     this.guard.markEditorOrigin();
-    this.post({ type: 'cursor', page: first.page, xPt: first.xPt, yPt: first.yPt });
+    this.post({
+      type: 'cursor',
+      page: first.page,
+      xPt: first.xPt,
+      yPt: first.yPt,
+    });
+  }
+
+  // ── Layout ─────────────────────────────────────────────────────────
+
+  /** Put the source of the previewed document back in front of the reader. */
+  private async focusSource(): Promise<void> {
+    const uri = this.target;
+    if (!uri) return;
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(document, {
+      viewColumn: this.source,
+      preserveFocus: false,
+    });
+  }
+
+  /** Whether a side preview should lock the group it lands in. */
+  private lockGroupEnabled(): boolean {
+    return config.read(this.target).host.preview.lockPreviewGroup;
+  }
+
+  /**
+   * Lock the preview's group so explorer and quick-open files land in the main
+   * group instead of replacing the preview. The command acts on the *active*
+   * group, so the panel must already hold focus; callers that place the focus
+   * themselves afterwards pass `restoreFocus: false`.
+   */
+  private async lockGroup(restoreFocus = true): Promise<void> {
+    await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+    if (restoreFocus) {
+      await vscode.commands.executeCommand(
+        'workbench.action.focusPreviousGroup',
+      );
+    }
+  }
+
+  /** Everything a change of subject implies, short of asking for the pages. */
+  private adoptTarget(uri: vscode.Uri): void {
+    if (this.panel) this.panel.title = this.title(uri);
+    compileNow(this.client, uri, this.root.pinned !== undefined);
   }
 
   private pushSettings(): void {
@@ -376,6 +567,13 @@ export class PreviewManager implements vscode.Disposable {
 
   private post(message: HostToWebview): void {
     void this.panel?.webview.postMessage(message);
+  }
+
+  private title(uri: vscode.Uri | undefined): string {
+    // A pin, not a padlock: the group lock VSCode draws on the tab bar is a
+    // different thing, and two padlocks side by side read as one feature.
+    // Codicons do not render in a panel title, so this is a real character.
+    return `${this.locked ? '📌 ' : ''}Preview ${uriLabel(uri)}`;
   }
 }
 
@@ -392,5 +590,5 @@ export function previewSettings(scope?: vscode.Uri): PreviewSettings {
 }
 
 function uriLabel(uri: vscode.Uri | undefined): string {
-  return uri ? uri.path.split('/').pop() ?? 'Typst' : 'Typst';
+  return uri ? path.basename(uri.fsPath) || 'Typst' : 'Typst';
 }

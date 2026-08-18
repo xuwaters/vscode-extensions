@@ -23,8 +23,10 @@ export interface HostSettings {
     invertColors: 'never' | 'always' | 'auto';
     background: 'editor' | 'white' | 'gray';
     renderMode: 'svg' | 'png' | 'auto';
+    lockPreviewGroup: boolean;
+    defaultMode: 'split' | 'preview';
   };
-  export: { outputPath: string };
+  export: { outputPath: string; askForLocation: boolean };
   trace: string;
 }
 
@@ -88,8 +90,13 @@ export function read(scope?: vscode.Uri): Config {
         invertColors: config.get('preview.invertColors', 'never'),
         background: config.get('preview.background', 'editor'),
         renderMode: config.get('preview.renderMode', 'svg'),
+        lockPreviewGroup: config.get('preview.lockPreviewGroup', true),
+        defaultMode: config.get('preview.defaultMode', 'split'),
       },
-      export: { outputPath: config.get('export.outputPath', '$dir/$name') },
+      export: {
+        outputPath: config.get('export.outputPath', '$dir/$name'),
+        askForLocation: config.get('export.askForLocation', true),
+      },
       trace: config.get('trace.server', 'off'),
     },
   };

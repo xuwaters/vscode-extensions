@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
-import { expand } from './exportPath.js';
+import { baseFor, expand } from './exportPath.js';
 
 describe('export.outputPath templating', () => {
   const root = path.join(path.sep, 'proj');
@@ -43,6 +43,40 @@ describe('export.outputPath templating', () => {
   it('leaves an unknown placeholder alone rather than eating it', () => {
     expect(expand('$dir/$unknown', document, root)).toBe(
       path.join(root, 'chapters', '$unknown'),
+    );
+  });
+});
+
+describe('the base an export writes to', () => {
+  const dir = path.join(path.sep, 'proj', 'out');
+
+  it('drops the extension the dialog added', () => {
+    expect(baseFor(path.join(dir, 'paper.pdf'), 'pdf')).toBe(
+      path.join(dir, 'paper'),
+    );
+  });
+
+  it('drops it whatever case the file system handed back', () => {
+    expect(baseFor(path.join(dir, 'PAPER.PDF'), 'pdf')).toBe(
+      path.join(dir, 'PAPER'),
+    );
+  });
+
+  it('leaves a name with no extension alone', () => {
+    expect(baseFor(path.join(dir, 'paper'), 'pdf')).toBe(path.join(dir, 'paper'));
+  });
+
+  // A reader who typed `paper.v2` meant it; only the format's own extension is
+  // the dialog's doing.
+  it('keeps a suffix that is not the format', () => {
+    expect(baseFor(path.join(dir, 'paper.v2'), 'pdf')).toBe(
+      path.join(dir, 'paper.v2'),
+    );
+  });
+
+  it('keeps the rest of a multi-part name', () => {
+    expect(baseFor(path.join(dir, 'paper.v2.png'), 'png')).toBe(
+      path.join(dir, 'paper.v2'),
     );
   });
 });
