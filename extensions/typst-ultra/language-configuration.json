@@ -1,0 +1,73 @@
+{
+  "comments": {
+    "lineComment": "//",
+    "blockComment": ["/*", "*/"]
+  },
+  "brackets": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"]
+  ],
+  "autoClosingPairs": [
+    { "open": "{", "close": "}" },
+    { "open": "[", "close": "]" },
+    { "open": "(", "close": ")" },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] },
+    { "open": "$", "close": "$", "notIn": ["string", "comment"] },
+    { "open": "/*", "close": "*/", "notIn": ["string"] }
+  ],
+  "surroundingPairs": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"],
+    ["\"", "\""],
+    ["$", "$"],
+    ["*", "*"],
+    ["_", "_"],
+    ["`", "`"]
+  ],
+  "autoCloseBefore": ";:.,=}])>` \n\t",
+  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)",
+  "indentationRules": {
+    "increaseIndentPattern": "^.*(\\{[^}\"']*|\\([^)\"']*|\\[[^\\]\"']*)$",
+    "decreaseIndentPattern": "^\\s*([}\\])])"
+  },
+  "onEnterRules": [
+    {
+      "beforeText": "^\\s*(?:[-+*])\\s+\\S",
+      "action": { "indent": "none", "appendText": "- " }
+    },
+    {
+      "beforeText": "^\\s*(?:[-+*])\\s*$",
+      "action": { "indent": "none", "removeText": 2 }
+    },
+    {
+      "beforeText": "^(\\s*)(\\d+)\\.\\s+\\S",
+      "action": { "indent": "none", "appendText": "+ " }
+    },
+    {
+      "beforeText": "^\\s*\\+\\s+\\S",
+      "action": { "indent": "none", "appendText": "+ " }
+    },
+    {
+      "beforeText": "^\\s*\\+\\s*$",
+      "action": { "indent": "none", "removeText": 2 }
+    },
+    {
+      "beforeText": "^\\s*/\\s+\\S+:\\s+\\S",
+      "action": { "indent": "none" }
+    },
+    {
+      "beforeText": "^\\s*//.*$",
+      "action": { "indent": "none", "appendText": "// " }
+    },
+    {
+      "beforeText": "^\\s*/\\*\\*(?!/)([^\\*]|\\*(?!/))*$",
+      "action": { "indent": "none", "appendText": " * " }
+    },
+    {
+      "beforeText": "^(\\t|[ ])*[ ]\\*/\\s*$",
+      "action": { "indent": "none", "removeText": 1 }
+    }
+  ]
+}

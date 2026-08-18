@@ -7,6 +7,10 @@ dist/
 out/
 *.tsbuildinfo
 extensions/*/wasm/
+# typst-ultra's bundled fonts: 9.2 MB of binaries reproduced by
+# `pnpm run build:fonts` from the typst-assets crate, and shipped in the VSIX.
+# Same treatment as wasm/ — a build output, not a source.
+extensions/typst-ultra/assets/fonts/
 
 # VS Code extension packages
 *.vsix

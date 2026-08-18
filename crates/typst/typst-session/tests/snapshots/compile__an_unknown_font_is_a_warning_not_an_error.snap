@@ -1,0 +1,5 @@
+---
+source: crates/typst/typst-session/tests/compile.rs
+expression: render_diagnostics(&outcome.diagnostics)
+---
+Warning /unknown-font.typ [16..35] unknown font family: a font nobody has

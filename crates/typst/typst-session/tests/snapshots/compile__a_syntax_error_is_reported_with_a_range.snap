@@ -1,0 +1,5 @@
+---
+source: crates/typst/typst-session/tests/compile.rs
+expression: render_diagnostics(&outcome.diagnostics)
+---
+Error /syntax-error.typ [19..20] unclosed delimiter

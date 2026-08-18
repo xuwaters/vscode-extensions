@@ -1,7 +1,7 @@
 # RFC 010: Typst Ultra — a WASM Typst language server and live preview
 
-**Status**: Draft, awaiting review
-**Date**: 2026-08-17
+**Status**: Implemented — 60 / 62 tasks ([tasks/](tasks/README.md))
+**Date**: 2026-08-17 · **Implemented**: 2026-08-17
 **Extension name**: `wx-vsce-typst-ultra`
 **Rust crates**: `crates/typst/typst-session`, `crates/typst/typst-lsp-core`, `crates/typst/typst-preview-core`, `crates/typst/typst-lsp-wasm` (all new)
 **References**: [`temp/typst`](../../../temp/typst) — typst 0.15.1, Apache-2.0; [`temp/tinymist`](../../../temp/tinymist) — tinymist 0.15.4-rc1, Apache-2.0
@@ -293,31 +293,39 @@ Full listing in [lsp-features.md §7](design/lsp-features.md#7-commands-and-sett
 Derived from measured spike numbers ([spike.md §4](research/spike.md#4-compile-latency)), with headroom for the
 real server's extra bookkeeping.
 
-| Scenario | Target | Spike measurement |
-| --- | --- | --- |
-| Extension activation (no `.typ` open) | < 5 ms | server starts lazily |
-| Server start → `initialized` | < 400 ms | WASM instantiate + font index |
-| Cold compile, 10-page document | < 150 ms | 81 ms |
-| Cold compile, 75-page document | < 300 ms | 262 ms |
-| Keystroke → diagnostics, 30-page document | < 50 ms | 6 ms compile |
-| Keystroke → diagnostics, 30-page document (p95) | < 80 ms | 9 ms |
-| Keystroke → preview repaint, 30-page document | < 120 ms | 6 ms compile + ~5 ms/page SVG + IPC (**IPC estimated**) |
-| Completion / hover / definition | < 30 ms | syntax-tree only; never waits on compile |
-| Format, 30-page document | < 50 ms | typstyle is a pure syntax pass |
-| WASM heap, 30-page document | < 150 MB | 55 MB |
-| WASM heap, 75-page document | < 250 MB | 106 MB |
+| Scenario | Target | Spike (synthetic) | **Real corpus** |
+| --- | --- | --- | --- |
+| Extension activation (no `.typ` open) | < 5 ms | server starts lazily | unchanged |
+| Server start → `initialized` | < 400 ms | WASM instantiate + font index | font index **10 ms** |
+| Cold compile, 10-page document | < 150 ms | 81 ms | paper (2pp) 195 ms; graphics (9pp) 54 ms |
+| Cold compile, 75-page document | < 300 ms | 262 ms | ⚠️ **524 ms at 104 pages** — 5.0 ms/page vs 3.5 |
+| Keystroke → diagnostics, 30-page document | < 50 ms | 6 ms compile | 39 ms at **104** pages |
+| Keystroke → diagnostics, 30-page document (p95) | < 80 ms | 9 ms | 43 ms at 104 pages |
+| Keystroke → preview repaint, 30-page document | < 120 ms | 6 ms compile + ~5 ms/page SVG + IPC (**IPC estimated**) | **~18 ms**, transport measured at 3.7 ms |
+| Completion / hover / definition | < 30 ms | syntax-tree only; never waits on compile | invariant held; no feature needed a compile |
+| Format, 30-page document | < 50 ms | typstyle is a pure syntax pass | unchanged |
+| WASM heap, 30-page document | < 150 MB | 55 MB | paper 23 MB |
+| WASM heap, 75-page document | < 250 MB | 106 MB | **222 MB at 104 pages** |
+
+Real-corpus figures are from [research/corpus.md](research/corpus.md), measured through the real WASM
+artifact. **One target is missed**: cold compile on a long structured book. It is 5.0 ms/page against the
+spike's 3.5 ms/page, because an outline, running headers, and heading numbering cost what `#lorem` never
+paid. The row should be restated per page (**< 6 ms/page cold**) rather than by a page count that was
+always a proxy for size — recorded as a proposed amendment rather than edited in, since changing a stated
+target is a scope decision.
 
 All figures are at the default `memory.evictAge: 1`. Tail latency, not the median, is what a typist feels,
 which is why p95 is a target rather than a footnote — at eviction age 10 the p95 at 75 pages is 278 ms
 against age 1's 18 ms ([0005](decisions/0005-cache-eviction-policy.md)).
 
-Two caveats worth carrying forward:
+Two caveats, both now resolved:
 
-- **The preview repaint budget is ~75% estimate.** Roughly 50 ms of it is JSON-RPC, IPC, `postMessage`, and
-  DOM parsing, none of which has been measured. Closing that is the first task of Phase 3
-  ([P3-05](tasks/phase-3-preview.md)).
+- ~~**The preview repaint budget is ~75% estimate.**~~ Measured at **3.7 ms** against ~30 ms estimated
+  ([research/transport.md](research/transport.md)). The one row still carrying a guess is DOM parse and
+  paint, which needs a real browser to close.
 - **Getting the compile/evict *ordering* wrong costs 50×**, which the spike found the hard way. The
-  invariant is enforced structurally in `typst-session`, not by convention. See
+  invariant is enforced structurally in `typst-session`, not by convention, and
+  `a_warm_recompile_is_much_faster_than_a_cold_one` fails loudly if it is reversed. See
   [architecture.md §6](design/architecture.md#6-memory-and-the-comemo-cache).
 
 ## 9. Security

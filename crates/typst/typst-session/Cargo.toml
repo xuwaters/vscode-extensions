@@ -1,0 +1,40 @@
+[package]
+name = "typst-session"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Typst compile session — World implementation, virtual file system, lazy font book, package resolution, and the compile-then-evict lifecycle. Host I/O arrives through ports, so the engine is testable without WASM."
+license = "MIT"
+
+[lints]
+workspace = true
+
+[features]
+# `std::fs` implementations of the ports. On by default so `cargo test` needs no
+# flags; `typst-lsp-wasm` turns it off so std::fs never reaches the artifact.
+default = ["fs-ports"]
+fs-ports = []
+
+[dependencies]
+typst = "0.15.1"
+typst-layout = "0.15.1"
+typst-syntax = "0.15.1"
+typst-ide = "0.15.1"
+typst-pdf = "0.15.1"
+# The HTML export target. Already in the graph transitively via `typst`; naming
+# it here is what makes `typst_html::html` callable.
+typst-html = "0.15.1"
+
+comemo = "0.5"
+ecow = "0.2"
+serde = { version = "1", features = ["derive"] }
+# Date arithmetic for `World::today`. WASM has no clock, so the host supplies an
+# epoch instant and this turns it into a `Datetime` at the requested offset.
+time = { version = "0.3", default-features = false }
+
+[dev-dependencies]
+# The corpus example renders pages to measure their size.
+typst-preview-core = { path = "../typst-preview-core" }
+# The default font set, so tests lay out exactly as `typst compile` does.
+typst-assets = { version = "0.15.1", features = ["fonts"] }
+insta = "1"
+pretty_assertions = "1"

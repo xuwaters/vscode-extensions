@@ -1,0 +1,449 @@
+{
+  "name": "wx-vsce-typst-ultra",
+  "displayName": "Typst Ultra",
+  "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact \u2014 diagnostics, completion, hover, goto-definition, semantic tokens, formatting, two-way-synced preview, and PDF/SVG/PNG export",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:typst",
+    "onWebviewPanel:typstUltra.preview",
+    "onCustomEditor:typstUltra.preview",
+    "onCommand:typstUltra.newFromTemplate"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "typst",
+        "aliases": [
+          "Typst",
+          "typst"
+        ],
+        "extensions": [
+          ".typ",
+          ".typc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "typst",
+        "scopeName": "source.typst",
+        "path": "./syntaxes/typst.tmLanguage.json"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "typstUltra.preview",
+        "displayName": "Typst Preview",
+        "priority": "option",
+        "selector": [
+          {
+            "filenamePattern": "*.typ"
+          }
+        ]
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "typst",
+        "scopes": {
+          "punct": [
+            "punctuation.typst"
+          ],
+          "escape": [
+            "constant.character.escape.typst"
+          ],
+          "strong": [
+            "markup.bold.typst"
+          ],
+          "emph": [
+            "markup.italic.typst"
+          ],
+          "link": [
+            "markup.underline.link.typst"
+          ],
+          "raw": [
+            "markup.raw.typst"
+          ],
+          "label": [
+            "entity.name.label.typst"
+          ],
+          "ref": [
+            "markup.other.reference.typst"
+          ],
+          "heading": [
+            "markup.heading.typst"
+          ],
+          "listMarker": [
+            "punctuation.definition.list.begin.typst"
+          ],
+          "listTerm": [
+            "markup.bold.typst"
+          ],
+          "mathDelimiter": [
+            "punctuation.definition.math.typst"
+          ],
+          "interpolated": [
+            "meta.interpolation.typst"
+          ],
+          "error": [
+            "invalid.illegal.typst"
+          ]
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "typstUltra.newFromTemplate",
+        "title": "New Project from Template\u2026",
+        "category": "Typst",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "typstUltra.showPreview",
+        "title": "Show Preview",
+        "category": "Typst",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "typstUltra.showPreviewToSide",
+        "title": "Show Preview to the Side",
+        "category": "Typst",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "typstUltra.syncPreviewToCursor",
+        "title": "Sync Preview to Cursor",
+        "category": "Typst"
+      },
+      {
+        "command": "typstUltra.pinMain",
+        "title": "Pin This File as Compile Root",
+        "category": "Typst",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "typstUltra.unpinMain",
+        "title": "Unpin Compile Root",
+        "category": "Typst",
+        "icon": "$(pinned-dirty)"
+      },
+      {
+        "command": "typstUltra.export",
+        "title": "Export\u2026",
+        "category": "Typst"
+      },
+      {
+        "command": "typstUltra.exportPdf",
+        "title": "Export PDF",
+        "category": "Typst"
+      },
+      {
+        "command": "typstUltra.toggleInvertColors",
+        "title": "Toggle Preview Color Inversion",
+        "category": "Typst"
+      },
+      {
+        "command": "typstUltra.restartServer",
+        "title": "Restart Language Server",
+        "category": "Typst"
+      },
+      {
+        "command": "typstUltra.showLog",
+        "title": "Show Log",
+        "category": "Typst"
+      },
+      {
+        "command": "typstUltra.clearPackageCache",
+        "title": "Clear Package Cache",
+        "category": "Typst"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "typstUltra.showPreview",
+          "when": "editorLangId == typst"
+        },
+        {
+          "command": "typstUltra.showPreviewToSide",
+          "when": "editorLangId == typst"
+        },
+        {
+          "command": "typstUltra.syncPreviewToCursor",
+          "when": "editorLangId == typst && typstUltra.previewVisible"
+        },
+        {
+          "command": "typstUltra.pinMain",
+          "when": "editorLangId == typst"
+        },
+        {
+          "command": "typstUltra.unpinMain",
+          "when": "typstUltra.mainPinned"
+        },
+        {
+          "command": "typstUltra.export",
+          "when": "editorLangId == typst"
+        },
+        {
+          "command": "typstUltra.exportPdf",
+          "when": "editorLangId == typst"
+        },
+        {
+          "command": "typstUltra.toggleInvertColors",
+          "when": "typstUltra.previewVisible"
+        },
+        {
+          "command": "typstUltra.newFromTemplate"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "typstUltra.showPreviewToSide",
+          "when": "editorLangId == typst",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "typstUltra.showPreview",
+          "when": "resourceExtname == .typ",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "typstUltra.showPreview",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v",
+        "when": "editorLangId == typst"
+      },
+      {
+        "command": "typstUltra.showPreviewToSide",
+        "key": "ctrl+k v",
+        "mac": "cmd+k v",
+        "when": "editorLangId == typst"
+      },
+      {
+        "command": "typstUltra.syncPreviewToCursor",
+        "key": "ctrl+k ctrl+j",
+        "mac": "cmd+k cmd+j",
+        "when": "editorLangId == typst"
+      }
+    ],
+    "configuration": {
+      "title": "Typst Ultra",
+      "properties": {
+        "typstUltra.rootPath": {
+          "type": "string",
+          "default": "",
+          "description": "Compile root. Empty follows the workspace folder. Determines what an absolute path like `/assets/logo.svg` means inside a document."
+        },
+        "typstUltra.mainFile": {
+          "type": "string",
+          "default": "",
+          "description": "Compile entry point, workspace-relative. Empty follows the focused editor. Outranked by the `Typst: Pin This File as Compile Root` command."
+        },
+        "typstUltra.compile.when": {
+          "type": "string",
+          "enum": [
+            "onType",
+            "onSave",
+            "never"
+          ],
+          "default": "onType",
+          "description": "When to recompile."
+        },
+        "typstUltra.compile.debounce": {
+          "type": "number",
+          "default": 150,
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Milliseconds of quiet after the last keystroke before compiling."
+        },
+        "typstUltra.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show typst's errors and warnings."
+        },
+        "typstUltra.semanticTokens": {
+          "type": "string",
+          "enum": [
+            "enable",
+            "disable"
+          ],
+          "default": "enable",
+          "description": "Colour from the real parser. Disabling falls back to the bundled grammar's approximate colouring."
+        },
+        "typstUltra.formatter.mode": {
+          "type": "string",
+          "enum": [
+            "typstyle",
+            "off"
+          ],
+          "default": "typstyle",
+          "description": "Formatter to use."
+        },
+        "typstUltra.formatter.printWidth": {
+          "type": "number",
+          "default": 80,
+          "minimum": 20,
+          "maximum": 400,
+          "description": "Target line width for the formatter."
+        },
+        "typstUltra.formatter.indentSize": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Spaces per indent level."
+        },
+        "typstUltra.inlayHints.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show parameter names at call sites."
+        },
+        "typstUltra.fonts.system": {
+          "type": "boolean",
+          "default": true,
+          "description": "Index fonts installed on this machine, in the background, after the bundled set is live."
+        },
+        "typstUltra.fonts.paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra font directories, workspace-relative or absolute."
+        },
+        "typstUltra.packages.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow downloading packages from the registry. Turn off for air-gapped setups; imports then fail with a clear message instead of hanging."
+        },
+        "typstUltra.packages.registry": {
+          "type": "string",
+          "default": "https://packages.typst.org",
+          "description": "Package registry base URL."
+        },
+        "typstUltra.packages.cachePath": {
+          "type": "string",
+          "default": "",
+          "description": "Package cache directory. Empty uses typst's standard location, shared with `typst-cli` so nothing is downloaded twice."
+        },
+        "typstUltra.preview.scrollSync": {
+          "type": "string",
+          "enum": [
+            "both",
+            "editorToPreview",
+            "previewToEditor",
+            "off"
+          ],
+          "default": "both",
+          "description": "Which directions the editor and preview follow each other."
+        },
+        "typstUltra.preview.cursorIndicator": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flash a marker at the cursor's position on the page."
+        },
+        "typstUltra.preview.invertColors": {
+          "type": "string",
+          "enum": [
+            "never",
+            "always",
+            "auto"
+          ],
+          "default": "never",
+          "description": "Invert page colours for reading white pages in a dark editor. Images are exempt. `auto` follows the VSCode theme."
+        },
+        "typstUltra.preview.background": {
+          "type": "string",
+          "enum": [
+            "editor",
+            "white",
+            "gray"
+          ],
+          "default": "editor",
+          "description": "Colour behind the pages."
+        },
+        "typstUltra.preview.renderMode": {
+          "type": "string",
+          "enum": [
+            "svg",
+            "png",
+            "auto"
+          ],
+          "default": "svg",
+          "description": "How pages are rendered. `png` is a low-memory mode that loses zoom fidelity and find-in-preview; `auto` switches per page above roughly 1 MB of SVG."
+        },
+        "typstUltra.export.outputPath": {
+          "type": "string",
+          "default": "$dir/$name",
+          "description": "Where exports are written, without the extension. Supports `$dir`, `$name`, and `$root`."
+        },
+        "typstUltra.memory.evictAge": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 30,
+          "description": "comemo cache age. Lower is both faster and smaller here \u2014 measured, and counter-intuitive. Deviates from typst-cli's 10 on purpose."
+        },
+        "typstUltra.memory.restartThresholdMb": {
+          "type": "number",
+          "default": 1024,
+          "minimum": 0,
+          "description": "Offer a server restart once its heap passes this size. 0 disables the watchdog."
+        },
+        "typstUltra.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Log LSP traffic to the output channel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:wasm": "cd ../../crates/typst/typst-lsp-wasm && wasm-pack build --target nodejs --out-dir ../../../extensions/typst-ultra/wasm --out-name typst_lsp_wasm",
+    "build:fonts": "cd ../.. && cargo run --release -p typst-session --example dump-fonts -- extensions/typst-ultra/assets/fonts",
+    "licenses": "cd ../../crates/typst/typst-lsp-wasm && cargo about generate about.hbs -o ../../../extensions/typst-ultra/THIRD-PARTY-NOTICES.md",
+    "build": "tsdown",
+    "clean": "rm -rf dist wasm assets/fonts",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build:wasm && pnpm run build:fonts && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "pnpm run build:wasm && pnpm run build:fonts && tsdown --minify",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "happy-dom": "^15.11.7",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}

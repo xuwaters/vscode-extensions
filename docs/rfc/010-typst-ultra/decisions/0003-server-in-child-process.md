@@ -53,10 +53,32 @@ stands on the *blocking* and *crash isolation* arguments, which are unaffected.
 | `wasm32-wasip1` + `@vscode/wasm-wasi-lsp` | Real `std::fs` in Rust, but adds a hard dependency on the WebAssembly Execution Engine extension |
 | Separate preview process | Doubles memory and compiles to solve a problem the "never block on compile" invariant already solves |
 
+## Outcome — measured on real documents, 2026-08-17
+
+The numbers this record rests on came from a synthetic 75-page document. On a real 104-page book they are
+**worse**, which strengthens the decision rather than weakening it
+([research/corpus.md](../research/corpus.md)):
+
+| | Spike, synthetic | Real corpus |
+| --- | --- | --- |
+| Cold compile | 262 ms (75 pages) | **524 ms** (104 pages) |
+| Peak WASM heap | 106 MB | **222 MB** |
+
+Half a second of blocking is well past what any extension should do on a shared thread, and 222 MB that is
+never returned to the OS is exactly the tenant this record describes. The **blocking** argument is now the
+strongest of the three, where the original revision leaned on memory and then had to walk it back.
+
+The "never block on compile" invariant held throughout implementation: every `typst-ide` entry point takes
+the document as an `Option`, so no IDE feature ever needed a fresh compile. No feature had to be cut for
+it.
+
 ## Revisit if
 
 - The "never block on compile" invariant proves unenforceable in practice — e.g. a feature genuinely needs
   a synchronous fresh compile — at which point a second process becomes the honest fix.
 - A browser build for vscode.dev is pursued, which forces the `vscode-languageclient/browser` + Worker
-  shape and supersedes this record for that target.
+  shape and supersedes this record for that target. **Scoped** in
+  [design/browser.md](../design/browser.md): the blocker is whether vscode.dev serves cross-origin
+  isolation headers, since `World::file` is synchronous and only `SharedArrayBuffer` + `Atomics.wait` can
+  make an async source look synchronous without patching the compiler.
 - Node child-process startup becomes a measurable annoyance on cold open.

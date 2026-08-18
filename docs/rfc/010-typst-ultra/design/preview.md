@@ -67,25 +67,40 @@ convention ([markdown-preview-ultra/src/messages.ts](../../../../extensions/mark
 
 ```typescript
 type HostToWebview =
-  | { type: 'init'; settings: PreviewSettings; baseUri: string }
+  | { type: 'init'; settings: PreviewSettings }
   | { type: 'metrics'; seq: number; uri: string;
       pages: { index: number; widthPt: number; heightPt: number; hash: string }[] }
-  | { type: 'pages'; seq: number;
-      patches: ({ op: 'replace'; index: number; hash: string; svg: string }
-              | { op: 'drop'; index: number })[] }
+  | { type: 'pages'; seq: number; patches: PagePatch[] }
   | { type: 'cursor'; page: number; xPt: number; yPt: number }   // editor cursor moved
   | { type: 'status'; state: 'compiling' | 'ok' | 'error'; message?: string }
-  | { type: 'settings'; settings: PreviewSettings };
+  | { type: 'settings'; settings: PreviewSettings }
+  | { type: 'goToPage'; page: number };
+
+type PagePatch =
+  | { op: 'replace'; index: number; hash: string;
+      format: 'svg' | 'png'; content: string }
+  | { op: 'unchanged'; index: number }
+  | { op: 'removed'; index: number };
 
 type WebviewToHost =
   | { type: 'ready' }
-  | { type: 'viewport'; first: number; last: number; known: Record<number, string> }
+  | { type: 'viewport'; first: number; last: number;
+      known: Record<number, string>; zoom: number }
   | { type: 'click'; page: number; xPt: number; yPt: number }
   | { type: 'scrolled'; page: number; yPt: number }              // preview→editor sync
   | { type: 'openLink'; href: string }
   | { type: 'state'; zoom: number; fit: FitMode; inverted: boolean }
   | { type: 'error'; message: string; context: string };
 ```
+
+Three differences from the RFC's sketch, each with a reason:
+
+- **`unchanged` is a real variant**, not an omission. The server reports every requested page so the
+  webview can tell "your copy is current" from "that request was dropped".
+- **`format` and `content`** replace `svg`, because [P4-05](../tasks/phase-4-polish.md)'s PNG mode ships
+  raster pages over the same protocol.
+- **`viewport` carries the zoom.** A raster page is baked at one resolution, so the server has to know the
+  size the page will be shown at. Vector pages ignore it.
 
 Rules that keep this honest:
 
@@ -218,20 +233,31 @@ goes, for a 30-page document at steady state:
 | `typst::compile` + `comemo::evict` | ~7 ms | [measured](../research/spike.md#42-eviction-age-sweep) |
 | `measure()` — hash all pages, no render | ~2 ms | frame hashing only |
 | `typst_svg::svg` for one changed page | ~5 ms | [measured](../research/spike.md#7-page-svg-anatomy) |
-| JSON-RPC serialize + Node IPC (386 KB) | ~15 ms | estimate, **unmeasured** |
-| Extension host → webview `postMessage` | ~15 ms | estimate, **unmeasured** |
-| `DOMParser` + adopt + paint | ~20 ms | estimate, **unmeasured** |
-| **Total** | **~65 ms** | ~55 ms of it estimated |
+| JSON-RPC serialize + parse | **0.8 ms** | [measured](../research/transport.md) |
+| Node IPC round trip (394 KB) | **2.9 ms** | [measured](../research/transport.md) |
+| Extension host → webview `postMessage` | **0.1 ms** | [measured](../research/transport.md), via `structuredClone` |
+| `DOMParser` + adopt + paint | ~20 ms | **still an estimate** — see below |
+| **Total** | **~38 ms** | one row of it estimated, against a 120 ms target |
 
-The honest reading: the engine half is measured and comfortable; the transport half is estimated and is
-where the risk lives. Two escape hatches if the estimate is wrong, in order of preference:
+**The transport half came in 8× cheaper than estimated**: 3.7 ms against ~30 ms
+([P3-05](../tasks/phase-3-preview.md), [transport.md](../research/transport.md)). The engine half was
+already comfortable. So the repaint budget is not close to binding, and neither escape hatch was needed
+in Phase 3.
 
-1. **Coordinate precision.** The 386 KB is dominated by 3,144 `<use>` elements with full-precision floats.
-   Rounding to 2 decimal places in a post-pass would cut it substantially at sub-pixel visual cost.
-2. **PNG mode.** `typst_render` at 144 PPI produces a much smaller payload for text-heavy pages, at the
-   cost of zoom fidelity and find-in-preview. This is already an **accepted Phase-4 optimization**
-   (`typstUltra.preview.renderMode`, [0006](../decisions/0006-preview-rendering.md)); if the transport
-   measurements come in badly it gets promoted into Phase 3 instead.
+Two things that did not survive contact:
 
-The first thing Phase 3 should do is replace the estimated rows in this table with measurements —
-[P3-05](../tasks/phase-3-preview.md), which is sequenced before the webview work for exactly this reason.
+1. **Coordinate precision was not the lever it looked like.** The premise — 3,144 `<use>` elements at
+   *full-precision floats* — is only half right. `typst-svg` already rounds to 9 decimal places and
+   formats through `ryu`, so rounding to 2 saves **2.9%**, not "substantially".
+   [P4-11](../tasks/phase-4-polish.md) is implemented and kept, because it is free, but it is not a lever.
+2. **A real page is 470 KB, not 386 KB** — a two-column paper packs more glyphs per page than the spike's
+   fixture ([corpus.md](../research/corpus.md)). The transport numbers above were taken at 394 KB, so
+   scale them ~16% for the worst case; the conclusion is unaffected.
+
+**PNG mode** remains the real lever if page size ever binds, and is implemented as planned in Phase 4
+(`typstUltra.preview.renderMode`, [0006](../decisions/0006-preview-rendering.md)) — not because it was
+needed, but because a document full of raster images is a case the corpus still does not cover.
+
+The one row still carrying an estimate is `DOMParser` + adopt + paint, and closing it needs a real
+browser: `happy-dom` reports 46 ms for a 394 KB page, but it is a pure-JS parser that does no layout at
+all, so that figure bounds nothing in either direction.

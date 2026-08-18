@@ -28,7 +28,13 @@ Crates we depend on, all `0.15.1` and all **unpatched**:
 | `typst-svg` | Preview + SVG export | `svg`, `svg_merged`, `SvgOptions` |
 | `typst-render` | PNG export | `render`, `RenderOptions` |
 | `typst-pdf` | PDF export | `pdf`, `PdfOptions` |
+| `typst-html` | HTML export (P4-07) | `html`, `HtmlOptions`, `HtmlDocument` — behind upstream's experimental `Feature::Html` |
 | `typst-timing` | Transitive | `wasm` feature deliberately **off** ([spike.md §2](spike.md#2-does-upstream-typst-build-for-wasm-unpatched)) |
+
+**One place the published API ran out**, and what was done about it, is recorded in
+[upstream.md](upstream.md): `NamedItem::name()` and `::span()` are `pub(crate)`, so the accessor is
+rebuilt from the public variants — decision 0001's option 1, with option 3 written up as a proposal.
+Once, in the whole implementation.
 
 Source files this RFC cites directly:
 

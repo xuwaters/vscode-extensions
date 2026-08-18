@@ -1,0 +1,54 @@
+[package]
+name = "typst-lsp-wasm"
+version = "0.1.0"
+edition = { workspace = true }
+description = "wasm-bindgen surface for the Typst language server — the only crate in the stack that knows WASM exists."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# `default-features = false` keeps the `std::fs` port implementations out of the
+# artifact; they exist for `cargo test`, not for the editor.
+typst-session = { path = "../typst-session", default-features = false }
+typst-lsp-core = { path = "../typst-lsp-core" }
+typst-preview-core = { path = "../typst-preview-core" }
+
+typst = "0.15.1"
+typst-syntax = "0.15.1"
+ecow = "0.2"
+
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[package.metadata.wasm-pack.profile.release]
+# `-Os` is worth the ~15 s it costs here: it takes the artifact from ~29 MB to
+# ~19 MB. Several other crates in this repo set `wasm-opt = false` for build
+# speed; this one earns the time, and only `package` pays it.
+#
+# The `--enable-*` flags are not optional. Current rustc emits bulk-memory,
+# sign-extension, and non-trapping float-to-int instructions for
+# wasm32-unknown-unknown by default, and wasm-opt refuses to validate a module
+# using features it has not been told about. Without them the build fails with
+# "memory.fill operations require bulk memory".
+wasm-opt = [
+  "-Os",
+  "--strip-debug",
+  "--enable-bulk-memory",
+  "--enable-bulk-memory-opt",
+  "--enable-nontrapping-float-to-int",
+  "--enable-sign-ext",
+  "--enable-mutable-globals",
+  "--enable-reference-types",
+  "--enable-multivalue",
+]

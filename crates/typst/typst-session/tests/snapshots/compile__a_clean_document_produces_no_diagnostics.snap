@@ -1,0 +1,5 @@
+---
+source: crates/typst/typst-session/tests/compile.rs
+expression: render_diagnostics(&outcome.diagnostics)
+---
+(no diagnostics)

@@ -1,0 +1,33 @@
+[package]
+name = "typst-preview-core"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Per-page SVG rendering, page content hashing and diffing, cursor/click jump mapping, and SVG/PNG export for the Typst Ultra live preview."
+license = "MIT"
+
+[lints]
+workspace = true
+
+[dependencies]
+typst-session = { path = "../typst-session", default-features = false }
+
+typst = "0.15.1"
+typst-layout = "0.15.1"
+typst-svg = "0.15.1"
+typst-render = "0.15.1"
+typst-ide = "0.15.1"
+typst-syntax = "0.15.1"
+
+ecow = "0.2"
+rustc-hash = "2"
+serde = { version = "1", features = ["derive"] }
+# For `Pixmap::encode_png`; typst-render does not re-export tiny-skia.
+tiny-skia = "0.12"
+
+[dev-dependencies]
+typst-svg = "0.15.1"
+# Re-enable the fs ports for tests: features unify, so the WASM build (which
+# depends on typst-session with default-features = false) is unaffected.
+typst-session = { path = "../typst-session", features = ["fs-ports"] }
+typst-assets = { version = "0.15.1", features = ["fonts"] }
+pretty_assertions = "1"

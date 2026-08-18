@@ -1,0 +1,35 @@
+[package]
+name = "typst-lsp-core"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Transport-agnostic Typst language server — method dispatch, document state, and every IDE feature, expressed in lsp-types shapes."
+license = "MIT"
+
+[lints]
+workspace = true
+
+[dependencies]
+typst-session = { path = "../typst-session", default-features = false }
+typst-preview-core = { path = "../typst-preview-core" }
+
+typst = "0.15.1"
+typst-syntax = "0.15.1"
+typst-ide = "0.15.1"
+# `PagedDocument` lives here and is not re-exported by the `typst` facade.
+typst-layout = "0.15.1"
+
+typstyle-core = "0.15.1"
+lsp-types = "0.97"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ecow = "0.2"
+rustc-hash = "2"
+percent-encoding = "2"
+
+[dev-dependencies]
+# Re-enable the fs ports for tests; feature unification leaves the WASM build,
+# which takes typst-session with default-features = false, untouched.
+typst-session = { path = "../typst-session", features = ["fs-ports"] }
+typst-assets = { version = "0.15.1", features = ["fonts"] }
+insta = "1"
+pretty_assertions = "1"

@@ -280,18 +280,42 @@ The WASM surface is deliberately tiny — three entry points and a callback bag.
 [crates.md §5](crates.md#5-typst-lsp-wasm).
 
 ```
-JS → WASM   Server::new(host: HostServices, init: InitializeParams) -> Server
-            Server::on_request(method: &str, params: JsValue) -> JsValue   // sync, returns the response
-            Server::on_notification(method: &str, params: JsValue)
-            Server::drain_events() -> JsValue                              // queued server→client messages
+JS → WASM   new TypstServer(host, init)                            // init: InitOptions, below
+            server.capabilities()          -> ServerCapabilities   // what to answer `initialize` with
+            server.onRequest(method, params) -> result             // sync, returns the LSP response
+            server.onNotification(method, params)
+            server.drainEvents()           -> {method, params}[]   // queued server→client messages
+            server.setFontFaces(faces)                             // after system-font indexing
+            TypstServer.indexFont(bytes)   -> FaceEntry[]          // static; parses metadata, keeps none
+            TypstServer.heapBytes()        -> number               // static; for the watchdog
+            TypstServer.typstVersion()     -> string               // static
 
-WASM → JS   host.readFile(vpath: string)   -> Uint8Array | null    SYNC, callable mid-compile
-            host.listDir(vpath: string)    -> string[]             SYNC
-            host.fontData(faceId: number)  -> Uint8Array | null    SYNC
-            host.today(offsetMinutes)      -> number               SYNC
-            host.requestPackage(spec)      -> void                 fire-and-forget; host recompiles later
-            host.log(level, message)       -> void
+WASM → JS   host.readFile(root, vpath)     -> Uint8Array | null    SYNC, callable mid-compile
+            host.listDir(root, vpath)      -> string[]             SYNC
+            host.fontData(faceIndex)       -> Uint8Array | null    SYNC
+            host.resolvePackage(spec)      -> "ready"|"pending"|"failed:…"   SYNC
+            host.now()                     -> number               SYNC, epoch ms
+            host.timezoneOffsetMinutes()   -> number               SYNC, minutes east of UTC
 ```
+
+Differences from the RFC's sketch, all of them found while building:
+
+- **`readFile` takes a root as well as a path.** A file id is a `(root, vpath)` pair upstream, where the
+  root is either the project or a package — and the host is the only side that knows where a package
+  lives on this machine. The root crosses as `""` or `"@preview/cetz:0.4.2"`.
+- **`resolvePackage` replaces `requestPackage`.** Fire-and-forget was not enough: the compile needs an
+  answer *now* to decide between "not there yet" and "will never be there", and those produce different
+  diagnostics. The download itself is still fire-and-forget behind it.
+- **`now()` + `timezoneOffsetMinutes()` replace `today(offsetMinutes)`.** Marshalling a date across the
+  boundary is more work than marshalling an instant; the conversion is arithmetic and belongs in Rust.
+- **`log` was not needed.** Everything the server wants to say goes through `drainEvents` as a
+  `window/logMessage` notification, which the client already routes to the output channel.
+- **`setFontFaces`** rebuilds the font book in place when system-font indexing finishes, rather than
+  restarting the session — the open documents are unchanged and would otherwise have to be resent.
+
+`init` is an `InitOptions` object rather than raw `InitializeParams`: `rootUri`, `packageCacheUri`,
+`mainPath`, the settings, the font index, and the Universe package list. The host has already read the
+font cache and discovered the bundled fonts by the time it constructs the server.
 
 Requests are synchronous by design — [spike.md §6](../research/spike.md#6-synchronous-host-vfs-callbacks) verified
 that a `js_sys::Function` call from inside `World::file` works under `--target nodejs`, including error
@@ -310,14 +334,20 @@ Standard LSP for everything standard. Four extensions, all under the `typst/` na
 
 | Method | Direction | Purpose |
 | --- | --- | --- |
-| `typst/renderPages` | client → server | `{ uri, pages: number[], knownHashes: Record<number,string>, scale }` → page SVG patches |
+| `typst/renderPages` | client → server | `{ uri, pages, knownHashes, mode, ppi }` → page patches, SVG or PNG |
 | `typst/documentMetrics` | client → server | `{ uri }` → `{ pageCount, pageSizes, hashes }` — what the webview needs to lay out placeholders |
 | `typst/jumpFromClick` | client → server | `{ uri, page, x, y }` → `{ uri, offset } \| { url } \| null` |
 | `typst/jumpFromCursor` | client → server | `{ uri, offset }` → `{ page, x, y }[]` |
-| `typst/export` | client → server | `{ uri, format: 'pdf'\|'svg'\|'png', pages?, ppi? }` → base64 bytes |
+| `typst/export` | client → server | `{ format: 'pdf'\|'svg'\|'png'\|'html', page?, ppi? }` → base64 bytes |
+| `typst/template` | client → server | `{ spec }` → `{ root, template? }` — scaffolding (P4-14). Answered by the **Node** side, not Rust: it needs the network and can wait |
+| `typst/compile` | client → server | `{ uri }` — the host's debounce expired. The timer lives in Node, since WASM has no runtime to hang one on |
+| `typst/setMain` | client → server | `{ uri \| null }` — pin or unpin the compile root |
+| `typst/workspaceFiles` | client → server | `{ uris }` — what `workspace/symbol` may search. The host walks the file system; the server does not |
+| `typst/heapBytes` | client → server | `{}` → bytes, polled by the memory watchdog |
 | `typst/compileStatus` | server → client | `{ uri, state: 'compiling'\|'ok'\|'error', ms, pageCount }` — status bar |
 | `typst/packageStatus` | server → client | `{ spec, state: 'downloading'\|'ready'\|'failed', error? }` |
 | `typst/fontsChanged` | server → client | system font indexing finished; document recompiled |
+| `typst/engineMissing` | server → client | `wasm/` is not built. The client shows the exact command rather than a stack trace |
 
 ### 7.3 Extension host and webview
 
@@ -333,35 +363,46 @@ extensions/typst-ultra/
   package.json                 # language, grammar, commands, keybindings, settings, customEditors
   tsdown.config.mts            # three bundles: host (cjs/node), server (cjs/node), webview (esm/browser)
   .vscodeignore                # copied from scripts/templates per repo convention
-  LICENSE.md                   # NO LICENSE + third-party notices (see references.md)
+  LICENSE.md                   # NO LICENSE + compiler, typstyle, and font notices
+  THIRD-PARTY-NOTICES.md       # generated by `pnpm run licenses` (cargo-about), committed
   README.md
   language-configuration.json
   syntaxes/typst.tmLanguage.json
-  assets/fonts/                # typst default font set, ~9.5 MB (see proposal.md §6.3)
+  assets/fonts/                # typst default font set, 9.2 MB (see proposal.md §6.3)
   src/
-    extension.ts               # activation, commands, status bar
+    extension.ts               # activation, commands
     client.ts                  # LanguageClient construction, server lifecycle, restart
     config.ts                  # settings → initializationOptions + didChangeConfiguration
-    fonts.ts                   # bundled + system font discovery, on-disk index cache
+    compileRoot.ts             # the two modes, status bar, QuickPick, pin suggestion
+    status.ts                  # compile state, package status, heap watchdog
     export.ts                  # export commands, save dialogs
+    exportPath.ts              # $dir/$name/$root templating — pure, so it tests without vscode
+    template.ts                # scaffold from a Universe template (P4-14)
     preview/
       manager.ts               # panel lifecycle, follow/lock/retarget
       customEditor.ts          # typstUltra.preview custom editor provider
-      messages.ts              # typed host ⇄ webview protocol
+      messages.ts              # typed host ⇄ webview protocol + validation guards
       sync.ts                  # two-way scroll/cursor sync, loop guards
-    util.ts
+      html.ts                  # the webview document and its CSP
   server/
-    main.ts                    # JSON-RPC loop, HostServices, wasm bootstrap
+    main.ts                    # JSON-RPC loop, HostServices, wasm bootstrap, debounce
     vfs.ts                     # readFile/listDir with root confinement
-    packages.ts                # Universe download, untar, cache
+    packages.ts                # Universe download, untar, cache, template manifests
+    fonts.ts                   # bundled + system font discovery, on-disk index cache
   webview/
-    index.ts                   # bootstrap, message loop
-    pageList.ts                # virtualized page rendering + patch applier
-    zoom.ts  invert.ts  indicator.ts
+    index.ts                   # bootstrap, message loop, chrome
+    pageList.ts                # virtualized page rendering, patch applier, SVG adoption
     styles/preview.css
   wasm/                        # built by build:wasm (gitignored, ships in the VSIX)
   dist/                        # tsdown output
 ```
+
+Two placements differ from the sketch, both because of where the work actually has to happen:
+
+- **`fonts.ts` is in `server/`, not `src/`.** Font *bytes* are fetched by a synchronous callback from
+  inside a compile, so the index has to live in the server process. The extension host never sees a font.
+- **`util.ts` never appeared.** Nothing turned out to be generic enough to want it, and a file that exists
+  to hold leftovers attracts leftovers.
 
 ```
 crates/typst/

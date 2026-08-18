@@ -1,0 +1,6 @@
+---
+source: crates/typst/typst-session/tests/compile.rs
+expression: render_diagnostics(&outcome.diagnostics)
+---
+Error /unknown-function.typ [17..42] unknown variable: definitely-not-a-function
+hint: if you meant to use subtraction, try adding spaces around the minus signs: `definitely - not - a - function`

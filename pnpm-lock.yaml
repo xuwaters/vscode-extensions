@@ -379,6 +379,37 @@ importers:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
 
+  extensions/typst-ultra:
+    dependencies:
+      vscode-languageclient:
+        specifier: ^9.0.1
+        version: 9.0.1
+      vscode-languageserver:
+        specifier: ^9.0.1
+        version: 9.0.1
+    devDependencies:
+      '@types/node':
+        specifier: catalog:build
+        version: 25.5.0
+      '@types/vscode':
+        specifier: ^1.96.0
+        version: 1.110.0
+      '@vscode/vsce':
+        specifier: catalog:build
+        version: 3.7.1(supports-color@7.2.0)
+      happy-dom:
+        specifier: ^15.11.7
+        version: 15.11.7
+      tsdown:
+        specifier: catalog:build
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
+      typescript:
+        specifier: catalog:build
+        version: 6.0.3
+      vitest:
+        specifier: catalog:build
+        version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
+
   extensions/vim-ultra:
     devDependencies:
       '@types/node':
@@ -1369,6 +1400,9 @@ packages:
   brace-expansion@1.1.12:
     resolution: {integrity: sha512-9T9UjW3r0UW5c1Q7GTwllptXwhvYmEzFhzMfZ9H7FQWt+uZePjZPjBP/W1ZEyZ1twGWom5/56TF4lPcqjnDHcg==}
 
+  brace-expansion@2.1.4:
+    resolution: {integrity: sha512-hGfVzPxthbf3+2yjg/RBs60cB0FhqBS/zvdV/4wn4/BmN0bNMMHPc4V/BbFieqf1TKAGGAHnY4eSjajCl0f2Xg==}
+
   brace-expansion@5.0.4:
     resolution: {integrity: sha512-h+DEnpVvxmfVefa4jFbCf5HdH5YMDXRsmKflpf1pILZWRFlTbJpxeU55nJl4Smt5HQaGzg1o6RHFPJaOqnmBDg==}
     engines: {node: 18 || 20 || >=22}
@@ -2237,6 +2271,10 @@ packages:
   minimatch@3.1.5:
     resolution: {integrity: sha512-VgjWUsnnT6n+NUk6eZq77zeFdpW2LWDzP6zFGrCbHXiYNul5Dzqk2HHQ5uFH2DNW5Xbp8+jVzaeNt94ssEEl4w==}
 
+  minimatch@5.1.9:
+    resolution: {integrity: sha512-7o1wEA2RyMP7Iu7GNba9vc0RWWGACJOCZBJX2GJWip0ikV+wcOsgVuY9uE8CPiyQhkGFSlhuSkZPavN7u1c2Fw==}
+    engines: {node: '>=10'}
+
   minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
 
@@ -2861,6 +2899,10 @@ packages:
   vscode-jsonrpc@8.2.0:
     resolution: {integrity: sha512-C+r0eKJUIfiDIfwJhria30+TYWPtuHJXHtI7J0YlOmKAo7ogxP20T0zxB7HZQIFhIyvoBPwWskjxrvAtfjyZfA==}
     engines: {node: '>=14.0.0'}
+
+  vscode-languageclient@9.0.1:
+    resolution: {integrity: sha512-JZiimVdvimEuHh5olxhxkht09m3JzUGwggb5eRUkzzJhZ2KjCN0nh55VfiED9oez9DyF8/fz1g1iBV3h+0Z2EA==}
+    engines: {vscode: ^1.82.0}
 
   vscode-languageserver-protocol@3.17.5:
     resolution: {integrity: sha512-mb1bvRJN8SVznADSGWM9u/b07H7Ecg0I3OgXDuLdn307rl/J3A9YD6/eYOssqhecL27hK1IPZAsaqh00i/Jljg==}
@@ -3825,6 +3867,10 @@ snapshots:
       balanced-match: 1.0.2
       concat-map: 0.0.1
 
+  brace-expansion@2.1.4:
+    dependencies:
+      balanced-match: 1.0.2
+
   brace-expansion@5.0.4:
     dependencies:
       balanced-match: 4.0.4
@@ -4730,6 +4776,10 @@ snapshots:
     dependencies:
       brace-expansion: 1.1.12
 
+  minimatch@5.1.9:
+    dependencies:
+      brace-expansion: 2.1.4
+
   minimist@1.2.8:
     optional: true
 
@@ -5356,6 +5406,12 @@ snapshots:
       - msw
 
   vscode-jsonrpc@8.2.0: {}
+
+  vscode-languageclient@9.0.1:
+    dependencies:
+      minimatch: 5.1.9
+      semver: 7.7.4
+      vscode-languageserver-protocol: 3.17.5
 
   vscode-languageserver-protocol@3.17.5:
     dependencies:

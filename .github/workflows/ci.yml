@@ -1,0 +1,107 @@
+# The repo's first CI workflow, added for RFC 010 (task P1-14).
+#
+# The job that matters for this RFC is `wasm`: the whole premise is that
+# unmodified upstream typst builds for `wasm32-unknown-unknown`, and that is a
+# claim about a target nobody compiles for by accident. Without a job that
+# builds it on every PR, the first sign of it breaking would be a release.
+#
+# The other two jobs are the minimum context that makes the wasm job meaningful:
+# the engine's tests run natively (no WASM toolchain needed, by design), and the
+# extensions' tests run under Node.
+
+name: CI
+
+on:
+  #push:
+  #  branches: [main]
+  #pull_request:
+  workflow_dispatch:
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --workspace
+
+      # Scoped to the typst crates rather than the workspace. Several older
+      # crates carry pre-existing clippy warnings, and turning them into build
+      # failures here would mean editing code this RFC has no business touching.
+      # Widen the scope when those are cleaned up.
+      - name: Lint
+        run: |
+          cargo clippy --all-targets -- -D warnings \
+            -p typst-session \
+            -p typst-lsp-core \
+            -p typst-preview-core \
+            -p typst-lsp-wasm
+
+  wasm:
+    name: build wasm32-unknown-unknown
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+
+      # The point of the job. Every Rust-backed extension in this repo ships a
+      # WASM artifact, so this covers all of them, not just typst-ultra.
+      - name: Build every WASM crate for the browser target
+        run: |
+          cargo build --release --target wasm32-unknown-unknown \
+            -p typst-lsp-wasm \
+            -p markdown-engine \
+            -p log-parser
+
+      - name: Report the typst artifact size
+        run: |
+          size=$(stat -c%s target/wasm32-unknown-unknown/release/typst_lsp_wasm.wasm)
+          echo "typst_lsp_wasm.wasm: $((size / 1024 / 1024)) MB (unoptimized)" >> "$GITHUB_STEP_SUMMARY"
+
+  node:
+    name: pnpm test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      # The typst-ultra suites that need `wasm/` skip themselves when it is not
+      # there, so this job does not need the (slow) wasm-pack build. The `wasm`
+      # job above is what proves the artifact still compiles.
+      - name: Test
+        run: pnpm test

@@ -65,11 +65,35 @@ Export is a separate path with the opposite trade-off — completeness over late
 1. Round `<use>` coordinates to 2 decimal places — targets the 88%, sub-pixel visual cost.
 2. The PNG mode above, promoted from "Phase 4 optimization" to "Phase 3 necessity".
 
+## Outcome — measured, 2026-08-17
+
+Both conditions this record hedged against were tested, and **neither fired**. The decision stands as
+written; the reasoning behind two of its parts does not.
+
+**The transport estimate was wrong by 8×, in our favour.** ~30 ms estimated for serialization plus two
+hops; **3.7 ms** measured for a 394 KB page ([research/transport.md](../research/transport.md)). PNG mode
+was therefore *not* promoted into Phase 3, and shipped in Phase 4 as planned — implemented because a
+document full of raster images is still an uncovered case, not because it was needed.
+
+**Escape hatch 1 was worth 2.9%, not "substantially".** The premise — 3,144 `<use>` elements *at full
+float precision* — is half wrong. `typst-svg` already rounds to 9 decimal places and formats through
+`ryu`, which emits the shortest round-tripping representation, so the coordinates were never long. The
+rounding pass is implemented and kept ([P4-11](../tasks/phase-4-polish.md)) because it is free, but it is
+**not a lever**: if page size ever binds, PNG mode is the only one of the two that moves it. The ordering
+in "escape hatches, in order" above should be read as reversed.
+
+**Real documents make bigger pages than the spike measured**, though not dramatically: **470 KB** for a
+two-column paper against 386 KB, because two columns pack more glyphs per page. Vector-heavy pages turned
+out *cheaper* than prose (147 KB), which was the opposite of the worry — the expensive thing in a typst
+page is one `<use>` per glyph, and a scatter plot has fewer marks than a page of text has letters
+([research/corpus.md](../research/corpus.md)).
+
 ## Revisit if
 
-- Phase 3's transport measurements exceed the ~65 ms budget, promoting PNG mode from optimization to
-  requirement.
-- Real-world CeTZ/Fletcher-heavy documents produce SVG pages far larger than the synthetic 386 KB, which
-  the spike did not cover.
+- ~~Phase 3's transport measurements exceed the ~65 ms budget~~ — measured at 3.7 ms; closed.
+- **Raster-image-heavy documents** produce pages far larger than 470 KB. The corpus is entirely vector,
+  and photographs are a path nothing has exercised.
+- The **DOM parse and paint** step, still the only estimated row in the budget, turns out to dominate once
+  a real browser is instrumented.
 - Upstream gains a more compact vector output format (tinymist uses typst.ts's `reflexo-vec2svg` for
   exactly this reason; if an equivalent lands upstream, re-measure).

@@ -1,0 +1,120 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Typst",
+  "scopeName": "source.typst",
+  "_comment": "Deliberately minimal. This grammar only has to make a file look like Typst in the moments before semantic tokens arrive, and in themes or contexts where they do not. The real colouring comes from the actual parser via textDocument/semanticTokens — see decisions/0007.",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#heading" },
+    { "include": "#math" },
+    { "include": "#raw-block" },
+    { "include": "#raw-inline" },
+    { "include": "#label" },
+    { "include": "#reference" },
+    { "include": "#strong" },
+    { "include": "#emph" },
+    { "include": "#list-marker" },
+    { "include": "#hash-expression" },
+    { "include": "#escape" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.typst",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.typst",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "heading": {
+      "name": "markup.heading.typst",
+      "match": "^\\s*=+\\s+.*$"
+    },
+    "math": {
+      "name": "markup.math.typst",
+      "begin": "\\$",
+      "end": "\\$",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.math.typst" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.math.typst" }
+      },
+      "patterns": [
+        { "include": "#escape" },
+        {
+          "name": "keyword.operator.math.typst",
+          "match": "[+\\-*/^_=<>&|]"
+        }
+      ]
+    },
+    "raw-block": {
+      "name": "markup.raw.block.typst",
+      "begin": "```",
+      "end": "```",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.raw.typst" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.raw.typst" }
+      }
+    },
+    "raw-inline": {
+      "name": "markup.raw.inline.typst",
+      "match": "`[^`\\n]*`"
+    },
+    "label": {
+      "name": "entity.name.label.typst",
+      "match": "<[\\p{L}\\d_:.\\-]+>"
+    },
+    "reference": {
+      "name": "markup.other.reference.typst",
+      "match": "@[\\p{L}\\d_:.\\-]+"
+    },
+    "strong": {
+      "name": "markup.bold.typst",
+      "match": "\\*[^*\\n]+\\*"
+    },
+    "emph": {
+      "name": "markup.italic.typst",
+      "match": "_[^_\\n]+_"
+    },
+    "list-marker": {
+      "name": "punctuation.definition.list.begin.typst",
+      "match": "^\\s*([-+]|\\d+\\.)\\s"
+    },
+    "escape": {
+      "name": "constant.character.escape.typst",
+      "match": "\\\\(u\\{[0-9a-fA-F]+\\}|.)"
+    },
+    "hash-expression": {
+      "patterns": [
+        {
+          "_comment": "A keyword after the hash, which is the shape most code-mode lines take.",
+          "match": "#(let|set|show|import|include|if|else|for|while|return|break|continue|context|as|in|not|and|or|none|auto|true|false)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.typst" }
+          }
+        },
+        {
+          "_comment": "A call or variable reference.",
+          "match": "#([\\p{L}_][\\p{L}\\d_\\-]*)(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.typst" }
+          }
+        },
+        {
+          "match": "#([\\p{L}_][\\p{L}\\d_\\-]*)",
+          "captures": {
+            "1": { "name": "variable.other.typst" }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -62,3 +62,9 @@ Rules that keep this useful rather than ceremonial:
 - **"Revisit if" is mandatory.** A decision with no falsifying condition is a preference, not a decision.
 - **Numbers belong in [research/](../research/), not here.** Records link to measurements; they do not
   restate them, so there is exactly one place to update when a measurement is redone.
+- **An outcome is not a new decision.** When implementation confirms or contradicts what a record assumed,
+  add an `## Outcome` section to that record rather than superseding it — the decision did not change, the
+  evidence did. Three records now carry one:
+  [0003](0003-server-in-child-process.md) (blocking is worse than measured, which strengthens it),
+  [0005](0005-cache-eviction-policy.md) (age 1 confirmed, by narrower margins),
+  [0006](0006-preview-rendering.md) (transport 8× cheaper; escape hatch 1 nearly worthless).

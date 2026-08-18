@@ -26,6 +26,7 @@ Legend for **Source**:
 | `textDocument/documentLink` | 🔵 | 2 | Import/include/image paths |
 | `textDocument/formatting`, `/rangeFormatting` | 🟢 | 2 | `typstyle-core` (`partial` module for ranges) |
 | `textDocument/inlayHint` | 🟡 | 4 | Parameter names at call sites |
+| `textDocument/completion` (postfix) | 🔵 | 4 | `x.rect` → `rect(x)`, sorted under upstream's items |
 | `textDocument/signatureHelp` | 🟡 | 4 | From `Func` metadata; see [proposal.md §10](../proposal.md#10-known-limitations-from-the-no-fork-constraint) |
 | `textDocument/codeAction` | 🔵 | 4 | Quick fixes for a small set of diagnostics |
 | `textDocument/codeLens` | 🔵 | 4 | "Preview" / "Export" above the document |
@@ -116,8 +117,16 @@ Two things we add on top:
 - **`explicit`** is `true` when the request came from an explicit invoke, `false` for automatic triggering —
   upstream uses it to decide how aggressive to be.
 
-Two things we do **not** get, and accept: tinymist's postfix completions (`x.rect` → `rect(x)`) and its
-UFCS variants. Rebuildable later as a pure syntax feature.
+Two things upstream does not give us — and which [P4-13](../tasks/phase-4-polish.md) rebuilt as a pure
+syntax feature, as predicted: postfix completions (`x.rect` → `rect(x)`) and UFCS variants.
+
+The subtlety is *when* to offer them. In markup, `#value.` parses as a value followed by a full stop —
+because that is what people usually mean — so the dot is a `Text` node, not a `FieldAccess`. Upstream's
+own `complete_field_accesses` distinguishes the two shapes, and so do we. Postfix items sort under a `z`
+prefix, so a real field on the value always wins.
+
+One more thing we add: **`sortText` on every item**, derived from upstream's returned order. Without it a
+client re-sorts alphabetically and throws away the relevance ranking.
 
 ### 3.2 Hover
 
@@ -186,6 +195,17 @@ actual parser, so coloring is correct by construction rather than by regex appro
 Both `full` and `full/delta` are implemented — delta matters here because a document produces thousands of
 tokens and re-sending them on every keystroke is wasteful. The server keeps the previous token array per
 document and emits `SemanticTokensDelta` edits.
+
+Two things the implementation had to work out, neither obvious from upstream's signature:
+
+- **Tags nest and overlap.** `typst_syntax::highlight` reports `= *AB*` as `0..6 Heading` **and**
+  `2..6 Strong`; LSP tokens may not overlap. Resolved by tagging **leaves only**, carrying the innermost
+  tag from the ancestor chain — so bold text inside a heading is bold, not heading-coloured.
+- **A token may not span lines**, which a raw block or block comment does. Those are split per line.
+
+And one trap worth naming: the token cache holds what the **client** has, so `didChange` must *not* clear
+it. Clearing it turns every delta request into a full resend and silently deletes the feature. Caught by
+`deltas_round_trip_over_an_edit_sequence`, which applies the emitted edits and compares.
 
 Because the TextMate grammar is deliberately minimal ([proposal.md §11.1](../proposal.md#11-open-questions)),
 semantic tokens are not a garnish — they are the primary coloring mechanism, and
@@ -286,7 +306,7 @@ Some things are genuinely better in TypeScript, and putting them in the server w
 
 ## 7. Commands and Settings
 
-### Commands (11)
+### Commands (12)
 
 | Command | Title | Default keybinding |
 | --- | --- | --- |
@@ -301,8 +321,12 @@ Some things are genuinely better in TypeScript, and putting them in the server w
 | `typstUltra.restartServer` | Typst: Restart Language Server | |
 | `typstUltra.showLog` | Typst: Show Log | |
 | `typstUltra.clearPackageCache` | Typst: Clear Package Cache | |
+| `typstUltra.newFromTemplate` | Typst: New Project from Template… | |
 
 ### Settings (24, all under `typstUltra.`)
+
+All present as specified. `preview.renderMode` is live rather than deferred —
+[P4-05](../tasks/phase-4-polish.md) shipped in the same pass.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |

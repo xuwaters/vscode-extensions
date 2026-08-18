@@ -6,6 +6,9 @@ src/
 test/
 webview/
 examples/
+# Language-server sources, for extensions that run one in a child process
+# (typst-ultra). The bundle lands in dist/server.js like every other entry.
+server/
 **/*.test.ts
 
 # Build configuration.

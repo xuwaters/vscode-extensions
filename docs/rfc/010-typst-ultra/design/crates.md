@@ -57,6 +57,11 @@ crates/typst/typst-session/
 
 ### 2.1 The ports
 
+**Four, not three.** The RFC planned `FileProvider`, `FontProvider`, and
+`PackageProvider`; implementation added `ClockProvider`, because `World::today` needs a clock and
+`SystemTime::now()` traps on `wasm32-unknown-unknown`. The host reads `Date.now()` and its timezone
+offset; `SessionWorld` turns those into a `Datetime` at the requested offset and memoizes it per compile.
+
 ```rust
 /// Everything the engine needs from the outside world. Implementations are
 /// synchronous — verified callable from inside a compile (see spike.md §6).
@@ -86,7 +91,20 @@ pub trait PackageProvider {
 pub enum PackageResolution { Ready, Pending, Failed(EcoString) }
 
 pub struct FaceDescriptor { pub info: FontInfo, pub index: u32 }
+
+pub trait ClockProvider {
+    /// Milliseconds since the Unix epoch, UTC. `None` disables `datetime.today()`.
+    fn now_ms(&self) -> Option<i64>;
+    /// Minutes east of UTC, for `today()` without an explicit offset.
+    fn local_offset_minutes(&self) -> i64 { 0 }
+}
 ```
+
+The `std::fs` implementations live in `typst-session::fs` behind a **default-on `fs-ports` feature**,
+rather than in `tests/` as originally planned. `typst-lsp-core`'s tests need them too, and duplicating
+them would have meant two implementations drifting apart. `typst-lsp-wasm` depends on `typst-session` with
+`default-features = false`, so `std::fs` never reaches the artifact; a `dev-dependencies` entry re-enables
+the feature for tests, and Cargo's feature unification does the rest.
 
 ### 2.2 `SessionWorld`
 
@@ -205,26 +223,45 @@ crates/typst/typst-lsp-core/
     dispatch.rs       # method name → handler, params/result (de)serialization
     state.rs          # open documents, settings, compile scheduling policy
     convert.rs        # byte offsets ⇄ LSP positions (UTF-16), FileId ⇄ Uri
+    capabilities.rs   # what the server advertises, gated by settings
+    settings.rs       # the `typstUltra.*` shapes, every field defaulted
     features/
       diagnostics.rs  completion.rs  hover.rs  definition.rs  references.rs
       rename.rs       symbols.rs     semantic_tokens.rs       folding.rs
       selection.rs    links.rs       formatting.rs            inlay_hints.rs
+      lifecycle.rs    preview.rs     signature_help.rs        code_actions.rs
+      code_lens.rs    postfix.rs
   tests/
     fixtures/*.typ    # documents with a `/* CURSOR */` marker
 ```
+
+Three modules the RFC did not name: `lifecycle.rs` (document events and the compile trigger, which turned
+out to want a file of its own), `capabilities.rs`, and `settings.rs`.
 
 The dispatch surface is transport-agnostic — it takes a method name and `serde_json::Value` and returns a
 `Value` plus a queue of outbound messages:
 
 ```rust
-pub struct Server<F, T, P> { session: Session<F, T, P>, state: State, outbox: Vec<Outbound> }
+/// The four ports bundled into one type parameter, so every signature in the
+/// crate carries one bound instead of four.
+pub trait Ports: 'static {
+    type Files: FileProvider + Send + Sync;
+    type Fonts: FontProvider + Send + Sync;
+    type Packages: PackageProvider + Send + Sync;
+    type Clock: ClockProvider + Send + Sync;
+}
 
-impl<F: FileProvider, T: FontProvider, P: PackageProvider> Server<F, T, P> {
+pub struct Server<Q: Ports> { session: PortSession<Q>, /* … */ outbox: Vec<Outbound> }
+
+impl<Q: Ports> Server<Q> {
     pub fn on_request(&mut self, method: &str, params: Value) -> Result<Value, ResponseError>;
     pub fn on_notification(&mut self, method: &str, params: Value);
     pub fn drain(&mut self) -> Vec<Outbound>;   // notifications produced as a side effect
 }
 ```
+
+The `Ports` bundle is a deviation from the RFC's `Server<F, T, P>` and worth the indirection: with four
+ports, the alternative is a four-line `where` clause on every `impl` block in fifteen feature modules.
 
 `typst-lsp-wasm` wraps exactly these three methods and nothing else. A native harness in `tests/` wraps
 the same three, which is how the whole feature set is tested without WASM.
@@ -275,10 +312,18 @@ impl PreviewSession {
 
 pub enum PagePatch {
     Unchanged { index: usize },
-    Replace { index: usize, hash: u64, svg: String },
+    Replace { index: usize, hash: String, format: PageFormat, content: String },
     Removed { index: usize },
 }
+
+/// Whether `content` is SVG markup or a base64 PNG.
+pub enum PageFormat { Svg, Png }
 ```
+
+`Replace` carries a `format` because [P4-05](../tasks/phase-4-polish.md)'s PNG mode ships raster pages
+over the same protocol. The **hash identifies the page, not its rendering**, so switching modes does not
+invalidate what the client holds — the webview simply re-requests, and a test asserts the hashes match
+across modes. The hash is hex on the wire so JSON keeps all 64 bits.
 
 Why this shape, from [spike.md §7](../research/spike.md#7-page-svg-anatomy):
 

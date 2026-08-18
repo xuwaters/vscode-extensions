@@ -1,5 +1,22 @@
 # RFC 010 — Feasibility Spike
 
+> **Superseded in part.** This document records what was measured *before* implementation, on synthetic
+> `#lorem` documents. Several of its numbers have since been re-measured on real documents and on the real
+> artifact, and three of them moved. Read [corpus.md](corpus.md) and [transport.md](transport.md) for the
+> current figures; this page is kept because the decisions were made on it and a reader who remembers a
+> number needs to know where it came from.
+>
+> | Here | Now |
+> | --- | --- |
+> | Page SVG 386 KB | **470 KB** for a real two-column page |
+> | Cold compile 262 ms / 75 pages | **524 ms / 104 pages** — 5.0 ms/page against 3.5 |
+> | Heap 106 MB at 75 pages | **222 MB** at 104 pages |
+> | Artifact 22.4 MB (24.4 MB with PDF) | **26.5 MB** with PDF, render, typstyle, and the LSP layer |
+> | Native-vs-WASM "not a controlled comparison" | Now controlled: **2.0–2.4×** ([corpus.md §3](corpus.md#3-natively-for-comparing-documents-to-each-other)) |
+>
+> Everything else held, including the result that mattered most: unmodified upstream typst builds and runs
+> for `wasm32-unknown-unknown`.
+
 Everything in this document was **measured**, not estimated. The prototype is a standalone crate that
 depends on unmodified upstream typst 0.15.1 from crates.io, implements a minimal `World`, and is built for
 `wasm32-unknown-unknown` and run under Node.
@@ -341,14 +358,14 @@ inherited.
 
 | Not covered | Consequence | Owner |
 | --- | --- | --- |
-| **Synthetic documents only** — `#lorem` plus one display equation per section. No images, figures, bibliographies, large tables, or CeTZ/Fletcher diagrams | Every latency and SVG-size number could be optimistic for graphics-heavy documents | [P4-08](../tasks/phase-4-polish.md) |
-| **No LSP layer.** All figures are engine-level; JSON-RPC, Node IPC, and extension-host handling sit on top | ~50 ms of the 65 ms preview budget is estimated, not measured | [P3-05](../tasks/phase-3-preview.md) |
-| **No packages.** Universe download, extraction, caching unimplemented | An entire Phase-2 feature is unproven | [P2-14](../tasks/phase-2-ide-features.md) |
-| **No system fonts.** 17 bundled files were loaded; indexing hundreds of MB of installed fonts is unmeasured | First-run cost on a font-heavy machine is unknown | [P2-13](../tasks/phase-2-ide-features.md) |
-| **Single file.** Multi-file import proven functional ([§6](#6-synchronous-host-vfs-callbacks), [§8](#8-typc-and-code-mode)) but never benchmarked | Diagnostic fan-out cost across a compile graph is unknown | [P1-16](../tasks/phase-1-foundation.md) |
-| **Font parsing cost never isolated** — reading 17 files took 4 ms, but `FontInfo` extraction was folded into a cold-start number | Affects the "server start < 400 ms" target | [P1-11](../tasks/phase-1-foundation.md) |
-| **One machine, one OS** — aarch64 macOS | WASM makes cross-platform parity likely, not certain | [P4-09](../tasks/phase-4-polish.md) |
-| **Native baseline not controlled** ([§4.3](#43-native-baseline-same-document-same-machine)) | The native-vs-WASM ratio is indicative only | — (not blocking) |
+| **Synthetic documents only** — `#lorem` plus one display equation per section. No images, figures, bibliographies, large tables, or CeTZ/Fletcher diagrams | Every latency and SVG-size number could be optimistic for graphics-heavy documents | [P4-08](../tasks/phase-4-polish.md) — ☑ [corpus.md](corpus.md). Optimistic on page size and cold compile; **pessimistic** on vector graphics |
+| **No LSP layer.** All figures are engine-level; JSON-RPC, Node IPC, and extension-host handling sit on top | ~50 ms of the 65 ms preview budget is estimated, not measured | [P3-05](../tasks/phase-3-preview.md) — ☑ **3.7 ms**, 8× cheaper ([transport.md](transport.md)) |
+| **No packages.** Universe download, extraction, caching unimplemented | An entire Phase-2 feature is unproven | [P2-14](../tasks/phase-2-ide-features.md) — ◐ implemented and tested; **a live registry download is still unverified** |
+| **No system fonts.** 17 bundled files were loaded; indexing hundreds of MB of installed fonts is unmeasured | First-run cost on a font-heavy machine is unknown | [P2-13](../tasks/phase-2-ide-features.md) — ◐ machinery tested and cached; **no font-heavy machine was available** |
+| **Single file.** Multi-file import proven functional ([§6](#6-synchronous-host-vfs-callbacks), [§8](#8-typc-and-code-mode)) but never benchmarked | Diagnostic fan-out cost across a compile graph is unknown | [P1-16](../tasks/phase-1-foundation.md) — ☑ not separately expensive |
+| **Font parsing cost never isolated** — reading 17 files took 4 ms, but `FontInfo` extraction was folded into a cold-start number | Affects the "server start < 400 ms" target | [P1-11](../tasks/phase-1-foundation.md) — ☑ **10 ms cold, <1 ms cached** |
+| **One machine, one OS** — aarch64 macOS | WASM makes cross-platform parity likely, not certain | [P4-09](../tasks/phase-4-polish.md) — ⊗ platform branches unit-tested; runtime verification still needs the machines |
+| **Native baseline not controlled** ([§4.3](#43-native-baseline-same-document-same-machine)) | The native-vs-WASM ratio is indicative only | ☑ [corpus.md §3](corpus.md#3-natively-for-comparing-documents-to-each-other) — **2.0–2.4×**, controlled |
 
 ---
 

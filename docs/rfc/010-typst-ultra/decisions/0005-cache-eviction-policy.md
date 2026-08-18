@@ -57,11 +57,26 @@ recompilation needs. Everything else is dead weight that slows lookups and holds
 - We deviate from upstream's own default. If a future comemo release changes eviction semantics, this
   decision is the first thing to re-measure.
 
+## Outcome — re-measured on real documents, 2026-08-17
+
+[P4-10](../tasks/phase-4-polish.md) re-ran the sweep against a corpus of documents people would actually
+write — a two-column paper with a bibliography and tables, and a 104-page book with an outline and running
+headers ([research/corpus.md §5](../research/corpus.md#5-p4-10-the-eviction-sweep-re-run)).
+
+**Age 1 still wins on every axis at every size.** The decision stands.
+
+The *margins* are much narrower than the synthetic sweep's: 18.6 ms vs 22.8 ms at p95 on the book, against
+18 ms vs 278 ms on the synthetic 75-page document. The reason is worth recording, because it means the
+original numbers overstated the case: the synthetic document repeated one section shape 75 times, so
+higher ages retained an unusually large amount of layout that would never be reused. Real documents vary
+more from page to page, so there is less identical work to over-cache. The ordering is unchanged and the
+default is right; the drama was an artefact of the fixture.
+
 ## Revisit if
 
 - comemo changes its eviction or generation semantics in a new release.
-- Real-world documents (images, CeTZ diagrams, large bibliographies — none covered by the synthetic
-  benchmark) show age `1` thrashing where the synthetic corpus does not.
+- ~~Real-world documents show age `1` thrashing where the synthetic corpus does not~~ — measured; they do
+  not. Raster-image-heavy documents remain the one uncovered shape.
 - A workload appears where compiles are *not* triggered per keystroke, e.g.
   `typstUltra.compile.when: "onSave"`, where a larger age might genuinely help. Worth measuring rather than
   assuming.
