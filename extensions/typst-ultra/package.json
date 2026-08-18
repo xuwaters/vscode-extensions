@@ -2,7 +2,7 @@
   "name": "wx-vsce-typst-ultra",
   "displayName": "Typst Ultra",
   "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact — diagnostics, completion, hover, goto-definition, semantic tokens, formatting, BibTeX bibliographies, two-way-synced preview, and PDF/SVG/PNG export",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -54,6 +54,22 @@
         "path": "./syntaxes/typst.tmLanguage.json"
       }
     ],
+    "snippets": [
+      {
+        "language": "typst",
+        "path": "./snippets/typst.json"
+      }
+    ],
+    "configurationDefaults": {
+      "[typst]": {
+        "editor.quickSuggestions": {
+          "other": false,
+          "comments": false,
+          "strings": false
+        },
+        "editor.acceptSuggestionOnEnter": "off"
+      }
+    },
     "customEditors": [
       {
         "viewType": "typstUltra.editor",

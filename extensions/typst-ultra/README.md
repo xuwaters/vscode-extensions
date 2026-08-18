@@ -50,6 +50,12 @@ download, no code signing.
   follow the panel as it is resized, until you set the zoom by hand
 - A compile error dims the last good pages rather than blanking the preview
 
+**Snippets** — 84 of them, for people who have not written Typst
+before: whole-document scaffolds (`article`, `report`, `book`, `letter`,
+`slides`), set and show rules, figures, tables, math, and the control flow.
+Every one is compiled by the real typst in the test suite, so a snippet cannot
+ship broken.
+
 **Export** to PDF, SVG, PNG, and HTML, all in-process — from the title-bar
 button, the preview's own toolbar, or the palette. The save dialog opens on the
 document's own folder, so exporting next to the source is one keystroke.
@@ -80,6 +86,38 @@ first time it sees a project with a `main.typ`.
 `Cmd/Ctrl+Shift+V` puts the preview beside the editor; press it again from
 either side and you are still in Split. The editor title bar carries the same
 three modes as buttons, plus Export.
+
+### If you have never written Typst
+
+Type `article` in an empty `.typ` file and press `Tab`. You get a complete
+document — page size, fonts, a title block, a first section — with the parts
+you have to fill in already selected; `Tab` walks you through them. `report`,
+`book`, `letter`, and `slides` are the other scaffolds.
+
+From there the snippets follow the shape of the language, and the description
+beside each one says what it is for:
+
+| You want | Type |
+| --- | --- |
+| A figure with a caption you can reference | `figure` |
+| A table | `table`, or `figuretable` for a numbered one |
+| Maths | `mathblock`, then `frac`, `sum`, `integral`, `mat`, `cases` |
+| A bibliography and a citation | `bibliography`, `cite` |
+| Page size, fonts, justification | `setpage`, `settext`, `setpar` |
+| To restyle every heading or code block at once | `showheading`, `showraw` |
+| Chapters in separate files | `book`, `include` |
+| A note box, a callout | `callout` |
+| A package from Typst Universe | `import` |
+
+The suggestion list stays out of the way while you write prose: it does not
+open on its own as you type words, only when you ask for it with `Ctrl+Space`
+(`⌃Space`) — or when you type one of the characters that starts real Typst
+code, `#`, `@`, `.`, `/`, `:`, `$`, `"`. `Tab` accepts a completion; `Enter`
+always means a new line, so the list never eats a paragraph break.
+
+Both are per-language defaults — `editor.quickSuggestions` and
+`editor.acceptSuggestionOnEnter`. Override them in your settings under
+`"[typst]"` if you prefer the VSCode behaviour.
 
 ## View modes
 

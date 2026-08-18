@@ -1,0 +1,767 @@
+{
+  "Article scaffold": {
+    "prefix": ["article", "doc", "scaffold"],
+    "description": "A complete one-file article: page setup, fonts, title block, first section.",
+    "body": [
+      "#set document(title: \"${1:Title}\", author: \"${2:Author}\")",
+      "#set page(paper: \"a4\", margin: 2.5cm, numbering: \"1\")",
+      "#set text(font: \"Libertinus Serif\", size: 11pt, lang: \"${3:en}\")",
+      "#set par(justify: true, leading: 0.65em)",
+      "#set heading(numbering: \"1.1\")",
+      "",
+      "#align(center)[",
+      "  #text(17pt, weight: \"bold\")[${1:Title}]",
+      "",
+      "  ${2:Author}",
+      "",
+      "  #datetime.today().display(\"[year]-[month]-[day]\")",
+      "]",
+      "",
+      "#v(1em)",
+      "",
+      "= ${4:Introduction}",
+      "",
+      "$0"
+    ]
+  },
+
+  "Report scaffold (title page + contents)": {
+    "prefix": ["report"],
+    "description": "Title page, table of contents, then the body on a fresh page with its own numbering.",
+    "body": [
+      "#set document(title: \"${1:Title}\", author: \"${2:Author}\")",
+      "#set page(paper: \"a4\", margin: 2.5cm)",
+      "#set text(font: \"Libertinus Serif\", size: 11pt, lang: \"${3:en}\")",
+      "#set par(justify: true)",
+      "#set heading(numbering: \"1.1\")",
+      "",
+      "// Title page — no page number on it.",
+      "#align(center + horizon)[",
+      "  #text(24pt, weight: \"bold\")[${1:Title}]",
+      "",
+      "  #text(14pt)[${2:Author}]",
+      "",
+      "  #datetime.today().display(\"[month repr:long] [day], [year]\")",
+      "]",
+      "",
+      "#pagebreak()",
+      "",
+      "#outline(title: [Contents], depth: 3)",
+      "",
+      "#pagebreak()",
+      "",
+      "// The body starts here, and so does page numbering.",
+      "#set page(numbering: \"1\")",
+      "#counter(page).update(1)",
+      "",
+      "= ${4:Introduction}",
+      "",
+      "$0"
+    ]
+  },
+
+  "Book / thesis scaffold (chapters in separate files)": {
+    "prefix": ["book", "thesis"],
+    "description": "An entry file that pulls chapters in with #include. Pin this file as the compile root.",
+    "body": [
+      "#set document(title: \"${1:Title}\", author: \"${2:Author}\")",
+      "#set page(paper: \"a4\", margin: 2.5cm, numbering: \"1\")",
+      "#set text(font: \"Libertinus Serif\", size: 11pt, lang: \"${3:en}\")",
+      "#set par(justify: true)",
+      "#set heading(numbering: \"1.1\")",
+      "",
+      "// Every level-1 heading starts a new page.",
+      "#show heading.where(level: 1): it => {",
+      "  pagebreak(weak: true)",
+      "  block(above: 2em, below: 1.5em, text(20pt, it))",
+      "}",
+      "",
+      "#outline(title: [Contents], depth: 2)",
+      "",
+      "#include \"${4:chapters/01-intro.typ}\"",
+      "#include \"${5:chapters/02-method.typ}\"",
+      "$0",
+      "",
+      "#bibliography(\"${6:refs.bib}\", style: \"ieee\")"
+    ]
+  },
+
+  "Slides scaffold (touying)": {
+    "prefix": ["slides", "presentation", "beamer"],
+    "description": "A presentation via the touying package: `=` opens a section, `==` opens a slide.",
+    "body": [
+      "#import \"@preview/touying:${1:0.6.1}\": *",
+      "#import themes.simple: *",
+      "",
+      "#show: simple-theme.with(aspect-ratio: \"16-9\")",
+      "",
+      "= ${2:First section}",
+      "",
+      "== ${3:First slide}",
+      "",
+      "- ${4:A point}",
+      "",
+      "$0"
+    ]
+  },
+
+  "Letter scaffold": {
+    "prefix": ["letter"],
+    "description": "A plain business letter: sender block, recipient, date, salutation, sign-off.",
+    "body": [
+      "#set page(paper: \"a4\", margin: 2.5cm)",
+      "#set text(font: \"Libertinus Serif\", size: 11pt, lang: \"${1:en}\")",
+      "#set par(justify: true, leading: 0.65em)",
+      "",
+      "#align(right)[",
+      "  ${2:Your Name} \\",
+      "  ${3:Street Address} \\",
+      "  ${4:City, Postcode}",
+      "]",
+      "",
+      "${5:Recipient Name} \\",
+      "${6:Company} \\",
+      "${7:City, Postcode}",
+      "",
+      "#align(right)[#datetime.today().display(\"[month repr:long] [day], [year]\")]",
+      "",
+      "*${8:Subject line}*",
+      "",
+      "Dear ${9:Name},",
+      "",
+      "$0",
+      "",
+      "#v(1em)",
+      "",
+      "Yours sincerely, \\",
+      "${2:Your Name}"
+    ]
+  },
+
+  "Reusable template + show rule": {
+    "prefix": ["template", "showtemplate"],
+    "description": "The idiomatic way to reuse styling: a function taking the document, applied with `#show:`.",
+    "body": [
+      "#let ${1:report}(title: \"\", author: \"\", doc) = {",
+      "  set document(title: title, author: author)",
+      "  set page(paper: \"a4\", margin: 2.5cm, numbering: \"1\")",
+      "  set text(font: \"Libertinus Serif\", size: 11pt)",
+      "  set par(justify: true)",
+      "  set heading(numbering: \"1.1\")",
+      "",
+      "  align(center)[",
+      "    #text(17pt, weight: \"bold\")[#title]",
+      "",
+      "    #author",
+      "  ]",
+      "  v(1.5em)",
+      "",
+      "  doc",
+      "}",
+      "",
+      "#show: ${1:report}.with(title: \"${2:Title}\", author: \"${3:Author}\")",
+      "",
+      "$0"
+    ]
+  },
+
+  "Set page": {
+    "prefix": ["setpage", "page"],
+    "description": "Paper size, margins, page numbering. Set rules belong at the top of the file.",
+    "body": [
+      "#set page(paper: \"${1:a4}\", margin: ${2:2.5cm}, numbering: \"${3:1}\")"
+    ]
+  },
+
+  "Set page — two columns": {
+    "prefix": ["twocolumn", "setcolumns"],
+    "description": "Lay the whole document out in two columns.",
+    "body": ["#set page(columns: ${1:2})"]
+  },
+
+  "Set page — running header": {
+    "prefix": ["header", "runninghead"],
+    "description": "Text repeated at the top of every page, skipped on the first.",
+    "body": [
+      "#set page(header: context [",
+      "  #if counter(page).get().first() > 1 [",
+      "    ${1:Document title} #h(1fr) ${2:Author}",
+      "  ]",
+      "])"
+    ]
+  },
+
+  "Set page — page numbers": {
+    "prefix": ["pagenumbers", "footer"],
+    "description": "\"3 / 12\" style numbering — the second counter in the pattern is the total.",
+    "body": [
+      "#set page(numbering: \"${1:1 / 1}\", number-align: ${2:center})"
+    ]
+  },
+
+  "Set text": {
+    "prefix": ["settext", "font"],
+    "description": "Document-wide font, size, and language. `lang` drives hyphenation and quote marks.",
+    "body": [
+      "#set text(font: \"${1:Libertinus Serif}\", size: ${2:11pt}, lang: \"${3:en}\")"
+    ]
+  },
+
+  "Set paragraph": {
+    "prefix": ["setpar", "justify"],
+    "description": "Justification, line spacing, and first-line indent.",
+    "body": [
+      "#set par(justify: ${1:true}, leading: ${2:0.65em}, first-line-indent: ${3:0pt})"
+    ]
+  },
+
+  "Set heading numbering": {
+    "prefix": ["setheading", "numbering"],
+    "description": "Number headings 1, 1.1, 1.1.1. Try \"I.1.a\" or \"A.1\" for other schemes.",
+    "body": ["#set heading(numbering: \"${1:1.1}\")"]
+  },
+
+  "Set document metadata": {
+    "prefix": ["setdocument", "metadata"],
+    "description": "Title and author baked into the exported PDF's metadata.",
+    "body": [
+      "#set document(title: \"${1:Title}\", author: \"${2:Author}\", keywords: (\"${3:typst}\",))"
+    ]
+  },
+
+  "Show rule — style a heading level": {
+    "prefix": ["showheading"],
+    "description": "Restyle headings. `it` is the heading being rendered.",
+    "body": [
+      "#show heading.where(level: ${1:1}): it => {",
+      "  set text(size: ${2:16pt}, weight: \"bold\")",
+      "  block(above: 1.5em, below: 1em, it)",
+      "}"
+    ]
+  },
+
+  "Show rule — style code blocks": {
+    "prefix": ["showraw", "codestyle"],
+    "description": "Give fenced code blocks a tinted, rounded background.",
+    "body": [
+      "#show raw.where(block: true): it => block(",
+      "  fill: luma(${1:240}),",
+      "  inset: ${2:10pt},",
+      "  radius: ${3:4pt},",
+      "  width: 100%,",
+      "  it,",
+      ")"
+    ]
+  },
+
+  "Show rule — colour links": {
+    "prefix": ["showlink"],
+    "description": "A show rule whose right-hand side is a set rule — the shortest form there is.",
+    "body": ["#show link: set text(fill: ${1:blue})"]
+  },
+
+  "Show rule — replace text": {
+    "prefix": ["showtext", "showreplace"],
+    "description": "Match a string anywhere in the document and restyle every occurrence.",
+    "body": ["#show \"${1:Typst}\": ${2:strong}"]
+  },
+
+  "Heading": {
+    "prefix": ["heading", "section"],
+    "description": "`=` is level 1, `==` level 2, and so on. No # involved.",
+    "body": ["= ${1:Heading}", "", "$0"]
+  },
+
+  "Bullet list": {
+    "prefix": ["list", "bullets", "itemize"],
+    "description": "A `-` at the start of a line. Indent to nest.",
+    "body": ["- ${1:First}", "- ${2:Second}", "- ${3:Third}", "$0"]
+  },
+
+  "Numbered list": {
+    "prefix": ["enum", "numberedlist", "enumerate"],
+    "description": "A `+` numbers itself; write `1.` instead to pick the numbers by hand.",
+    "body": ["+ ${1:First}", "+ ${2:Second}", "+ ${3:Third}", "$0"]
+  },
+
+  "Term list": {
+    "prefix": ["terms", "definitions"],
+    "description": "A definition list: `/ term: description`.",
+    "body": ["/ ${1:Term}: ${2:Definition}", "/ ${3:Term}: ${4:Definition}", "$0"]
+  },
+
+  "Link": {
+    "prefix": ["link", "url"],
+    "description": "A hyperlink with its own display text. Bare URLs link themselves.",
+    "body": ["#link(\"${1:https://typst.app}\")[${2:link text}]"]
+  },
+
+  "Footnote": {
+    "prefix": ["footnote"],
+    "description": "A numbered footnote at the bottom of the page.",
+    "body": ["#footnote[${1:Note text}]"]
+  },
+
+  "Block quote": {
+    "prefix": ["quote", "blockquote"],
+    "description": "An indented quotation with an attribution line.",
+    "body": [
+      "#quote(block: true, attribution: [${1:Author}])[",
+      "  ${2:Quoted text}",
+      "]"
+    ]
+  },
+
+  "Bold and italic": {
+    "prefix": ["emphasis", "bolditalic"],
+    "description": "`*bold*` and `_italic_` — shorthand markup, no # needed.",
+    "body": ["*${1:bold}* and _${2:italic}_$0"]
+  },
+
+  "Coloured text": {
+    "prefix": ["textcolor", "color"],
+    "description": "Colour a run of text. Named colours: red, blue, green, orange, purple, gray…",
+    "body": ["#text(fill: ${1:red})[${2:text}]"]
+  },
+
+  "Highlight": {
+    "prefix": ["highlight"],
+    "description": "Marker-pen background behind a run of text.",
+    "body": ["#highlight(fill: ${1:yellow})[${2:text}]"]
+  },
+
+  "Underline": {
+    "prefix": ["underline"],
+    "description": "Underline a run of text.",
+    "body": ["#underline[${1:text}]"]
+  },
+
+  "Strikethrough": {
+    "prefix": ["strike", "strikethrough"],
+    "description": "Strike a run of text out.",
+    "body": ["#strike[${1:text}]"]
+  },
+
+  "Code block": {
+    "prefix": ["code", "codeblock"],
+    "description": "A fenced block with syntax highlighting. The language name follows the opening backticks.",
+    "body": ["```${1:rust}", "${2:code here}", "```", "$0"]
+  },
+
+  "Code read from a file": {
+    "prefix": ["codefile", "readcode"],
+    "description": "Pull a source file in verbatim, so the listing never drifts from the code.",
+    "body": [
+      "#raw(read(\"${1:src/main.rs}\"), lang: \"${2:rust}\", block: true)"
+    ]
+  },
+
+  "Placeholder text": {
+    "prefix": ["lorem", "dummy"],
+    "description": "Filler words, handy while setting up a layout.",
+    "body": ["#lorem(${1:50})"]
+  },
+
+  "Figure — image": {
+    "prefix": ["figure", "image", "fig"],
+    "description": "A numbered, captioned image. The <label> is what @label points at.",
+    "body": [
+      "#figure(",
+      "  image(\"${1:images/plot.png}\", width: ${2:80%}),",
+      "  caption: [${3:Caption}],",
+      ") <${4:fig:name}>"
+    ]
+  },
+
+  "Figure — table": {
+    "prefix": ["figuretable", "tablefigure"],
+    "description": "A numbered, captioned table. Table captions sit above by default.",
+    "body": [
+      "#figure(",
+      "  table(",
+      "    columns: ${1:3},",
+      "    table.header([*${2:A}*], [*${3:B}*], [*${4:C}*]),",
+      "    [${5:1}], [${6:2}], [${7:3}],",
+      "  ),",
+      "  caption: [${8:Caption}],",
+      ") <${9:tab:name}>"
+    ]
+  },
+
+  "Table": {
+    "prefix": ["table"],
+    "description": "Cells are listed row by row; `columns` says where each row wraps.",
+    "body": [
+      "#table(",
+      "  columns: (${1:auto, auto, auto}),",
+      "  align: (${2:left, center, right}),",
+      "  table.header([*${3:Name}*], [*${4:Qty}*], [*${5:Price}*]),",
+      "  [${6:Apple}], [${7:3}], [${8:1.20}],",
+      "  $0",
+      ")"
+    ]
+  },
+
+  "Table — header row styling": {
+    "prefix": ["tablestyle", "booktabs"],
+    "description": "Drop the grid, tint the header row, and rule it off — how journals set tables.",
+    "body": [
+      "#set table(",
+      "  stroke: (x, y) => if y == 0 { (bottom: ${1:0.7pt}) },",
+      "  fill: (x, y) => if y == 0 { luma(${2:240}) },",
+      ")",
+      "#show table.cell.where(y: 0): strong"
+    ]
+  },
+
+  "Grid (invisible layout table)": {
+    "prefix": ["grid", "sidebyside"],
+    "description": "Like `table` but with no strokes — for putting things side by side.",
+    "body": [
+      "#grid(",
+      "  columns: (${1:1fr, 1fr}),",
+      "  gutter: ${2:1em},",
+      "  [${3:Left}],",
+      "  [${4:Right}],",
+      ")"
+    ]
+  },
+
+  "Table of contents": {
+    "prefix": ["outline", "toc", "contents"],
+    "description": "Built from the headings. `depth` caps how deep it goes.",
+    "body": ["#outline(title: [${1:Contents}], depth: ${2:3})"]
+  },
+
+  "List of figures": {
+    "prefix": ["outlinefigures", "listoffigures"],
+    "description": "An outline restricted to figures — swap `image` for `table` to list tables instead.",
+    "body": [
+      "#outline(title: [${1:List of Figures}], target: figure.where(kind: ${2:image}))"
+    ]
+  },
+
+  "Cross-reference": {
+    "prefix": ["ref", "reference"],
+    "description": "`@label` refers to any heading, figure, or equation carrying that <label>.",
+    "body": ["@${1:fig:name}$0"]
+  },
+
+  "Label": {
+    "prefix": ["label"],
+    "description": "Names the element just before it, so @name can point at it.",
+    "body": ["<${1:sec:name}>$0"]
+  },
+
+  "Bibliography": {
+    "prefix": ["bibliography", "bib", "references"],
+    "description": "Renders the reference list. Styles: ieee, chicago-author-date, american-psychological-association, mla…",
+    "body": ["#bibliography(\"${1:refs.bib}\", style: \"${2:ieee}\")"]
+  },
+
+  "Citation": {
+    "prefix": ["cite", "citation"],
+    "description": "`@key` cites in place; `#cite` lets you choose the form (normal, prose, year, author).",
+    "body": ["#cite(<${1:key}>, form: \"${2:prose}\")"]
+  },
+
+  "Inline math": {
+    "prefix": ["math", "inlinemath"],
+    "description": "Math between dollars. No space after the opening $ keeps it in the line.",
+    "body": ["\\$${1:x^2 + y^2 = z^2}\\$$0"]
+  },
+
+  "Display math": {
+    "prefix": ["mathblock", "displaymath", "equation"],
+    "description": "A space after the opening $ makes the equation a centred block of its own.",
+    "body": ["\\$ ${1:x^2 + y^2 = z^2} \\$$0"]
+  },
+
+  "Numbered equation": {
+    "prefix": ["numberedequation", "eqn"],
+    "description": "Switch on equation numbering, then label an equation to reference it.",
+    "body": [
+      "#set math.equation(numbering: \"(1)\")",
+      "",
+      "\\$ ${1:E = m c^2} \\$ <${2:eq:name}>",
+      "$0"
+    ]
+  },
+
+  "Aligned equations": {
+    "prefix": ["mathalign", "alignedmath"],
+    "description": "In display math, `&` marks the alignment point and a backslash starts a new line.",
+    "body": [
+      "\\$ ${1:a} &= ${2:b + c} \\\\",
+      "  &= ${3:d} \\$",
+      "$0"
+    ]
+  },
+
+  "Fraction": {
+    "prefix": ["frac", "fraction"],
+    "description": "In math mode. `a/b` means the same thing, written shorter.",
+    "body": ["frac(${1:a}, ${2:b})$0"]
+  },
+
+  "Square root": {
+    "prefix": ["sqrt", "squareroot"],
+    "description": "In math mode. `root(3, x)` gives a cube root.",
+    "body": ["sqrt(${1:x})$0"]
+  },
+
+  "Sum": {
+    "prefix": ["sum"],
+    "description": "In math mode. `_` sets the lower limit, `^` the upper one.",
+    "body": ["sum_(${1:i=1})^(${2:n}) ${3:x_i}$0"]
+  },
+
+  "Product": {
+    "prefix": ["prod", "product"],
+    "description": "In math mode.",
+    "body": ["product_(${1:i=1})^(${2:n}) ${3:x_i}$0"]
+  },
+
+  "Integral": {
+    "prefix": ["integral"],
+    "description": "In math mode. `integral.double` and `integral.cont` also exist.",
+    "body": ["integral_(${1:a})^(${2:b}) ${3:f(x)} dif x$0"]
+  },
+
+  "Limit": {
+    "prefix": ["lim", "limit"],
+    "description": "In math mode. `->` renders as an arrow, `oo` as infinity.",
+    "body": ["lim_(${1:n -> oo}) ${2:a_n}$0"]
+  },
+
+  "Matrix": {
+    "prefix": ["mat", "matrix"],
+    "description": "In math mode. Commas separate columns, semicolons separate rows.",
+    "body": ["mat(${1:1}, ${2:2}; ${3:3}, ${4:4})$0"]
+  },
+
+  "Vector": {
+    "prefix": ["vec", "vector"],
+    "description": "In math mode. One column — each argument is a row.",
+    "body": ["vec(${1:x}, ${2:y}, ${3:z})$0"]
+  },
+
+  "Cases (piecewise)": {
+    "prefix": ["cases", "piecewise"],
+    "description": "In math mode. A braced piecewise definition, one branch per line.",
+    "body": [
+      "cases(",
+      "  ${1:1} &\"if\" ${2:x > 0},",
+      "  ${3:0} &\"otherwise\",",
+      ")$0"
+    ]
+  },
+
+  "Upright text inside math": {
+    "prefix": ["mathtext"],
+    "description": "Bare words in math render as variables; quote them to get upright prose.",
+    "body": ["\"${1:where}\"$0"]
+  },
+
+  "Variable binding": {
+    "prefix": ["let", "variable"],
+    "description": "Bind a value to a name; use it later as #name.",
+    "body": ["#let ${1:name} = ${2:value}"]
+  },
+
+  "Content binding": {
+    "prefix": ["letcontent"],
+    "description": "Store a chunk of markup and drop it in wherever you need it.",
+    "body": ["#let ${1:name} = [${2:content}]"]
+  },
+
+  "Function": {
+    "prefix": ["function", "letfn"],
+    "description": "A function returning content. Named parameters can carry defaults.",
+    "body": [
+      "#let ${1:name}(${2:body}, ${3:size}: ${4:12pt}) = {",
+      "  ${0}",
+      "}"
+    ]
+  },
+
+  "Conditional": {
+    "prefix": ["if"],
+    "description": "In markup, each branch is a content block in square brackets.",
+    "body": [
+      "#if ${1:condition} [",
+      "  ${2:then}",
+      "] else [",
+      "  ${3:otherwise}",
+      "]"
+    ]
+  },
+
+  "For loop": {
+    "prefix": ["for", "loop"],
+    "description": "Repeat markup once per item. Inside the block, `#` switches back to code.",
+    "body": [
+      "#for ${1:item} in ${2:(\"a\", \"b\", \"c\")} [",
+      "  - #${1:item}",
+      "]"
+    ]
+  },
+
+  "While loop": {
+    "prefix": ["while"],
+    "description": "Repeat until the condition goes false.",
+    "body": ["#while ${1:condition} [", "  ${2:body}", "]"]
+  },
+
+  "Import a Universe package": {
+    "prefix": ["import", "importpackage", "usepackage"],
+    "description": "Packages from typst.app/universe download and cache on the first compile.",
+    "body": ["#import \"@preview/${1:cetz}:${2:0.3.4}\": ${3:*}"]
+  },
+
+  "Import a local file": {
+    "prefix": ["importlocal", "importfile"],
+    "description": "Pull specific bindings out of another .typ file — `*` takes everything.",
+    "body": ["#import \"${1:utils.typ}\": ${2:*}"]
+  },
+
+  "Include a chapter": {
+    "prefix": ["include", "chapter"],
+    "description": "Splice another file's content in here. Pair with a pinned compile root.",
+    "body": ["#include \"${1:chapters/01-intro.typ}\""]
+  },
+
+  "Context block": {
+    "prefix": ["context"],
+    "description": "Needed to read anything that depends on position — page number, counters, active styles.",
+    "body": ["#context {", "  ${0}", "}"]
+  },
+
+  "Counter value": {
+    "prefix": ["counter"],
+    "description": "Read a counter. Always inside `context`, since the value depends on where you are.",
+    "body": ["#context counter(${1:page}).display(\"${2:1}\")"]
+  },
+
+  "Align": {
+    "prefix": ["align", "center"],
+    "description": "center, left, right, top, bottom, or a sum such as `center + horizon`.",
+    "body": ["#align(${1:center})[", "  ${2:content}", "]"]
+  },
+
+  "Block with background": {
+    "prefix": ["block", "boxed"],
+    "description": "A framed, filled block — the building block for callouts and code panels.",
+    "body": [
+      "#block(",
+      "  fill: ${1:luma(240)},",
+      "  inset: ${2:10pt},",
+      "  radius: ${3:4pt},",
+      "  width: 100%,",
+      ")[",
+      "  ${4:content}",
+      "]"
+    ]
+  },
+
+  "Callout / admonition": {
+    "prefix": ["callout", "note", "admonition"],
+    "description": "A tinted note box with a rule down its left edge.",
+    "body": [
+      "#block(",
+      "  fill: rgb(\"${1:#e8f4fd}\"),",
+      "  stroke: (left: 3pt + rgb(\"${2:#2196f3}\")),",
+      "  inset: 10pt,",
+      "  radius: 2pt,",
+      "  width: 100%,",
+      ")[",
+      "  *${3:Note}* — ${4:body}",
+      "]"
+    ]
+  },
+
+  "Inline box": {
+    "prefix": ["box"],
+    "description": "Keeps content on one line inside a paragraph. `block` is the opposite.",
+    "body": ["#box[${1:content}]"]
+  },
+
+  "Columns": {
+    "prefix": ["columns", "multicol"],
+    "description": "Flow this stretch of content into several columns.",
+    "body": ["#columns(${1:2})[", "  ${2:content}", "]"]
+  },
+
+  "Stack": {
+    "prefix": ["stack"],
+    "description": "Lay items out in a direction: ttb, btt, ltr, rtl.",
+    "body": [
+      "#stack(",
+      "  dir: ${1:ttb},",
+      "  spacing: ${2:1em},",
+      "  [${3:First}],",
+      "  [${4:Second}],",
+      ")"
+    ]
+  },
+
+  "Place (free positioning)": {
+    "prefix": ["place", "float"],
+    "description": "Take content out of the flow. Add `float: true` to push it to the top of the page.",
+    "body": [
+      "#place(${1:top + right}, dx: ${2:0pt}, dy: ${3:0pt})[",
+      "  ${4:content}",
+      "]"
+    ]
+  },
+
+  "Padding": {
+    "prefix": ["pad"],
+    "description": "Inset content from the surrounding margins.",
+    "body": ["#pad(x: ${1:1em})[", "  ${2:content}", "]"]
+  },
+
+  "Page break": {
+    "prefix": ["pagebreak", "newpage"],
+    "description": "`weak: true` collapses when the page is already empty.",
+    "body": ["#pagebreak(weak: ${1:true})"]
+  },
+
+  "Vertical space": {
+    "prefix": ["vspace", "vskip"],
+    "description": "Empty vertical space. `1fr` pushes everything after it to the bottom.",
+    "body": ["#v(${1:1em})"]
+  },
+
+  "Horizontal space": {
+    "prefix": ["hspace", "hskip"],
+    "description": "`#h(1fr)` is how you push the rest of a line to the right.",
+    "body": ["#h(${1:1fr})"]
+  },
+
+  "Line break": {
+    "prefix": ["linebreak", "newline"],
+    "description": "A trailing backslash breaks the line without starting a new paragraph.",
+    "body": ["\\\\$0"]
+  },
+
+  "Horizontal rule": {
+    "prefix": ["rule", "divider"],
+    "description": "A plain line across the text width.",
+    "body": ["#line(length: 100%, stroke: ${1:0.5pt})"]
+  },
+
+  "Rectangle": {
+    "prefix": ["rect", "rectangle"],
+    "description": "A drawn box. `circle`, `ellipse`, `square`, and `polygon` take the same arguments.",
+    "body": [
+      "#rect(width: ${1:4cm}, height: ${2:2cm}, fill: ${3:aqua}, radius: ${4:4pt})[${5:content}]"
+    ]
+  },
+
+  "Comment": {
+    "prefix": ["comment", "todo"],
+    "description": "`//` runs to end of line, `/* … */` spans lines. Neither reaches the page.",
+    "body": ["// ${1:note}"]
+  }
+}
