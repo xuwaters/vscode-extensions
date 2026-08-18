@@ -47,8 +47,14 @@ it is showing.
 ## Getting started
 
 Open a PDF. That is the whole setup — the extension registers itself as the
-default editor for `*.pdf`, so nothing needs configuring and nothing else needs
-installing. Reopen With gets you back to any other viewer you have.
+default editor for `*.pdf` and ships the matching `workbench.editorAssociations`
+default, so nothing needs configuring and nothing else needs installing. Reopen
+With gets you back to any other viewer you have; to make that choice stick,
+point the association elsewhere:
+
+```jsonc
+"workbench.editorAssociations": { "*.pdf": "default" }
+```
 
 ## Commands and keys
 

@@ -14,7 +14,13 @@ vi.mock('../render/pdfjs.js', () => ({
   documentParams: (source: unknown) => source,
 }));
 
-const { PdfViewer } = await import('./element.js');
+const { PDF_VIEWER_TAG, PdfViewer } = await import('./element.js');
+
+// fast-element 3 defines the element asynchronously, so the tests mount it the
+// way the page does — parse the tag, wait for the definition, let the browser
+// upgrade it — rather than constructing the class, which is exactly what a real
+// engine refuses to do before the name is registered.
+await customElements.whenDefined(PDF_VIEWER_TAG);
 
 let viewer: InstanceType<typeof PdfViewer>;
 let posted: WebviewToHost[];
@@ -29,11 +35,14 @@ const must = <T extends Element>(selector: string): T => {
 };
 
 beforeEach(async () => {
-  document.body.innerHTML = '';
+  document.body.innerHTML = `<${PDF_VIEWER_TAG}></${PDF_VIEWER_TAG}>`;
   posted = [];
-  viewer = new PdfViewer();
+  const mounted = document.body.firstElementChild;
+  if (!(mounted instanceof PdfViewer)) {
+    throw new Error(`<${PDF_VIEWER_TAG}> was not upgraded`);
+  }
+  viewer = mounted;
   viewer.host = { post: (message) => posted.push(message) };
-  document.body.append(viewer);
   await Updates.next();
 });
 

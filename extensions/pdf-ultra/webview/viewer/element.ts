@@ -49,7 +49,15 @@ const styles = css`
  * `PageColumn` owns the column imperatively and this element owns everything
  * the reader can see the state of.
  */
-@customElement({ name: 'pdf-viewer', template, styles })
+/**
+ * The tag, named once. `@customElement` in fast-element 3 defines the element
+ * *asynchronously* — `compose` resolves a promise before `customElements.define`
+ * is ever called — so the bootstrap has to wait on this name rather than
+ * construct the class the moment the module has evaluated.
+ */
+export const PDF_VIEWER_TAG = 'pdf-viewer';
+
+@customElement({ name: PDF_VIEWER_TAG, template, styles })
 export class PdfViewer extends FASTElement {
   /** Set by the bootstrap before the element is attached. */
   host!: ViewerHost;

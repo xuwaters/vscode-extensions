@@ -5,8 +5,15 @@ import * as vscode from 'vscode';
  *
  * There is almost nothing in it: the viewer is `<pdf-viewer>`, a FAST element
  * that renders its own chrome into its own shadow root, so the only markup the
- * host owns is the shell it mounts into. The two rules below are the page's
- * whole contribution — a document that fills the tab, and a policy.
+ * host owns is the empty tag and the two rules that size it — a document that
+ * fills the tab, and a policy.
+ *
+ * The tag is written here rather than constructed by the bootstrap because
+ * fast-element 3 defines a custom element *asynchronously*: a script that
+ * constructs the class the moment its module has evaluated gets `Illegal
+ * constructor`, because the name is not registered yet. Markup has no such
+ * problem — the parser makes an ordinary unknown element and the browser
+ * upgrades it in place once the definition lands.
  *
  * The CSP is the load-bearing part, because a PDF is an untrusted document that
  * can come from anywhere and pdf.js is a large parser sitting between it and
@@ -71,6 +78,7 @@ export function html(webview: vscode.Webview, extensionUri: vscode.Uri): string 
     </style>
   </head>
   <body>
+    <pdf-viewer></pdf-viewer>
     <script nonce="${nonce}" type="module" src="${script}"></script>
   </body>
 </html>`;

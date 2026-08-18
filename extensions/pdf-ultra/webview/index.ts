@@ -1,5 +1,5 @@
 import type { HostToWebview, WebviewToHost } from '../src/messages.js';
-import { PdfViewer } from './viewer/element.js';
+import { PDF_VIEWER_TAG, PdfViewer } from './viewer/element.js';
 
 /**
  * The webview's bootstrap, and one of the two bundle entry points — the other
@@ -28,11 +28,23 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const api = acquireVsCodeApi();
 
-// Referencing the class is what pulls the `@customElement` registration into
-// the bundle: a tree-shaker has no way to know a decorator had a side effect.
-const viewer = new PdfViewer();
+// The tag is in the page's markup (see `src/html.ts`); all that is left here is
+// to wait for it to become an element. `@customElement` in fast-element 3
+// registers the name asynchronously, so until the definition lands the tag in
+// the document is an inert `HTMLElement` with none of this class's methods on
+// it — and constructing the class instead of waiting throws `Illegal
+// constructor` outright.
+//
+// The `instanceof` is also what pulls the registration into the bundle: a
+// tree-shaker has no way to know a decorator had a side effect.
+await customElements.whenDefined(PDF_VIEWER_TAG);
+
+const viewer = document.querySelector(PDF_VIEWER_TAG);
+if (!(viewer instanceof PdfViewer)) {
+  throw new Error(`the page has no upgraded <${PDF_VIEWER_TAG}> to mount into`);
+}
+
 viewer.host = { post: (message) => api.postMessage(message) };
-document.body.append(viewer);
 
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
   const message = event.data as HostToWebview;
