@@ -11,6 +11,7 @@ import {
   type WebviewToHost,
 } from './messages.js';
 import type { PageMemory } from './pageMemory.js';
+import { readPlace, writePlace } from './place.js';
 import { compileNow, fetchMetrics, fetchPages, jumpFromClick } from './rpc.js';
 
 /**
@@ -135,7 +136,14 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
 
     switch (message.type) {
       case 'ready': {
-        tab.send({ type: 'settings', settings: previewSettings(uri) });
+        // A mode switch opens a *new* webview, so the fit and zoom the reader
+        // had in the panel they came from arrive with the settings — otherwise
+        // switching to Preview view would silently undo them.
+        tab.send({
+          type: 'init',
+          settings: previewSettings(uri),
+          restore: readPlace(this.context),
+        });
         tab.claimCompile();
         await tab.refresh();
         // Arriving from the text editor by way of a mode switch: pick the
@@ -223,7 +231,7 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
         break;
 
       case 'state':
-        await this.context.workspaceState.update('typstUltra.previewState', {
+        await writePlace(this.context, {
           zoom: message.zoom,
           fit: message.fit,
           inverted: message.inverted,

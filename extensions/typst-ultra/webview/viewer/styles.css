@@ -1,0 +1,273 @@
+/*
+ * The preview.
+ *
+ * Colours come from VSCode's own theme variables, so the preview is themed by
+ * the editor it lives in without the host having to send a palette across.
+ *
+ * These rules land in the *document*, not in a shadow root: `<typst-preview>`
+ * renders into the light DOM on purpose — see `viewer/element.ts` — so the
+ * selectors here are ordinary ones and there is no `:host`.
+ *
+ * The page geometry is load-bearing: `model/layout.ts` resolves a fit from
+ * `PAGE_PAD`, which must stay equal to the column's padding below.
+ */
+
+typst-preview {
+  display: block;
+  height: 100%;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+  color: var(--vscode-foreground);
+  --chrome-height: 32px;
+  --page-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+typst-preview * {
+  box-sizing: border-box;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────────────
+ *
+ * At the top, where a document viewer's toolbar sits and where the editor's own
+ * title bar leaves off — so the controls for the page are next to the controls
+ * for the tab rather than at the far end of it. In the flow rather than
+ * absolutely positioned: the column takes the rest of the height, so nothing
+ * has to be offset by hand.
+ */
+.chrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: var(--chrome-height);
+  padding: 0 8px;
+  background: var(--vscode-editorWidget-background);
+  border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
+  font-size: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-contrastBorder, transparent);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/*
+ * A fit that is switched on reads as pressed, not merely hovered — it is the
+ * only thing on screen that says the zoom will follow the panel from now on.
+ */
+.btn.on {
+  background: var(--vscode-inputOption-activeBackground, rgba(0, 122, 204, 0.35));
+  border-color: var(--vscode-inputOption-activeBorder, transparent);
+  color: var(--vscode-inputOption-activeForeground, inherit);
+}
+
+.btn:focus-visible,
+.field-input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* Sized to sit level with the glyph buttons beside them rather than tower over them. */
+.icon {
+  width: 13px;
+  height: 13px;
+}
+
+/*
+ * Both boxes in the toolbar are typed into, so both have to look it. The border
+ * falls back to a drawn one rather than to `transparent`: most themes leave
+ * `--vscode-input-border` unset, and against the toolbar's own widget
+ * background an unbordered field reads as a label, not as somewhere to type.
+ */
+.field-input {
+  width: 46px;
+  height: 22px;
+  padding: 0 4px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.45));
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.field-input.wide {
+  width: 56px;
+}
+
+.field-input:hover {
+  border-color: var(--vscode-inputOption-hoverBackground, rgba(128, 128, 128, 0.75));
+}
+
+/* The name of a field beside it, in the same key as the page count. */
+.field-label,
+.count {
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* Reading is one group of buttons and leaving the page is another. */
+.separator {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
+}
+
+/* Below the toolbar, not over it: a compile error must not swallow the zoom. */
+.status {
+  flex: none;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--vscode-editorWidget-background);
+  border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
+}
+
+.status-error {
+  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  color: var(--vscode-inputValidation-errorForeground, #ffffff);
+}
+
+/* ── Pages ─────────────────────────────────────────────────────────────────
+ *
+ * `padding` here is `PAGE_PAD` in `model/layout.ts` and `gap` is `PAGE_GAP`.
+ */
+.pages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  scroll-behavior: auto;
+}
+
+.shell[data-background='editor'] .pages {
+  background: var(--vscode-editor-background);
+}
+
+.shell[data-background='white'] .pages {
+  background: #ffffff;
+}
+
+.shell[data-background='gray'] .pages {
+  background: #808080;
+}
+
+.page {
+  position: relative;
+  flex: none;
+  background: #ffffff;
+  box-shadow: var(--page-shadow);
+}
+
+.page.placeholder {
+  background: var(--vscode-editorWidget-background, #f3f3f3);
+  opacity: 0.6;
+}
+
+.page svg,
+.page img.page-raster {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.page-number {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  padding: 0 4px;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+  border-radius: 2px;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/*
+ * Colour inversion for reading white pages in a dark editor. Images are exempt
+ * so photographs are not turned into negatives — the double filter on <image>
+ * cancels the outer one exactly.
+ *
+ * A raster page is one flat image, so there is no way to exempt the photographs
+ * inside it — inverting one inverts everything. Named here rather than left as
+ * a surprise: it is part of what PNG mode trades away.
+ */
+.pages.inverted .page {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.pages.inverted .page image {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/*
+ * A compile failure dims the last good pages rather than blanking them. Because
+ * the session keeps the last good document, a transient syntax error while
+ * typing leaves something readable on screen.
+ */
+.pages.has-error .page {
+  opacity: 0.45;
+}
+
+.cursor-indicator {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--vscode-editorCursor-foreground, #007acc);
+  animation: typst-cursor-fade 1.5s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes typst-cursor-fade {
+  0% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+  }
+}

@@ -412,6 +412,9 @@ importers:
 
   extensions/typst-ultra:
     dependencies:
+      '@microsoft/fast-element':
+        specifier: ^3.0.2
+        version: 3.0.2
       vscode-languageclient:
         specifier: ^9.0.1
         version: 9.0.1

@@ -63,6 +63,15 @@ const config: UserConfig = [
     outDir: 'dist',
     sourcemap: true,
     deps: { alwaysBundle: [/.*/] },
+    // The webview's own tsconfig, not the package root's — and it is
+    // load-bearing, not tidiness. `@microsoft/fast-element` ships *legacy*
+    // decorators, so without `experimentalDecorators` the transform passes
+    // `@customElement` through as a standard decorator: syntax no browser
+    // engine parses, which fails the whole bundle and leaves an empty tab.
+    // `useDefineForClassFields: false` matters for the same reason —
+    // `@observable` installs accessors on the prototype, and a class field
+    // with `[[Define]]` semantics would shadow them, leaving the chrome inert.
+    tsconfig: 'webview/tsconfig.json',
     plugins: [rawAssetsPlugin],
   },
 ];

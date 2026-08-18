@@ -45,7 +45,9 @@ download, no code signing.
 - Follows the active editor: click a second `.typ` and the preview switches to it
 - Two-way sync: cursor → page position, click on a page → source position
 - Virtualized — a 200-page document keeps the DOM bounded
-- Zoom, fit-width/page, colour inversion, page numbers, find-in-page
+- Zoom, colour inversion, page numbers, find-in-page
+- Fit width and fit page are modes, not one-shots: they stay switched on and
+  follow the panel as it is resized, until you set the zoom by hand
 - A compile error dims the last good pages rather than blanking the preview
 
 **Export** to PDF, SVG, PNG, and HTML, all in-process — from the title-bar

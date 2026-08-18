@@ -12,6 +12,7 @@ import {
 } from './messages.js';
 import { html } from './html.js';
 import type { PageMemory } from './pageMemory.js';
+import { readPlace, writePlace } from './place.js';
 import { compileNow, fetchMetrics, fetchPages, jumpFromClick } from './rpc.js';
 import { SyncGuard } from './sync.js';
 
@@ -303,7 +304,14 @@ export class PreviewManager implements vscode.Disposable {
     switch (message.type) {
       case 'ready':
         this.ready = true;
-        this.pushSettings();
+        // The first message carries the fit and zoom the reader last chose, so
+        // a panel that has just opened is set up the way they left the last one
+        // rather than reverting to the default fit.
+        this.post({
+          type: 'init',
+          settings: previewSettings(this.target),
+          restore: readPlace(this.context),
+        });
         await this.refreshMetrics();
         break;
 
@@ -347,7 +355,7 @@ export class PreviewManager implements vscode.Disposable {
         break;
 
       case 'state':
-        await this.context.workspaceState.update('typstUltra.previewState', {
+        await writePlace(this.context, {
           zoom: message.zoom,
           fit: message.fit,
           inverted: message.inverted,

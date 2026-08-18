@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-typst-ultra",
   "displayName": "Typst Ultra",
-  "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact \u2014 diagnostics, completion, hover, goto-definition, semantic tokens, formatting, BibTeX bibliographies, two-way-synced preview, and PDF/SVG/PNG export",
-  "version": "0.2.2",
+  "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact — diagnostics, completion, hover, goto-definition, semantic tokens, formatting, BibTeX bibliographies, two-way-synced preview, and PDF/SVG/PNG export",
+  "version": "0.3.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -131,7 +131,7 @@
     "commands": [
       {
         "command": "typstUltra.newFromTemplate",
-        "title": "New Project from Template\u2026",
+        "title": "New Project from Template…",
         "category": "Typst Ultra",
         "icon": "$(new-folder)"
       },
@@ -173,7 +173,7 @@
       },
       {
         "command": "typstUltra.switchMode",
-        "title": "Switch View Mode\u2026",
+        "title": "Switch View Mode…",
         "category": "Typst Ultra",
         "icon": "$(layout)"
       },
@@ -214,13 +214,13 @@
       },
       {
         "command": "typstUltra.selectMain",
-        "title": "Select Compile Root\u2026",
+        "title": "Select Compile Root…",
         "category": "Typst Ultra",
         "icon": "$(file-symlink-file)"
       },
       {
         "command": "typstUltra.export",
-        "title": "Export\u2026",
+        "title": "Export…",
         "category": "Typst Ultra",
         "icon": "$(export)"
       },
@@ -590,7 +590,7 @@
           "default": 1,
           "minimum": 0,
           "maximum": 30,
-          "description": "comemo cache age. Lower is both faster and smaller here \u2014 measured, and counter-intuitive. Deviates from typst-cli's 10 on purpose."
+          "description": "comemo cache age. Lower is both faster and smaller here — measured, and counter-intuitive. Deviates from typst-cli's 10 on purpose."
         },
         "typstUltra.memory.restartThresholdMb": {
           "type": "number",
@@ -617,7 +617,7 @@
     "licenses": "cd ../../crates/typst/typst-lsp-wasm && cargo about generate about.hbs -o ../../../extensions/typst-ultra/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm assets/fonts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p webview --noEmit",
     "watch": "tsdown --watch",
     "package": "pnpm run build:wasm && pnpm run build:fonts && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
     "vscode:prepublish": "pnpm run build:wasm && pnpm run build:fonts && tsdown --minify",
@@ -625,6 +625,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@microsoft/fast-element": "^3.0.2",
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1"
   },

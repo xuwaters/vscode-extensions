@@ -6,7 +6,7 @@
  * cannot be read has to leave the current zoom alone rather than snap the page
  * to some fallback. Returns a percentage, or null when the text is not one.
  *
- * The range is not enforced here: `PageList.setZoom` clamps, and clamping in one
+ * The range is not enforced here: `clampZoom` does that, and clamping in one
  * place keeps the buttons, the keyboard shortcuts and this box in agreement.
  */
 export function parseZoomPercent(text: string): number | null {

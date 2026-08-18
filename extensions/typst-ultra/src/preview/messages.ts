@@ -13,7 +13,14 @@
  *   input boundary even when we wrote the code on the other side of it.
  */
 
-/** How the page container is fitted to the panel. */
+/**
+ * How the page column is fitted to the panel.
+ *
+ * A *mode*, not an action: `width` and `page` stay switched on and are
+ * re-resolved to a new zoom whenever the panel changes size, until something
+ * that names a zoom outright — the buttons, the box, Ctrl+0 — turns them off by
+ * switching to `actual`.
+ */
 export type FitMode = 'width' | 'page' | 'actual';
 
 /** The parts of the configuration the webview needs. */
@@ -53,9 +60,24 @@ export type PagePatch =
   | { op: 'unchanged'; index: number }
   | { op: 'removed'; index: number };
 
+/**
+ * How the reader last had the preview set up.
+ *
+ * Kept twice over: by the webview itself, through `setState`, which is what
+ * survives a reload of the same panel; and by the host in workspace storage, so
+ * a *new* surface — the tab a mode switch just opened, a panel in the next
+ * window — starts the way the last one was left rather than resetting the fit
+ * every time the preview moves.
+ */
+export interface PreviewPlace {
+  zoom: number;
+  fit: FitMode;
+  inverted: boolean;
+}
+
 /** Host → webview. */
 export type HostToWebview =
-  | { type: 'init'; settings: PreviewSettings }
+  | { type: 'init'; settings: PreviewSettings; restore?: PreviewPlace }
   | { type: 'metrics'; seq: number; uri: string; pages: PageMetric[] }
   | { type: 'pages'; seq: number; patches: PagePatch[] }
   | { type: 'cursor'; page: number; xPt: number; yPt: number }
@@ -83,14 +105,6 @@ export type WebviewToHost =
   /** The toolbar's Edit button: hand the reader back to the source. */
   | { type: 'openSource' }
   | { type: 'error'; message: string; context: string };
-
-/** What the webview persists across a reload. */
-export interface WebviewState {
-  zoom: number;
-  fit: FitMode;
-  inverted: boolean;
-  scrollTop: number;
-}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -157,12 +171,8 @@ export function parseWebviewMessage(value: unknown): WebviewToHost | null {
     }
 
     case 'state': {
-      if (!isNumber(value.zoom) || value.zoom <= 0 || value.zoom > 20) return null;
-      if (value.fit !== 'width' && value.fit !== 'page' && value.fit !== 'actual') {
-        return null;
-      }
-      if (typeof value.inverted !== 'boolean') return null;
-      return { type: 'state', zoom: value.zoom, fit: value.fit, inverted: value.inverted };
+      const place = parsePreviewPlace(value);
+      return place ? { type: 'state', ...place } : null;
     }
 
     case 'export':
@@ -185,6 +195,24 @@ export function parseWebviewMessage(value: unknown): WebviewToHost | null {
     default:
       return null;
   }
+}
+
+/**
+ * Validate a remembered setup.
+ *
+ * Used twice: on the way in from the webview, where it is untrusted input like
+ * everything else, and on the way back *out* of workspace storage, which is a
+ * file on disk that an older version of this extension — or a hand edit — may
+ * have left in a shape this one does not accept.
+ */
+export function parsePreviewPlace(value: unknown): PreviewPlace | null {
+  if (!isObject(value)) return null;
+  if (!isNumber(value.zoom) || value.zoom <= 0 || value.zoom > 20) return null;
+  if (value.fit !== 'width' && value.fit !== 'page' && value.fit !== 'actual') {
+    return null;
+  }
+  if (typeof value.inverted !== 'boolean') return null;
+  return { zoom: value.zoom, fit: value.fit, inverted: value.inverted };
 }
 
 /** Schemes the host will hand to `env.openExternal`. */

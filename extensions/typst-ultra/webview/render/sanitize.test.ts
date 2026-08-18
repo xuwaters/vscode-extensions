@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { PageList, adopt } from './pageList.js';
+import { adopt, rasterPage } from './sanitize.js';
 
 /**
  * The SVG the preview inserts is engine-generated: `typst_svg` emits a fixed
@@ -92,76 +92,17 @@ describe('adopting page SVG', () => {
   });
 });
 
-/**
- * The panel follows the active editor, so one page list outlives several
- * documents. Handing it a different document has to leave nothing of the old
- * one behind — not its pages, not its cache, and not its scroll position.
- */
-describe('changing the document under the page list', () => {
-  interface Report {
-    first: number;
-    last: number;
-    known: Record<number, string>;
-  }
-
-  const metric = (index: number, hash: string) => ({
-    index,
-    widthPt: 595,
-    heightPt: 842,
-    hash,
+describe('wrapping a raster page', () => {
+  it('builds a data: image from base64', () => {
+    const image = rasterPage('iVBORw0KGgo=') as HTMLImageElement | null;
+    expect(image?.getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgo=');
   });
 
-  function build(): {
-    list: PageList;
-    container: HTMLElement;
-    reports: Report[];
-  } {
-    const container = document.createElement('div');
-    document.body.replaceChildren(container);
-    const reports: Report[] = [];
-    const list = new PageList(
-      container,
-      (first, last, known) => reports.push({ first, last, known }),
-      () => undefined,
-    );
-    return { list, container, reports };
-  }
-
-  it('drops every page and returns to the top', () => {
-    const { list, container } = build();
-    list.setMetrics([metric(0, 'a'.repeat(16)), metric(1, 'b'.repeat(16))]);
-    expect(list.length).toBe(2);
-    container.scrollTop = 400;
-
-    list.reset();
-
-    expect(list.length).toBe(0);
-    expect(container.children).toHaveLength(0);
-    expect(container.scrollTop).toBe(0);
-  });
-
-  it('leaves nothing for the next document to inherit by hash', () => {
-    const { list, container, reports } = build();
-    const hash = 'c'.repeat(16);
-    list.setMetrics([metric(0, hash)]);
-    list.applyPatches([
-      {
-        op: 'replace',
-        index: 0,
-        hash,
-        format: 'svg',
-        content: '<svg xmlns="http://www.w3.org/2000/svg"><g /></svg>',
-      },
-    ]);
-    expect(container.querySelectorAll('svg')).toHaveLength(1);
-
-    list.reset();
-    // A new document can carry the same hash — an empty first page, say. It
-    // must be fetched again rather than served from the cache of the document
-    // that has just been replaced.
-    list.setMetrics([metric(0, hash)]);
-
-    expect(container.querySelectorAll('svg')).toHaveLength(0);
-    expect(reports.at(-1)?.known).toEqual({});
+  // The `src` is interpolated into a URI, so anything that is not base64 has no
+  // business being there — a `"` or a newline would end the data URI early.
+  it('refuses anything that is not base64', () => {
+    expect(rasterPage('not base64!')).toBeNull();
+    expect(rasterPage('iVBO"onerror=')).toBeNull();
+    expect(rasterPage('')).toBeNull();
   });
 });

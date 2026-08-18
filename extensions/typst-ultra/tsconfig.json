@@ -4,5 +4,7 @@
     "outDir": "./dist",
     "rootDir": "."
   },
-  "include": ["src", "server", "webview"]
+  // The webview has a tsconfig of its own — see `webview/tsconfig.json` for why
+  // it cannot share this one.
+  "include": ["src", "server"]
 }
