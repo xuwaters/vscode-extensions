@@ -86,12 +86,17 @@ interface WasmModule {
   Session: new (text: string, line: number, col: number) => WasmSession;
 }
 
+/** What the controller needs of the bridge: one session per document. */
+export interface SessionFactory {
+  createSession(text: string, line: number, col: number): EngineSession | null;
+}
+
 /**
  * Loads the wasm-pack-built `vim_engine` module lazily and hands out
  * per-document sessions. Degrades gracefully when `wasm/` is missing —
  * typical when the extension runs before `pnpm run build:wasm`.
  */
-export class EngineBridge {
+export class EngineBridge implements SessionFactory {
   private module: WasmModule | null | undefined;
 
   constructor(private readonly extensionPath: string) {}

@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 import type {
   Effects,
-  EngineBridge,
   EngineCommand,
   EngineMode,
   EngineSearchUi,
   EngineSelection,
   EngineSession,
+  SessionFactory,
 } from './engine';
 import { modeLabel, replaceEol, serializeSelections, typedKeys } from './util';
 
@@ -46,13 +46,20 @@ export class VimController implements vscode.Disposable {
   /** The editor holding search decorations, so ending clears the right one. */
   private decoratedEditor: vscode.TextEditor | null = null;
   private applyingEdits = false;
-  private lastSetSelections: string | null = null;
+  /**
+   * The editor selections the engine's cursors currently stand for, so an
+   * incoming selection change can tell an echo of our own write from a move
+   * the engine has yet to hear about. `null` means "unknown, mirror it".
+   * Every hand-off to the engine updates this; letting it go stale is how a
+   * real move gets mistaken for an echo and silently dropped.
+   */
+  private mirrored: string | null = null;
   private enabled: boolean;
   /** The engine's last report; shown until the next key produces one. */
   private message = '';
 
   constructor(
-    private readonly bridge: EngineBridge,
+    private readonly bridge: SessionFactory,
     enabled: boolean,
   ) {
     this.enabled = enabled;
@@ -158,6 +165,11 @@ export class VimController implements vscode.Disposable {
     session: EngineSession,
     key: string,
   ): Promise<void> {
+    // A key acts from where the cursor actually is. Any move the engine never
+    // heard about — an event that arrived while another editor was active, a
+    // position VSCode restored after handing us the editor — is caught here,
+    // before the key runs from a stale place.
+    this.syncCursors(editor, session);
     const fx = session.key(key);
     if (!fx) return;
     // Only keys refresh the message, so an incidental cursor sync (or the
@@ -206,8 +218,8 @@ export class VimController implements vscode.Disposable {
       const sels = fx.selections.map(
         (s) => new vscode.Selection(s.anchor.line, s.anchor.col, s.active.line, s.active.col),
       );
-      if (serializeSelections(editor.selections) !== serializeSelections(sels)) {
-        this.lastSetSelections = serializeSelections(sels);
+      this.mirrored = serializeSelections(sels);
+      if (serializeSelections(editor.selections) !== this.mirrored) {
         editor.selections = sels;
       }
       // A cancelled search restores its own viewport below instead.
@@ -340,7 +352,7 @@ export class VimController implements vscode.Disposable {
       const endLine = Math.min(c.endLine, doc.lineCount - 1);
       return new vscode.Selection(c.startLine, 0, endLine, doc.lineAt(endLine).text.length);
     });
-    this.lastSetSelections = serializeSelections(spans);
+    this.mirrored = serializeSelections(spans);
     editor.selections = spans;
     await vscode.commands.executeCommand(
       cmds[0].dedent ? 'editor.action.outdentLines' : 'editor.action.indentLines',
@@ -349,9 +361,22 @@ export class VimController implements vscode.Disposable {
       const col = doc.lineAt(c.startLine).firstNonWhitespaceCharacterIndex;
       return new vscode.Selection(c.startLine, col, c.startLine, col);
     });
-    this.lastSetSelections = serializeSelections(cursors);
+    this.mirrored = serializeSelections(cursors);
     editor.selections = cursors;
     session.setCursors(enginePositions(cursors));
+  }
+
+  /**
+   * Hand the editor's selections to the engine unless it already stands on
+   * them. Cheap when nothing moved: one string compare.
+   */
+  private syncCursors(editor: vscode.TextEditor, session: EngineSession): void {
+    const ser = serializeSelections(editor.selections);
+    if (ser === this.mirrored) return;
+    this.mirrored = ser;
+    // Any clamp the engine reports is folded into the cursors the key about
+    // to run will place, so there is nothing to apply here.
+    session.setCursors(enginePositions(editor.selections));
   }
 
   // ---- event mirroring -----------------------------------------------------
@@ -383,8 +408,8 @@ export class VimController implements vscode.Disposable {
     const session = this.usableSession(e.textEditor);
     if (!session) return;
     const ser = serializeSelections(e.selections);
-    if (ser === this.lastSetSelections) return; // our own write, engine knows
-    this.lastSetSelections = null;
+    if (ser === this.mirrored) return; // our own write, engine knows
+    this.mirrored = ser;
     // Every selection, not just the primary: extra cursors (cmd+alt+arrow,
     // cmd+d) are cursors the engine drives too.
     const fx = session.setCursors(enginePositions(e.selections));
@@ -398,7 +423,12 @@ export class VimController implements vscode.Disposable {
       this.status.hide();
       return;
     }
-    // Re-clamp the cursors for normal mode and refresh the UI.
+    // Re-clamp the cursors for normal mode and refresh the UI. VSCode may
+    // still be restoring this editor's saved position (going back to a file
+    // hands it over at the top, then moves it), so the mirror records what
+    // the engine was just told — never a position from before the switch,
+    // which would make the restoring move look like an echo and be dropped.
+    this.mirrored = serializeSelections(editor.selections);
     const fx = session.setCursors(enginePositions(editor.selections));
     if (fx) void this.applyEffects(editor, session, fx, true);
   }
@@ -433,6 +463,7 @@ export class VimController implements vscode.Disposable {
   private resync(editor: vscode.TextEditor, session: EngineSession): void {
     this.message = ''; // the report described edits that never landed
     this.applySearchUi(editor, { kind: 'cancelled' }, true);
+    this.mirrored = serializeSelections(editor.selections);
     session.reset(
       editor.document.getText(),
       editor.selection.active.line,

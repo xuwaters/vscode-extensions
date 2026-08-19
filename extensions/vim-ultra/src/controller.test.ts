@@ -1,0 +1,123 @@
+import * as fs from 'fs';
+import { createRequire } from 'module';
+import * as path from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { VimController } from './controller';
+import { EngineSession, type SessionFactory } from './engine';
+import {
+  EndOfLine,
+  Selection,
+  resetStub,
+  stubEvents,
+  window,
+  type StubDocument,
+  type StubEditor,
+} from './vscodeStub';
+
+/**
+ * The controller against a stubbed editor: how VSCode's events land is what
+ * decides whether the engine's cursors still stand where the user's do.
+ * `wasm/` is a build artifact, so these are skipped until `pnpm run
+ * build:wasm` has produced it.
+ */
+const entry = path.join(__dirname, '..', 'wasm', 'vim_engine.js');
+const built = fs.existsSync(entry);
+
+interface WasmModule {
+  Session: new (text: string, line: number, col: number) => never;
+}
+
+function sessionFactory(): SessionFactory {
+  const mod = createRequire(entry)(entry) as WasmModule;
+  return {
+    createSession: (text, line, col) =>
+      new EngineSession(new mod.Session(text, line, col)),
+  };
+}
+
+function makeEditor(uri: string, text: string, line: number, col: number): StubEditor {
+  const lines = text.split('\n');
+  const document: StubDocument = {
+    uri: { scheme: 'file', toString: () => uri },
+    eol: EndOfLine.LF,
+    getText: () => text,
+    lineCount: lines.length,
+    lineAt: (n: number) => ({
+      text: lines[n],
+      firstNonWhitespaceCharacterIndex: lines[n].search(/\S|$/),
+    }),
+  };
+  return {
+    document,
+    selections: [new Selection(line, col, line, col)],
+    get selection() {
+      return this.selections[0];
+    },
+    options: {},
+    visibleRanges: [],
+    edit: () => Promise.resolve(true),
+    revealRange: () => {},
+    setDecorations: () => {},
+  };
+}
+
+/** Make `editor` the active one, the way VSCode announces the switch. */
+function activate(editor: StubEditor): void {
+  window.activeTextEditor = editor;
+  stubEvents.activeEditor.fire(editor);
+}
+
+/** The editor's cursor moved for a reason of VSCode's own. */
+function moveCursor(editor: StubEditor, line: number, col: number): void {
+  editor.selections = [new Selection(line, col, line, col)];
+  stubEvents.selection.fire({ textEditor: editor, selections: editor.selections });
+}
+
+describe.skipIf(!built)('vim controller', () => {
+  let controller: VimController;
+
+  beforeEach(() => {
+    resetStub();
+  });
+
+  afterEach(() => {
+    controller?.dispose();
+  });
+
+  it('moves down from where a restored cursor sits, not from the top', async () => {
+    // Going to a definition in another file and coming back: VSCode hands the
+    // editor over before restoring the saved position, then moves the cursor
+    // onto it. The engine has to hear that second move, or the next `j` runs
+    // from line 0 — the bug this pins.
+    const typ = makeEditor('file:///paper.typ', '#import "x"\n#bibliography("01.bib")\ntail', 1, 15);
+    const bib = makeEditor('file:///01.bib', '@article{a}\n', 0, 0);
+    window.activeTextEditor = typ;
+    controller = new VimController(sessionFactory(), true);
+
+    // A motion in the typst file, so the engine has written this selection.
+    await controller.type('l');
+    await controller.type('h');
+    expect(typ.selections[0].active).toEqual({ line: 1, character: 15 });
+
+    activate(bib); // F12 lands at the top of the bibliography
+    typ.selections = [new Selection(0, 0, 0, 0)]; // the editor comes back bare
+    activate(typ); // ctrl+- returns to the typst file
+    moveCursor(typ, 1, 15); // ...and VSCode restores the position
+
+    await controller.type('j');
+    expect(typ.selections[0].active.line).toBe(2);
+  });
+
+  it('mirrors a cursor move it never saw before running the next key', async () => {
+    // The same desync from the other direction: an event the controller drops
+    // (it arrives for an editor that is not the active one yet) must not leave
+    // the engine one position behind.
+    const doc = makeEditor('file:///paper.typ', 'alpha\nbeta\ngamma', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    doc.selections = [new Selection(2, 0, 2, 0)]; // moved with no event at all
+    await controller.type('k');
+    expect(doc.selections[0].active.line).toBe(1);
+  });
+});

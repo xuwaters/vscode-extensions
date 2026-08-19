@@ -2,7 +2,7 @@
   "name": "wx-vsce-vim-ultra",
   "displayName": "Vim Ultra",
   "description": "Modal Vim editing on a Rust/WASM engine — motions, operators, text objects, counts, registers, visual modes, multiple cursors, regex search (/ ? n N * #) and search-and-replace (:s). Partial Vim: no other ex commands, macros, marks, dot-repeat, named registers, replace mode, or block visual.",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -62,25 +62,37 @@
       {
         "key": "ctrl+d",
         "command": "vimUltra.scroll",
-        "args": { "dir": "down", "by": "half" },
+        "args": {
+          "dir": "down",
+          "by": "half"
+        },
         "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
       },
       {
         "key": "ctrl+u",
         "command": "vimUltra.scroll",
-        "args": { "dir": "up", "by": "half" },
+        "args": {
+          "dir": "up",
+          "by": "half"
+        },
         "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
       },
       {
         "key": "ctrl+f",
         "command": "vimUltra.scroll",
-        "args": { "dir": "down", "by": "page" },
+        "args": {
+          "dir": "down",
+          "by": "page"
+        },
         "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
       },
       {
         "key": "ctrl+b",
         "command": "vimUltra.scroll",
-        "args": { "dir": "up", "by": "page" },
+        "args": {
+          "dir": "up",
+          "by": "page"
+        },
         "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
       },
       {
