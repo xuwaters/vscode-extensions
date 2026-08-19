@@ -218,17 +218,57 @@ describe('the chrome, once a document is open', () => {
     }
   });
 
+  /**
+   * A real keystroke bubbles out of the shadow root and up to the window, which
+   * is where the page keys are answered — see `PdfViewer.onKeydown` on why they
+   * are not bound on the scroller.
+   */
+  const press = (key: string, from = '.viewer'): KeyboardEvent => {
+    const event = new KeyboardEvent('keydown', {
+      key,
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    });
+    must(from).dispatchEvent(event);
+    return event;
+  };
+
   it('still cancels the keys it acts on itself', () => {
-    const event = new KeyboardEvent('keydown', { key: 'PageDown', cancelable: true });
-    must('.viewer').dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(true);
+    expect(press('PageDown').defaultPrevented).toBe(true);
     expect(viewer.page).toBe(2);
   });
 
   it('turns the page with the arrow keys', () => {
-    must('.viewer').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    press('ArrowRight');
     expect(viewer.page).toBe(2);
-    must('.viewer').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+    press('ArrowLeft');
+    expect(viewer.page).toBe(1);
+  });
+
+  /**
+   * The bug these grew out of: a tab reached with Cmd+Shift+] is handed the
+   * focus with nothing in the page holding it, and keys bound to the scroller
+   * never arrived — so the page could only be turned after a click.
+   */
+  it('turns the page with the focus on nothing in particular', () => {
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
+    );
+    expect(viewer.page).toBe(2);
+  });
+
+  /** In the outline, ← and → collapse and expand a row instead. */
+  it('leaves the arrow keys to the outline', async () => {
+    viewer.outlineVisible = true;
+    await Updates.next();
+    press('ArrowRight', '.outline-tree');
+    expect(viewer.page).toBe(1);
+  });
+
+  /** The caret in the toolbar's boxes is what an arrow moves there. */
+  it('leaves the arrow keys to the toolbar boxes', () => {
+    press('ArrowRight', '.field-input');
     expect(viewer.page).toBe(1);
   });
 
@@ -240,10 +280,28 @@ describe('the chrome, once a document is open', () => {
   it('leaves the arrow keys to the scroller while there is width to scroll', () => {
     Object.defineProperty(viewer.scrollEl, 'scrollWidth', { value: 2000, configurable: true });
     Object.defineProperty(viewer.scrollEl, 'clientWidth', { value: 800, configurable: true });
-    const event = new KeyboardEvent('keydown', { key: 'ArrowRight', cancelable: true });
-    must('.viewer').dispatchEvent(event);
+    const event = press('ArrowRight');
     expect(viewer.page).toBe(1);
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  /**
+   * The scroller is what scrolls, and scrolling from the keyboard goes to
+   * whatever holds the focus — so a tab whose focus is on nothing answers to no
+   * arrow at all.
+   */
+  it('takes the focus into the scroller when the host says the tab is active', () => {
+    viewer.handle({ type: 'focus' });
+    expect(viewer.shadowRoot?.activeElement).toBe(viewer.scrollEl);
+  });
+
+  it('leaves the focus where the reader put it', () => {
+    const box = must<HTMLInputElement>('.field-input');
+    box.focus();
+
+    viewer.handle({ type: 'focus' });
+
+    expect(viewer.shadowRoot?.activeElement).toBe(box);
   });
 
   it('takes the scroll away from an Alt-wheel and leaves a plain one alone', () => {

@@ -83,6 +83,10 @@ export class ViewerSession {
       // nothing about the document, the settings or the scroller has changed.
       panel.onDidChangeViewState(() => {
         if (panel.visible) this.send({ type: 'visible' });
+        // Coming back to this tab from the keyboard focuses the page but nothing
+        // in it, and the keys that turn the pages act on whatever holds the
+        // focus. Without this the reader has to click the page before → turns it.
+        if (panel.active) this.send({ type: 'focus' });
       }),
     );
   }

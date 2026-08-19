@@ -163,6 +163,12 @@ export type HostToWebview =
    * page's cue to check its column over rather than wait for a resize.
    */
   | { type: 'visible' }
+  /**
+   * The tab became the active one. VSCode focuses the page itself but nothing in
+   * it, and the keys that turn the pages act on whatever holds the focus — so
+   * the page is told to put it on the column.
+   */
+  | { type: 'focus' }
   | { type: 'hostError'; message: string };
 
 /** Webview → host. */

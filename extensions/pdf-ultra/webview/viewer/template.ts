@@ -410,7 +410,10 @@ export const template = html<PdfViewer>`
         )}
         <div class="body">
           ${when((x) => x.outlineVisible, outlineTemplate)}
-          <div class="viewer" tabindex="0" ${ref('scrollEl')} @keydown="${(x, c) => x.onViewerKeydown(c.event as KeyboardEvent)}">
+          <!-- Focusable, because it is what scrolls; the keys that turn its
+               pages are bound on the window rather than here, so that a tab
+               reached from the keyboard answers to them before it is clicked. -->
+          <div class="viewer" tabindex="0" ${ref('scrollEl')}>
             <div class="column ${(x) => (x.inverted ? 'inverted' : '')}" ${ref('columnEl')}></div>
           </div>
         </div>

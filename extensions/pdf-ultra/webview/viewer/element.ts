@@ -157,6 +157,7 @@ export class PdfViewer extends FASTElement {
 
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private placeTimer: ReturnType<typeof setTimeout> | undefined;
+  private focusTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** The control the tooltip is describing, and the wait before it appears. */
   private tipAnchor: HTMLElement | null = null;
@@ -185,15 +186,66 @@ export class PdfViewer extends FASTElement {
     this.zoomAbout(this.zoom * Math.exp(-wheelPixels(event) * WHEEL_ZOOM), event);
   };
 
+  /**
+   * The keys that turn the page.
+   *
+   * On `window` rather than on the page column, because the focus inside a
+   * webview is rarely where the reader thinks it is: a tab reached from the
+   * keyboard — Cmd+Shift+], the tab list — is handed the focus without anything
+   * *in* the page taking it, and a handler bound to the column hears nothing in
+   * that state. Bound there, → turned the page only after the page was clicked.
+   *
+   * Two places keep their own arrows: the toolbar's boxes, where an arrow moves
+   * the caret through what is being typed, and the outline, where ← and →
+   * collapse and expand a row.
+   *
+   * This is not the general rule for shortcuts here — see {@link onWheel} on why
+   * the rest of them arrive as `command` messages. These are the keys VSCode
+   * contributes no binding for, so answering them here answers them once.
+   */
+  private readonly onKeydown = (event: KeyboardEvent): void => {
+    if (this.state !== 'ready') return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    // Not `event.target`: this element has a shadow root, and an event that has
+    // crossed it is retargeted to the host — every key in the page would look
+    // like it came from `<pdf-viewer>` itself. The composed path still has the
+    // box or the outline row the reader is actually on.
+    const target = event.composedPath()[0] ?? event.target;
+    if (isTextEntry(target) || inOutline(target)) return;
+    this.onPageKey(event);
+  };
+
+  /**
+   * Take the focus into the page column when the tab is handed it.
+   *
+   * The column is what scrolls, and scrolling from the keyboard goes to whatever
+   * holds the focus — so a tab whose focus is on nothing answers to no arrow at
+   * all. Deferred by a turn because a window's focus event can arrive before the
+   * browser has restored the element that had it, and nothing here should take
+   * the focus off a box the reader was typing in.
+   */
+  private readonly onWindowFocus = (): void => {
+    if (this.focusTimer) clearTimeout(this.focusTimer);
+    this.focusTimer = setTimeout(() => {
+      this.focusTimer = undefined;
+      this.focusViewer();
+    }, 0);
+  };
+
   override connectedCallback(): void {
     super.connectedCallback();
     // Not passive: the whole point is to take the scroll away and zoom instead.
     window.addEventListener('wheel', this.onWheel, { passive: false });
+    window.addEventListener('keydown', this.onKeydown);
+    window.addEventListener('focus', this.onWindowFocus);
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     window.removeEventListener('wheel', this.onWheel);
+    window.removeEventListener('keydown', this.onKeydown);
+    window.removeEventListener('focus', this.onWindowFocus);
+    if (this.focusTimer) clearTimeout(this.focusTimer);
     this.teardown();
   }
 
@@ -229,6 +281,12 @@ export class PdfViewer extends FASTElement {
 
       case 'visible':
         this.revalidate();
+        break;
+
+      case 'focus':
+        // The tab has become the active one. VSCode focuses the page itself but
+        // nothing in it, so the column takes the focus.
+        this.focusViewer();
         break;
 
       case 'hostError':
@@ -415,6 +473,9 @@ export class PdfViewer extends FASTElement {
     this.applyZoom();
     if (place) this.restore(place);
     else this.goToPage(1, { report: false });
+    // The column exists only now — the `ready` branch of the template mounts it
+    // — so this is the first moment there is anything to hand the focus to.
+    this.focusViewer();
 
     void this.loadOutline(doc, generation);
     this.host.post({ type: 'opened', pageCount: doc.numPages });
@@ -800,8 +861,7 @@ export class PdfViewer extends FASTElement {
     return true;
   }
 
-  onViewerKeydown(event: KeyboardEvent): boolean {
-    if (event.ctrlKey || event.metaKey || event.altKey) return true;
+  private onPageKey(event: KeyboardEvent): void {
     if (event.key === 'PageDown') this.goToPage(this.page + 1);
     else if (event.key === 'PageUp') this.goToPage(this.page - 1);
     else if (event.key === 'Home') this.goToPage(1);
@@ -811,11 +871,29 @@ export class PdfViewer extends FASTElement {
       // and taking that away would leave no way to read its right-hand edge
       // without a mouse. Only when there is nothing to scroll do these turn
       // the page — which is the rule pdf.js's own viewer follows.
-      if (this.scrollsSideways()) return true;
+      if (this.scrollsSideways()) return;
       this.goToPage(this.page + (event.key === 'ArrowRight' ? 1 : -1));
-    } else return true;
+    } else return;
     event.preventDefault();
-    return true;
+  }
+
+  /**
+   * Put the focus on the page column, unless the reader has it somewhere else.
+   *
+   * Called when the document opens, when the window is handed the focus, and
+   * when the host says this tab has become the active one — all three can leave
+   * the focus on the document and on nothing in it, which is the state in which
+   * no key reaches the column.
+   */
+  focusViewer(): void {
+    if (this.state !== 'ready') return;
+    const focused = document.activeElement;
+    // The focus inside a shadow root reads as the host from outside it, so on
+    // ourselves it is the inner answer that says whether anything holds it.
+    if (focused === this) {
+      if (this.shadowRoot?.activeElement) return;
+    } else if (focused !== null && focused !== document.body) return;
+    this.scrollEl?.focus({ preventScroll: true });
   }
 
   /** Whether the column is wider than the tab, so there is width to scroll. */
@@ -1143,6 +1221,27 @@ function wheelPixels(event: WheelEvent): number {
   if (event.deltaMode === 1) return event.deltaY * WHEEL_LINE_PX;
   if (event.deltaMode === 2) return event.deltaY * WHEEL_PAGE_PX;
   return event.deltaY;
+}
+
+/**
+ * Whether a key went somewhere the reader is typing.
+ *
+ * The page keys stay out of those: in the toolbar's boxes an arrow moves the
+ * caret, and Home and End go to the ends of what is being typed rather than of
+ * the document.
+ */
+function isTextEntry(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
+/** Whether a key went to the outline, where ← and → collapse and expand a row. */
+function inOutline(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('.outline') !== null;
 }
 
 /** The control a pointer or focus event landed on, if it has anything to say. */
