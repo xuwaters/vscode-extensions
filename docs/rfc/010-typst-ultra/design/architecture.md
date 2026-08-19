@@ -370,20 +370,31 @@ extensions/typst-ultra/
   language-configuration.json
   syntaxes/typst.tmLanguage.json
   src/
-    extension.ts               # activation, commands
-    bundledFonts.ts            # find the companion font extension; pure, so the order is tested
-    client.ts                  # LanguageClient construction, server lifecycle, restart
+    extension.ts               # activation, wiring, command registration
     config.ts                  # settings → initializationOptions + didChangeConfiguration
-    compileRoot.ts             # the two modes, status bar, QuickPick, pin suggestion
-    status.ts                  # compile state, package status, heap watchdog
-    export.ts                  # export commands, save dialogs
-    exportPath.ts              # $dir/$name/$root templating — pure, so it tests without vscode
-    template.ts                # scaffold from a Universe template (P4-14)
+    compileRoot.ts             # the three modes, status bar, QuickPick, the two offers
+    entryPoints.ts             # ranking "which of these files is the document"; pure
+    lsp/
+      client.ts                # LanguageClient construction, server lifecycle, restart
+      status.ts                # compile state, package status, heap watchdog
+      bundledFonts.ts          # find the companion font extension; pure, so the order is tested
+    commands/
+      export.ts                # export commands, save dialogs
+      exportPath.ts            # $dir/$name/$root templating — pure, so it tests without vscode
+      target.ts                # what a command's argument names, across its four callers; pure
+      template.ts              # scaffold from a Universe template (P4-14)
     preview/
       manager.ts               # panel lifecycle, follow/lock/retarget
       customEditor.ts          # typstUltra.preview custom editor provider
+      modes.ts                 # Edit/Split/Preview switching and its status bar
+      modeState.ts             # the rule deriving a mode from observable layout; pure
+      follow.ts                # whether an editor change moves the panel's subject; pure
+      editors.ts               # editor and tab helpers shared by the two surfaces
       messages.ts              # typed host ⇄ webview protocol + validation guards
+      rpc.ts                   # the preview's half of the LSP surface
       sync.ts                  # two-way scroll/cursor sync, loop guards
+      pageMemory.ts            # the page each document was last read to
+      place.ts                 # zoom, fit, and inversion, across sessions
       html.ts                  # the webview document and its CSP
   server/
     main.ts                    # JSON-RPC loop, HostServices, wasm bootstrap, debounce
@@ -393,8 +404,9 @@ extensions/typst-ultra/
     testFonts.ts               # the one place the tests name the sibling font package
   webview/
     index.ts                   # bootstrap, message loop, chrome
-    pageList.ts                # virtualized page rendering, patch applier, SVG adoption
-    styles/preview.css
+    model/                     # page geometry and zoom arithmetic; pure, so both are tested
+    render/                    # the virtualized page column, the patch applier, SVG sanitizing
+    viewer/                    # the fast-element component, its template, and styles.css
   wasm/                        # built by build:wasm (gitignored, ships in the VSIX)
   dist/                        # tsdown output
 
@@ -404,12 +416,17 @@ extensions/typst-ultra-fonts/  # the font set, on its own release cadence (decis
   assets/fonts/                # typst default font set, 9.2 MB (gitignored, built by build:fonts)
 ```
 
-Two placements differ from the sketch, both because of where the work actually has to happen:
+Three placements differ from the sketch, all because of where the work actually has to happen:
 
 - **`fonts.ts` is in `server/`, not `src/`.** Font *bytes* are fetched by a synchronous callback from
   inside a compile, so the index has to live in the server process. The extension host never sees a font.
 - **`util.ts` never appeared.** Nothing turned out to be generic enough to want it, and a file that exists
   to hold leftovers attracts leftovers.
+- **`src/` folders one level deep, and only where there is a subsystem.** `lsp/`, `commands/`, and
+  `preview/` are the three things this extension *is*; `extension.ts`, `config.ts`, and the compile root
+  are read by all three and so stay at the root rather than picking a folder to live in. Same shape as
+  `log-viewer`'s `indexer/`/`streaming/` and `protobuf`'s `providers/`/`commands/` — a reader who knows
+  one extension in this repo can find their way around this one.
 
 ```
 crates/typst/

@@ -44,7 +44,7 @@ it, and it is kept because dropping `extensionDependencies` is a one-line change
 Same rule in the development loop: the Extension Development Host enforces the dependency, so `F5` needs
 the companion installed, or both packages passed as `--extensionDevelopmentPath`.
 
-`src/bundledFonts.ts` resolves the directory, best candidate first:
+`src/lsp/bundledFonts.ts` resolves the directory, best candidate first:
 
 | Source | Path | When |
 | --- | --- | --- |

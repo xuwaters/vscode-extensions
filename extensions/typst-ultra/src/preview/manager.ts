@@ -1,8 +1,9 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { Client } from '../client.js';
-import type { RootState } from '../compileRoot.js';
+import type { Client } from '../lsp/client.js';
+import type { RootAdvisor } from '../compileRoot.js';
 import * as config from '../config.js';
+import { decideFollow } from './follow.js';
 import {
   isAllowedLink,
   parseWebviewMessage,
@@ -46,6 +47,9 @@ export class PreviewManager implements vscode.Disposable {
    * it would mark work as done that never happened.
    */
   private ready = false;
+  /** The last compile result the server reported, so an empty document can be
+   * told apart from one that has not compiled yet. */
+  private lastStatus: 'compiling' | 'ok' | 'error' | undefined;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly guard = new SyncGuard();
   private readonly stateEmitter = new vscode.EventEmitter<void>();
@@ -57,7 +61,7 @@ export class PreviewManager implements vscode.Disposable {
     private readonly client: Client,
     private readonly output: vscode.OutputChannel,
     private readonly pages: PageMemory,
-    private readonly root: RootState,
+    private readonly root: RootAdvisor,
   ) {
     this.disposables.push(
       this.stateEmitter,
@@ -114,14 +118,36 @@ export class PreviewManager implements vscode.Disposable {
     return active?.languageId === 'typst' ? active.uri : undefined;
   }
 
-  /** Open, or reveal, the preview for a document. */
+  /**
+   * The source file a mode switch should hand the reader back to.
+   *
+   * Not the same question as `currentUri` once a compile root is in play: the
+   * panel shows `main.typ` while the reader is editing `data.typ`, and closing
+   * the preview should leave them in the file they were editing rather than
+   * moving them to an entry point they never opened.
+   */
+  get sourceUri(): vscode.Uri | undefined {
+    const active = vscode.window.activeTextEditor?.document;
+    if (active?.languageId === 'typst') return active.uri;
+    return this.currentUri;
+  }
+
+  /**
+   * Open, or reveal, the preview for a document.
+   *
+   * With a compile root settled, that is the document — asking for a preview
+   * of `data.typ` in a project whose entry point is `main.typ` means "show me
+   * the project", not "show me a blank page where a file of `#let` bindings
+   * would have been".
+   */
   async show(uri: vscode.Uri, column: vscode.ViewColumn): Promise<void> {
-    await this.client.start(uri);
-    const retargeted = this.target?.toString() !== uri.toString();
-    this.target = uri;
+    const subject = this.root.entry ?? uri;
+    await this.client.start(subject);
+    const retargeted = this.target?.toString() !== subject.toString();
+    this.target = subject;
 
     if (this.panel) {
-      if (retargeted) this.adoptTarget(uri);
+      if (retargeted) this.adoptTarget(subject);
       this.panel.reveal(this.panel.viewColumn, true);
       await this.refreshMetrics();
       return;
@@ -134,7 +160,7 @@ export class PreviewManager implements vscode.Disposable {
 
     const panel = vscode.window.createWebviewPanel(
       PreviewManager.viewType,
-      this.title(uri),
+      this.title(subject),
       // Locking a group acts on the *active* group, so when we intend to lock
       // the new panel has to take focus first and hand it back below.
       { viewColumn: column, preserveFocus: !lockGroup },
@@ -148,7 +174,7 @@ export class PreviewManager implements vscode.Disposable {
     );
 
     this.adopt(panel);
-    compileNow(this.client, uri, this.root.pinned !== undefined);
+    compileNow(this.client, subject, this.root.entry !== undefined);
     if (lockGroup) await this.lockGroup();
     await this.refreshMetrics();
   }
@@ -273,20 +299,35 @@ export class PreviewManager implements vscode.Disposable {
   // ── Events ─────────────────────────────────────────────────────────
 
   /**
-   * Follow the reader to the file they just opened.
+   * Follow the reader to the file they just opened — unless the project has
+   * already said which file is the document.
    *
-   * This is the whole point of one shared panel: clicking a second `.typ`
-   * should show that document, not leave the previous one on screen with the
-   * wrong source beside it. A pinned preview stays where it is, and so does one
-   * whose target is simply being re-focused.
+   * Following is the whole point of one shared panel in a folder of standalone
+   * documents: clicking a second `.typ` should show that document, not leave
+   * the previous one on screen with the wrong source beside it. In a project it
+   * is the opposite of what the reader wants, because only the entry point
+   * compiles to pages; `decideFollow` holds the rule.
    */
   private onActiveEditorChanged(editor: vscode.TextEditor | undefined): void {
-    if (!this.panel || this.locked) return;
+    if (!this.panel) return;
     if (editor?.document.languageId !== 'typst') return;
 
+    // Tracked even when the subject does not move: with a compile root set the
+    // reader edits `chapters/03.typ` while the panel shows `main.typ`, and a
+    // click on a page still has to put its source back where they are working.
     this.source = editor.viewColumn ?? this.source;
-    const uri = editor.document.uri;
-    if (this.target?.toString() === uri.toString()) return;
+
+    const entry = this.root.entry;
+    const action = decideFollow({
+      active: editor.document.uri.toString(),
+      target: this.target?.toString(),
+      entry: entry?.toString(),
+      locked: this.locked,
+    });
+    if (action === 'stay') return;
+
+    const next = action === 'showEntry' ? entry : editor.document.uri;
+    if (!next) return;
 
     // Preview mode: the file that just opened landed in the panel's own column
     // and covered it. The panel owns that column, so bring it back in front
@@ -295,7 +336,7 @@ export class PreviewManager implements vscode.Disposable {
       editor.viewColumn !== undefined &&
       editor.viewColumn === this.panel.viewColumn;
 
-    this.retarget(uri);
+    this.retarget(next);
 
     if (inPanelColumn) this.panel.reveal(this.panel.viewColumn, false);
   }
@@ -373,6 +414,7 @@ export class PreviewManager implements vscode.Disposable {
     const state = (params as { state?: string }).state;
     if (state !== 'compiling' && state !== 'ok' && state !== 'error') return;
 
+    this.lastStatus = state;
     this.post({ type: 'status', state });
     if (state === 'ok') void this.refreshMetrics();
   }
@@ -388,6 +430,15 @@ export class PreviewManager implements vscode.Disposable {
     if (!result) return;
 
     this.post({ type: 'metrics', seq: ++this.seq, uri: key, pages: result.pages });
+
+    // A successful compile that produced no pages is a blank tab with nothing
+    // to read and no error to explain it. Almost always that is a data or
+    // template file being previewed on its own, so the question worth asking is
+    // the compile root's. Gated on `ok` because a document that has not
+    // compiled yet, or failed to, is empty for its own reasons.
+    if (this.lastStatus === 'ok' && result.pages.length === 0) {
+      void this.root.suggestEntry(this.target);
+    }
 
     // A document the reader has seen before opens where they left it — *once*,
     // on the way in. Every compile refreshes the metrics, and placing the
@@ -566,7 +617,7 @@ export class PreviewManager implements vscode.Disposable {
   /** Everything a change of subject implies, short of asking for the pages. */
   private adoptTarget(uri: vscode.Uri): void {
     if (this.panel) this.panel.title = this.title(uri);
-    compileNow(this.client, uri, this.root.pinned !== undefined);
+    compileNow(this.client, uri, this.root.entry !== undefined);
   }
 
   private pushSettings(): void {

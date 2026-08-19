@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Client } from '../client.js';
+import type { Client } from '../lsp/client.js';
 import type { RootState } from '../compileRoot.js';
 import { PREVIEW_EDITOR_VIEW_TYPE, openSource } from './editors.js';
 import { html } from './html.js';
@@ -90,7 +90,7 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
      * leave both showing whichever document was typed in last.
      */
     const claimCompile = (): void => {
-      compileNow(this.client, uri, this.root.pinned !== undefined);
+      compileNow(this.client, uri, this.root.entry !== undefined);
     };
 
     panel.webview.onDidReceiveMessage(async (raw: unknown) => {

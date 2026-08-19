@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { Client } from './client.js';
-import * as config from './config.js';
+import * as config from '../config.js';
 
 /** What the server reports after each compile. */
 interface CompileStatus {

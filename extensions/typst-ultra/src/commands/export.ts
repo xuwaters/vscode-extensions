@@ -1,10 +1,10 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { Client } from './client.js';
-import type { RootState } from './compileRoot.js';
-import * as config from './config.js';
+import type { RootState } from '../compileRoot.js';
+import * as config from '../config.js';
+import type { Client } from '../lsp/client.js';
+import { compileNow } from '../preview/rpc.js';
 import { baseFor, expand } from './exportPath.js';
-import { compileNow } from './preview/rpc.js';
 
 /** What `typst/export` produces. */
 interface ExportResult {
@@ -59,7 +59,7 @@ export async function exportDocument(
   // two-document workspace writing the other one's pages under this one's name.
   // Notifications are delivered in order, and the compile is synchronous, so by
   // the time the request below is answered the subject has changed.
-  compileNow(client, document.uri, root.pinned !== undefined);
+  compileNow(client, document.uri, root.entry !== undefined);
 
   const result = await vscode.window.withProgress(
     {

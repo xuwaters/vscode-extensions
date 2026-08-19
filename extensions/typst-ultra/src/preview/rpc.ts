@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Client } from '../client.js';
+import type { Client } from '../lsp/client.js';
 import * as config from '../config.js';
 import type { PageMetric, PagePatch } from './messages.js';
 
@@ -40,12 +40,12 @@ export type JumpResult =
  * right while typing and wrong the moment the reader clicks a second `.typ`
  * that is already open: no edit arrives, so nothing tells the server the
  * subject changed, and the preview would measure the *previous* document. A
- * pinned compile root outranks this, and the server ignores the URI in that
- * case — but we do not even ask, because recompiling a book to switch chapters
- * is a waste of the only thread the engine has.
+ * settled compile root — a pin or `typstUltra.mainFile` — outranks this, and
+ * the server ignores the URI in that case, but we do not even ask: recompiling
+ * a book to switch chapters is a waste of the only thread the engine has.
  */
-export function compileNow(client: Client, uri: vscode.Uri, pinned: boolean): void {
-  if (pinned) return;
+export function compileNow(client: Client, uri: vscode.Uri, fixed: boolean): void {
+  if (fixed) return;
   client.notify('typst/compile', { uri: uri.toString() });
 }
 

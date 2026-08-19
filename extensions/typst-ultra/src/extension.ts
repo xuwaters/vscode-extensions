@@ -1,15 +1,15 @@
 import * as vscode from 'vscode';
-import { Client } from './client.js';
-import { namesTypstSource } from './commandTarget.js';
+import { exportDocument, pickAndExport } from './commands/export.js';
+import { namesTypstSource } from './commands/target.js';
+import { createFromTemplate } from './commands/template.js';
 import { CompileRoot } from './compileRoot.js';
 import * as config from './config.js';
-import { exportDocument, pickAndExport } from './export.js';
+import { Client } from './lsp/client.js';
+import { StatusBar } from './lsp/status.js';
+import { TypstPreviewEditor } from './preview/customEditor.js';
 import { PreviewManager } from './preview/manager.js';
 import { ModeManager } from './preview/modes.js';
 import { PageMemory } from './preview/pageMemory.js';
-import { TypstPreviewEditor } from './preview/customEditor.js';
-import { StatusBar } from './status.js';
-import { createFromTemplate } from './template.js';
 
 /**
  * Typst Ultra.

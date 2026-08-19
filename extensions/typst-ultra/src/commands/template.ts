@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { Client } from './client.js';
+import type { Client } from '../lsp/client.js';
 
 /**
  * Scaffold a project from a Typst Universe template — P4-14.

@@ -102,7 +102,7 @@ editor, so nothing else tells the server it is now the subject.
 | Exports whatever the server last compiled | Names its subject first, so it cannot write document A's pages under document B's name |
 
 The multi-file PNG behaviour is unchanged (`name-1.png`, `name-2.png`), which is why the dialog's answer is
-reduced to a base path: [`baseFor`](../../../extensions/typst-ultra/src/exportPath.ts) strips the format's
+reduced to a base path: [`baseFor`](../../../extensions/typst-ultra/src/commands/exportPath.ts) strips the format's
 own extension and nothing else, so a reader who types `paper.v2` keeps their `.v2`.
 
 ### 4. The two preview surfaces are now distinguishable
@@ -167,7 +167,7 @@ Extension tests: **91 → 116**, all passing.
 | --- | --- |
 | The mode rule, including a preview tab winning over a panel elsewhere | `src/preview/modeState.test.ts` |
 | The reader's parked page, including a page index that is not one | `src/preview/pageMemory.test.ts` |
-| The export base path: extension stripped, `paper.v2` kept | `src/exportPath.test.ts` |
+| The export base path: extension stripped, `paper.v2` kept | `src/commands/exportPath.test.ts` |
 | The two new messages, and that neither smuggles a URI | `src/preview/messages.test.ts` |
 | A document switch drops the old pages, cache, and scroll position | `webview/pageList.test.ts` |
 | **`typst/compile` changes the compiled document**, over a real LSP connection to the built server | `server/lsp.test.ts` |

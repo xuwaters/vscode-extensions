@@ -2,7 +2,7 @@
   "name": "wx-vsce-typst-ultra",
   "displayName": "Typst Ultra",
   "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact — diagnostics, completion, hover, goto-definition, semantic tokens, formatting, BibTeX bibliographies, two-way-synced preview, and PDF/SVG/PNG export",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -524,7 +524,7 @@
         "typstUltra.mainFile": {
           "type": "string",
           "default": "",
-          "description": "Compile entry point, workspace-relative. Empty follows the focused editor. Outranked by the `Typst: Pin This File as Compile Root` command."
+          "description": "Compile and preview entry point, workspace-relative. The preview shows this file whichever part of the project you are editing. Empty follows the focused editor. Outranked by the `Typst: Pin This File as Compile Root` command."
         },
         "typstUltra.compile.when": {
           "type": "string",

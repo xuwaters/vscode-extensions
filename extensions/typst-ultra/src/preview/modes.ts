@@ -106,12 +106,16 @@ export class ModeManager implements vscode.Disposable {
 
     switch (target) {
       case 'edit': {
+        // The source, not the subject: with a compile root set the panel shows
+        // `main.typ` while the reader is in `data.typ`, and leaving the preview
+        // must not move them to a file they never opened.
+        const source = this.manager.sourceUri ?? uri;
         // Read the layout before closing anything: the manager forgets where
         // the source lives the moment its panel goes away.
-        const existing = sourceEditorOf(uri)?.viewColumn;
+        const existing = sourceEditorOf(source)?.viewColumn;
         const sourceColumn = this.manager.sourceColumn;
         this.manager.closePreview();
-        const document = await vscode.workspace.openTextDocument(uri);
+        const document = await vscode.workspace.openTextDocument(source);
         // From Split the source editor is already open beside the panel;
         // reveal *that* one. Without an explicit column `showTextDocument`
         // targets the active column — the panel's — and opens a second copy of

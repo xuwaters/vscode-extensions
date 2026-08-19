@@ -50,7 +50,7 @@ Typst Ultra declares this extension in `extensionDependencies`, so a gallery
 install pulls it in automatically — and a **sideloaded** install of Typst Ultra
 alone will not activate at all: VS Code blocks activation on a missing declared
 dependency. Install this VSIX too. There is a fallback chain in
-`extensions/typst-ultra/src/bundledFonts.ts` for the cases VS Code does let
+`extensions/typst-ultra/src/lsp/bundledFonts.ts` for the cases VS Code does let
 through, and dropping the declaration is what makes it fully live.
 
 The same rule applies to `F5`: the Extension Development Host wants this

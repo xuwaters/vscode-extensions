@@ -100,10 +100,15 @@ bibliography. Opening a `.bib` in a workspace with no typst files in it does
 nothing at all — a LaTeX project's bibliography is none of this extension's
 business.
 
-For a project with chapters, pin the entry file so editing a chapter still
-checks the whole document: click the status bar item, or run
-**Typst Ultra: Pin This File as Compile Root**. The extension offers this once, the
-first time it sees a project with a `main.typ`.
+For a project of several files — an entry point plus its data, template, and
+chapters — say which file is the document: click the status bar item, or run
+**Typst Ultra: Pin This File as Compile Root**. Editing any of the other files
+then still checks and previews the whole thing, instead of compiling a page of
+`#let` bindings on its own and showing you a blank preview. `typstUltra.mainFile`
+is the same answer written down, so a project can check it into
+`.vscode/settings.json` and everyone who clones it gets it. The extension offers
+to settle this for you once per workspace: when it first sees a project with a
+`main.typ`, or when a preview compiles cleanly to no pages at all.
 
 `Cmd/Ctrl+Shift+V` puts the preview beside the editor; press it again from
 either side and you are still in Split. The editor title bar carries the same
@@ -186,7 +191,7 @@ All under `typstUltra.`. The ones worth knowing about:
 
 | Setting | Default | |
 | --- | --- | --- |
-| `mainFile` | `""` | Compile entry point. Empty follows the focused editor |
+| `mainFile` | `""` | Compile and preview entry point, workspace-relative. Empty follows the focused editor |
 | `compile.when` | `"onType"` | `onType` · `onSave` · `never` |
 | `compile.debounce` | `150` | ms of quiet before recompiling |
 | `fonts.system` | `true` | Index installed fonts in the background |

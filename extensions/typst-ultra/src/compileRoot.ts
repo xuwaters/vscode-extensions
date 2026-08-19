@@ -1,15 +1,30 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { Client } from './client.js';
+import type { Client } from './lsp/client.js';
 import * as config from './config.js';
+import { rankEntryCandidates } from './entryPoints.js';
 
 /**
- * Whether a compile root is pinned, as everything that has to respect one sees
- * it. Implemented by `CompileRoot`; an interface so the preview and the export
- * command depend on the question rather than on the status bar item.
+ * Whether the compile root has been decided, as everything that has to respect
+ * one sees it. Implemented by `CompileRoot`; an interface so the preview and
+ * the export command depend on the question rather than on the status bar item.
  */
 export interface RootState {
-  readonly pinned: vscode.Uri | undefined;
+  /**
+   * The file the server compiles, when that has been settled for it — a
+   * session pin or `typstUltra.mainFile`. `undefined` means the root is
+   * whatever the reader is looking at.
+   *
+   * Deliberately not just the pin: a project that checks its entry point into
+   * `.vscode/settings.json` has answered the same question, and a caller that
+   * only asked about the pin would compile the wrong file for it.
+   */
+  readonly entry: vscode.Uri | undefined;
+}
+
+/** What the preview needs on top of `RootState`: a way to *ask* about a root. */
+export interface RootAdvisor extends RootState {
+  suggestEntry(blank: vscode.Uri): Promise<void>;
 }
 
 /** Which of the three inputs decided the compile root. */
@@ -23,12 +38,14 @@ const PIN_KEY = 'typstUltra.mainFile';
 const SUGGESTED_KEY = 'typstUltra.mainSuggested';
 
 /**
- * The compile root, in both of its modes.
+ * The compile root, in all three of its modes.
  *
  * Following the focused editor is the zero-configuration default, and it is
  * right for single-file documents and for reading someone else's project. A
- * pinned main file is right for a book with chapters, where editing
- * `chapters/03.typ` should still produce whole-document diagnostics.
+ * settled main file is right for a project of several files, where editing
+ * `chapters/03.typ` or `data.typ` should still produce whole-document
+ * diagnostics — and, since the preview follows this too, a whole document to
+ * look at rather than the blank page a file of `#let` bindings compiles to.
  *
  * The entry file is the first of:
  *
@@ -36,7 +53,7 @@ const SUGGESTED_KEY = 'typstUltra.mainSuggested';
  * 2. `typstUltra.mainFile`, which a team can check in,
  * 3. the focused `.typ` editor.
  */
-export class CompileRoot implements vscode.Disposable {
+export class CompileRoot implements vscode.Disposable, RootAdvisor {
   private readonly item: vscode.StatusBarItem;
   private readonly disposables: vscode.Disposable[] = [];
   private mode: RootMode = { kind: 'none' };
@@ -55,6 +72,14 @@ export class CompileRoot implements vscode.Disposable {
     this.disposables.push(
       vscode.commands.registerCommand('typstUltra.selectMain', () => this.pick()),
       vscode.window.onDidChangeActiveTextEditor((editor) => this.follow(editor)),
+      // `typstUltra.mainFile` can change without the focus moving — someone
+      // edits `.vscode/settings.json`, or pulls a branch that adds it — and
+      // the status bar has to say so at once, not at the next click.
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('typstUltra.mainFile')) {
+          this.follow(vscode.window.activeTextEditor);
+        }
+      }),
     );
 
     this.follow(vscode.window.activeTextEditor);
@@ -65,10 +90,25 @@ export class CompileRoot implements vscode.Disposable {
     return this.mode;
   }
 
-  /** Whether a main file is pinned. */
+  /** Whether a main file is pinned for this session. */
   get pinned(): vscode.Uri | undefined {
     const stored = this.context.workspaceState.get<string>(PIN_KEY);
     return stored ? vscode.Uri.file(stored) : undefined;
+  }
+
+  /**
+   * The settled compile root: the session pin, else `typstUltra.mainFile`.
+   *
+   * Reads its inputs afresh rather than the mode `follow` last computed. A
+   * setting can change without the focus moving, and a preview that acted on a
+   * stale answer would go on compiling the wrong file until the reader
+   * happened to click something.
+   */
+  get entry(): vscode.Uri | undefined {
+    return (
+      this.pinned ??
+      this.configured(vscode.window.activeTextEditor?.document.uri)
+    );
   }
 
   /** Pin a file as the compile root. */
@@ -94,13 +134,9 @@ export class CompileRoot implements vscode.Disposable {
       return;
     }
 
-    const settings = config.read(editor?.document.uri);
-    if (settings.host.mainFile) {
-      const root = config.resolveRoot(settings, editor?.document.uri);
-      const absolute = path.isAbsolute(settings.host.mainFile)
-        ? settings.host.mainFile
-        : path.join(root, settings.host.mainFile);
-      this.mode = { kind: 'setting', uri: vscode.Uri.file(absolute) };
+    const configured = this.configured(editor?.document.uri);
+    if (configured) {
+      this.mode = { kind: 'setting', uri: configured };
       this.refresh();
       return;
     }
@@ -148,7 +184,7 @@ export class CompileRoot implements vscode.Disposable {
   /** The QuickPick behind the status bar item. */
   async pick(): Promise<void> {
     const active = vscode.window.activeTextEditor?.document.uri;
-    const candidates = await vscode.workspace.findFiles('**/*.typ', '**/node_modules/**', 200);
+    const candidates = await this.candidates();
 
     interface Item extends vscode.QuickPickItem {
       action: 'unpin' | 'pin';
@@ -193,8 +229,74 @@ export class CompileRoot implements vscode.Disposable {
     }
   }
 
+  /**
+   * Offer to settle the compile root after a document compiled to nothing.
+   *
+   * A file of `#let` bindings or a template of `#show` rules is a perfectly
+   * good `.typ` that produces no pages, and a preview of one is a blank tab
+   * with no explanation. Where the `main.typ` offer below guesses from the file
+   * *names* in the project, this fires on the symptom itself, so it reaches the
+   * layouts no naming convention would have caught.
+   *
+   * Shares the one-shot counter with that offer: between the two of them a
+   * reader should be asked about the compile root once.
+   */
+  async suggestEntry(blank: vscode.Uri): Promise<void> {
+    if (this.entry) return;
+    if (this.context.workspaceState.get<boolean>(SUGGESTED_KEY)) return;
+
+    const candidates = await this.candidates(blank);
+    const best = candidates[0];
+    if (!best) return;
+
+    await this.context.workspaceState.update(SUGGESTED_KEY, true);
+
+    const choice = await vscode.window.showInformationMessage(
+      `Typst: ${path.basename(blank.fsPath)} compiles to no pages, so it looks like part of a larger document rather than one of its own. Preview ${vscode.workspace.asRelativePath(best)} instead?`,
+      `Pin ${path.basename(best.fsPath)}`,
+      'Choose a file…',
+    );
+    if (choice === 'Choose a file…') {
+      await this.pick();
+    } else if (choice) {
+      await this.pin(best);
+    }
+  }
+
   dispose(): void {
     for (const disposable of this.disposables) disposable.dispose();
+  }
+
+  /**
+   * Every `.typ` in the workspace, likeliest entry point first, optionally
+   * without one file — the one that just failed to be a document.
+   */
+  private async candidates(exclude?: vscode.Uri): Promise<vscode.Uri[]> {
+    const found = await vscode.workspace.findFiles(
+      '**/*.typ',
+      '**/node_modules/**',
+      200,
+    );
+    const skip = exclude?.toString();
+    const byPath = new Map<string, vscode.Uri>();
+    for (const uri of found) {
+      if (uri.toString() === skip) continue;
+      byPath.set(vscode.workspace.asRelativePath(uri), uri);
+    }
+    return rankEntryCandidates([...byPath.keys()]).map(
+      (relative) => byPath.get(relative) as vscode.Uri,
+    );
+  }
+
+  /** `typstUltra.mainFile`, resolved against the project root. */
+  private configured(scope: vscode.Uri | undefined): vscode.Uri | undefined {
+    const settings = config.read(scope);
+    if (!settings.host.mainFile) return undefined;
+    const root = config.resolveRoot(settings, scope);
+    const absolute = path.isAbsolute(settings.host.mainFile)
+      ? settings.host.mainFile
+      : path.join(root, settings.host.mainFile);
+    return vscode.Uri.file(absolute);
   }
 
   /**

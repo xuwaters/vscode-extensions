@@ -12,8 +12,8 @@ import {
   resolveBundledFonts,
   type BundledFonts,
 } from './bundledFonts.js';
-import { namesTypstSource } from './commandTarget.js';
-import * as config from './config.js';
+import { namesTypstSource } from '../commands/target.js';
+import * as config from '../config.js';
 
 /** The language server, started lazily and restartable. */
 export class Client implements vscode.Disposable {

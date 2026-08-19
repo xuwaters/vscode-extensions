@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { namesTypstSource } from './commandTarget.js';
+import { namesTypstSource } from './target.js';
 
 describe('the URI a command was invoked with', () => {
   it('accepts a typst file', () => {
