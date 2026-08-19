@@ -29,8 +29,9 @@ function enginePositions(sels: readonly vscode.Selection[]): EngineSelection[] {
  *  - effects out (edits, selections, commands, status bar, cursor style),
  *  - document/selection events mirrored back into the engine.
  *
- * The engine self-applies its own edits, so document changes made here (under
- * `applyingEdits`) are NOT mirrored back; everything else is.
+ * The engine self-applies its own edits, so neither the document changes made
+ * here (under `applyingEdits`) nor the cursor moves they drag along are
+ * mirrored back; everything else is.
  */
 export class VimController implements vscode.Disposable {
   private readonly sessions = new Map<string, EngineSession>();
@@ -371,6 +372,13 @@ export class VimController implements vscode.Disposable {
   }
 
   private onSelectionChange(e: vscode.TextEditorSelectionChangeEvent): void {
+    // An edit of ours drags the cursors along before `applyEffects` gets to
+    // place them, and that intermediate move arrives here first — mirroring
+    // it would overwrite where the engine means to land. `P` is the visible
+    // case: the line goes in at the cursor, so VSCode pushes the cursor below
+    // the pasted line while the engine wants it on it. The selections in the
+    // same effects are the truth; wait for them.
+    if (this.applyingEdits) return;
     if (!this.enabled || e.textEditor !== vscode.window.activeTextEditor) return;
     const session = this.usableSession(e.textEditor);
     if (!session) return;
