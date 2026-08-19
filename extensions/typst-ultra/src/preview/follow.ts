@@ -1,5 +1,6 @@
 /**
- * What an active-editor change means for the panel's subject.
+ * Which document the panel shows — when the focus moves, and when the panel
+ * comes back from a window reload with nothing but its own tab.
  *
  * One shared panel following the focus is right for a folder of standalone
  * documents and wrong for a project: clicking `data.typ` in a paper that
@@ -29,6 +30,33 @@ export interface FollowInputs {
   entry: string | undefined;
   /** The reader has pinned the panel to its document. */
   locked: boolean;
+}
+
+/** What a panel coming back from a reload has to choose a subject from. */
+export interface RestoreInputs {
+  /** The pinned or configured compile root, if one is set. */
+  entry: string | undefined;
+  /** What the panel was showing before the window went away. */
+  remembered: string | undefined;
+  /** The `.typ` the reader is in — `undefined` this early in a startup. */
+  active: string | undefined;
+  /** Every typst file the window has open, in tab order. */
+  open: readonly string[];
+}
+
+/**
+ * Which document a restored panel should show.
+ *
+ * The compile root leads for the same reason it does in `show`: with one
+ * settled, that file *is* the document. After it comes the panel's own last
+ * subject, which is the only one of these that describes the panel rather than
+ * the window — it outranks the focus because a pinned panel must come back
+ * pinned to what it was pinned to, and an unpinned one is corrected by the
+ * first `decideFollow` anyway. The two editor answers are the fallback for a
+ * panel restored before this extension ever wrote a subject down.
+ */
+export function chooseSubject(inputs: RestoreInputs): string | undefined {
+  return inputs.entry ?? inputs.remembered ?? inputs.active ?? inputs.open[0];
 }
 
 export function decideFollow(inputs: FollowInputs): FollowAction {

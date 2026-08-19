@@ -97,8 +97,15 @@ function rank(found: readonly vscode.Uri[], exclude?: vscode.Uri): vscode.Uri[] 
   );
 }
 
-/** The `.typ` files the reader has open, in tab order, nearest group first. */
-function openDocuments(): vscode.Uri[] {
+/**
+ * The `.typ` files the reader has open, in tab order, nearest group first.
+ *
+ * Tabs rather than `visibleTextEditors`: a tab exists as soon as the window's
+ * layout is restored, while the editor behind it is only built when VSCode gets
+ * round to it — which, during a startup, can be after an extension has woken up
+ * and asked what is open.
+ */
+export function openDocuments(): vscode.Uri[] {
   const open: vscode.Uri[] = [];
   for (const group of vscode.window.tabGroups.all) {
     for (const tab of group.tabs) {

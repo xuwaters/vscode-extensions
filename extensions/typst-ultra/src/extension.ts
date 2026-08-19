@@ -158,15 +158,11 @@ export function activate(context: vscode.ExtensionContext): void {
     TypstPreviewEditor.register(context, client, output, pages, compileRoot),
 
     vscode.window.registerWebviewPanelSerializer(PreviewManager.viewType, {
-      // The panel survives a window reload; pages are re-requested from
-      // scratch with an empty `knownHashes`.
-      async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
-        preview.adopt(panel);
-        const active = vscode.window.activeTextEditor?.document;
-        if (active?.languageId === 'typst') {
-          await client.start(active.uri);
-          preview.retarget(active.uri);
-        }
+      // The panel survives a window reload; the manager works out what it was
+      // showing, and pages are re-requested from scratch with an empty
+      // `knownHashes`.
+      deserializeWebviewPanel(panel: vscode.WebviewPanel) {
+        return preview.restore(panel);
       },
     }),
 

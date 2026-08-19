@@ -1,9 +1,9 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Client } from '../lsp/client.js';
-import type { RootAdvisor } from '../compileRoot.js';
+import { openDocuments, type RootAdvisor } from '../compileRoot.js';
 import * as config from '../config.js';
-import { decideFollow } from './follow.js';
+import { chooseSubject, decideFollow } from './follow.js';
 import {
   isAllowedLink,
   parseWebviewMessage,
@@ -13,7 +13,7 @@ import {
 } from './messages.js';
 import { html } from './html.js';
 import type { PageMemory } from './pageMemory.js';
-import { readPlace, writePlace } from './place.js';
+import { readPlace, readSubject, writePlace, writeSubject } from './place.js';
 import { compileNow, fetchMetrics, fetchPages, jumpFromClick } from './rpc.js';
 import { SyncGuard } from './sync.js';
 
@@ -145,6 +145,7 @@ export class PreviewManager implements vscode.Disposable {
     await this.client.start(subject);
     const retargeted = this.target?.toString() !== subject.toString();
     this.target = subject;
+    this.remember();
 
     if (this.panel) {
       if (retargeted) this.adoptTarget(subject);
@@ -165,11 +166,10 @@ export class PreviewManager implements vscode.Disposable {
       // the new panel has to take focus first and hand it back below.
       { viewColumn: column, preserveFocus: !lockGroup },
       {
-        enableScripts: true,
+        ...webviewOptions(this.context.extensionUri),
         retainContextWhenHidden: true,
         // Free, and it works because the SVG carries real `<text>` runs.
         enableFindWidget: true,
-        localResourceRoots: [this.context.extensionUri],
       },
     );
 
@@ -228,12 +228,35 @@ export class PreviewManager implements vscode.Disposable {
     panel.reveal(panel.viewColumn, false);
   }
 
+  /**
+   * Take over a panel VSCode has brought back after a window reload.
+   *
+   * The panel returns with its tab, its column and the page's own state, and
+   * with no idea what it was for — the subject is the host's half, and the host
+   * has just restarted. Restoring it from the active editor alone is what left
+   * the tab blank: the focus is often *in* the panel, which makes no editor
+   * active, and a webview is revived early enough that the editors beside it
+   * may not exist yet either.
+   */
+  async restore(panel: vscode.WebviewPanel): Promise<void> {
+    const remembered = readSubject(this.context);
+    // Before `adopt`, which publishes the lock to the title bar's context key.
+    this.locked = remembered?.locked ?? false;
+    this.adopt(panel);
+    await this.ensureTarget(remembered?.uri);
+  }
+
   /** Attach to a panel, whether newly created or restored by the serializer. */
   adopt(panel: vscode.WebviewPanel): void {
     this.panel = panel;
     this.ready = false;
     this.source =
       vscode.window.activeTextEditor?.viewColumn ?? this.source;
+    // Set afresh rather than trusted: VSCode persists a revived panel's options
+    // across the reload, `localResourceRoots` included, and after an update the
+    // extension it points at lives at a different path — which would leave the
+    // page unable to load the one script it has.
+    panel.webview.options = webviewOptions(this.context.extensionUri);
     panel.webview.html = html(panel.webview, this.context.extensionUri);
 
     panel.webview.onDidReceiveMessage((raw: unknown) => {
@@ -265,6 +288,7 @@ export class PreviewManager implements vscode.Disposable {
   retarget(uri: vscode.Uri): void {
     if (this.target?.toString() === uri.toString()) return;
     this.target = uri;
+    this.remember();
     this.adoptTarget(uri);
     void this.refreshMetrics();
     this.stateEmitter.fire();
@@ -273,6 +297,7 @@ export class PreviewManager implements vscode.Disposable {
   /** Stop following the active editor. */
   toggleLock(): boolean {
     this.locked = !this.locked;
+    this.remember();
     if (this.panel && this.target) this.panel.title = this.title(this.target);
     void vscode.commands.executeCommand('setContext', CTX_LOCKED, this.locked);
     this.stateEmitter.fire();
@@ -353,6 +378,10 @@ export class PreviewManager implements vscode.Disposable {
           settings: previewSettings(this.target),
           restore: readPlace(this.context),
         });
+        // A restore that had nothing to go on — no remembered subject, and the
+        // editors not back yet — gets its second chance here, by which time
+        // they are. Does nothing at all for a panel that has a subject.
+        await this.ensureTarget(readSubject(this.context)?.uri);
         await this.refreshMetrics();
         break;
 
@@ -614,6 +643,44 @@ export class PreviewManager implements vscode.Disposable {
     }
   }
 
+  /**
+   * Give the panel a document to show, if it has not got one.
+   *
+   * Only a restored panel ever reaches this with nothing: every other way in
+   * names its own subject. The server is started before the compile is asked
+   * for, because a notification sent to a server that is not up is dropped
+   * without a word.
+   */
+  private async ensureTarget(remembered: string | undefined): Promise<void> {
+    if (this.target) return;
+
+    const active = vscode.window.activeTextEditor?.document;
+    const chosen = chooseSubject({
+      entry: this.root.entry?.toString(),
+      remembered,
+      active:
+        active?.languageId === 'typst' ? active.uri.toString() : undefined,
+      open: openDocuments().map((uri) => uri.toString()),
+    });
+    const uri = chosen ? parseUri(chosen) : undefined;
+    if (!uri) return;
+
+    this.target = uri;
+    this.remember();
+    await this.client.start(uri);
+    this.adoptTarget(uri);
+    this.stateEmitter.fire();
+  }
+
+  /** Write down what the panel is showing, for the next window to read. */
+  private remember(): void {
+    if (!this.target) return;
+    void writeSubject(this.context, {
+      uri: this.target.toString(),
+      locked: this.locked,
+    });
+  }
+
   /** Everything a change of subject implies, short of asking for the pages. */
   private adoptTarget(uri: vscode.Uri): void {
     if (this.panel) this.panel.title = this.title(uri);
@@ -650,4 +717,18 @@ export function previewSettings(scope?: vscode.Uri): PreviewSettings {
 
 function uriLabel(uri: vscode.Uri | undefined): string {
   return uri ? path.basename(uri.fsPath) || 'Typst' : 'Typst';
+}
+
+/** What the page is allowed to do, for a new panel and a revived one alike. */
+function webviewOptions(extensionUri: vscode.Uri): vscode.WebviewOptions {
+  return { enableScripts: true, localResourceRoots: [extensionUri] };
+}
+
+/** A URI we wrote down ourselves — but into a file a hand edit can reach. */
+function parseUri(value: string): vscode.Uri | undefined {
+  try {
+    return vscode.Uri.parse(value, true);
+  } catch {
+    return undefined;
+  }
 }

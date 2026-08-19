@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { decideFollow, type FollowInputs } from './follow.js';
+import {
+  chooseSubject,
+  decideFollow,
+  type FollowInputs,
+  type RestoreInputs,
+} from './follow.js';
 
 const MAIN = 'file:///p/main.typ';
 const DATA = 'file:///p/data.typ';
@@ -55,5 +60,47 @@ describe('decideFollow', () => {
 
   it('a lock outranks following the focus', () => {
     expect(decideFollow(inputs({ locked: true }))).toBe('stay');
+  });
+});
+
+function restoring(overrides: Partial<RestoreInputs> = {}): RestoreInputs {
+  return {
+    entry: undefined,
+    remembered: undefined,
+    active: undefined,
+    open: [],
+    ...overrides,
+  };
+}
+
+describe('chooseSubject', () => {
+  it('comes back to what the panel was showing', () => {
+    expect(chooseSubject(restoring({ remembered: MAIN }))).toBe(MAIN);
+  });
+
+  it('comes back to the compile root over anything else', () => {
+    expect(
+      chooseSubject(restoring({ entry: MAIN, remembered: OTHER, active: DATA })),
+    ).toBe(MAIN);
+  });
+
+  it('keeps the panel on its own subject rather than the focused file', () => {
+    // A pinned panel has to come back pinned to the file it was pinned to; an
+    // unpinned one is put back on the focus by the next `decideFollow`.
+    expect(chooseSubject(restoring({ remembered: MAIN, active: DATA }))).toBe(MAIN);
+  });
+
+  it('falls back to the focused file with nothing remembered', () => {
+    expect(chooseSubject(restoring({ active: DATA, open: [OTHER] }))).toBe(DATA);
+  });
+
+  it('falls back to an open tab when the editors are not back yet', () => {
+    // The case that used to render nothing: reloading with the focus inside the
+    // panel leaves no active editor to read a subject from.
+    expect(chooseSubject(restoring({ open: [OTHER, DATA] }))).toBe(OTHER);
+  });
+
+  it('has no answer when the window holds no typst file at all', () => {
+    expect(chooseSubject(restoring())).toBeUndefined();
   });
 });
