@@ -21,6 +21,17 @@ const SCROLL_MS = 120;
 /** How long a change settles before the host is asked to remember it. */
 const SAVE_MS = 200;
 
+/**
+ * How long a compile state has to hold before it is worth showing.
+ *
+ * Typing recompiles on every pause, and typing through a half-written
+ * expression passes through `error` and back out of it. Announcing each of
+ * those the instant it arrives puts a bar on screen and takes it away again a
+ * few times a second. A state that outlasts this is a state the reader wants to
+ * know about; one that does not is noise.
+ */
+const STATUS_MS = 400;
+
 /** What the element needs from the extension host. */
 export interface PreviewHost {
   post(message: WebviewToHost): void;
@@ -100,6 +111,11 @@ export class TypstPreview extends FASTElement {
 
   private scrollTimer: ReturnType<typeof setTimeout> | undefined;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  private statusTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** The cursor marker on the page, kept so typing does not build a new one per keystroke. */
+  private marker: HTMLElement | null = null;
+  private markerTimer: ReturnType<typeof setTimeout> | undefined;
 
   private resizeObserver: ResizeObserver | null = null;
 
@@ -145,6 +161,8 @@ export class TypstPreview extends FASTElement {
     window.removeEventListener('keydown', this.onKeydown);
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     if (this.saveTimer) clearTimeout(this.saveTimer);
+    if (this.statusTimer) clearTimeout(this.statusTimer);
+    if (this.markerTimer) clearTimeout(this.markerTimer);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.column?.destroy();
@@ -213,7 +231,7 @@ export class TypstPreview extends FASTElement {
         break;
 
       case 'status':
-        this.status = { state: message.state, message: message.message };
+        this.showStatus(message.state, message.message);
         break;
 
       case 'goToPage':
@@ -223,6 +241,31 @@ export class TypstPreview extends FASTElement {
         else this.toggleInvert();
         break;
     }
+  }
+
+  /**
+   * Say what the compiler is doing — once it has been doing it long enough.
+   *
+   * Only the rise out of `ok` waits. Going back to `ok` is immediate, so a
+   * compile that finishes inside {@link STATUS_MS} is never announced at all;
+   * and once the bar is up, further news changes its text at once rather than
+   * leaving a stale message on screen for another {@link STATUS_MS}.
+   */
+  private showStatus(state: 'compiling' | 'ok' | 'error', message?: string): void {
+    if (this.statusTimer) {
+      clearTimeout(this.statusTimer);
+      this.statusTimer = undefined;
+    }
+
+    if (state === 'ok' || this.status.state !== 'ok') {
+      this.status = { state, message };
+      return;
+    }
+
+    this.statusTimer = setTimeout(() => {
+      this.statusTimer = undefined;
+      this.status = { state, message };
+    }, STATUS_MS);
   }
 
   // ── Settings and place ─────────────────────────────────────────────────────
@@ -520,17 +563,36 @@ export class TypstPreview extends FASTElement {
     this.showPage();
   }
 
+  /**
+   * Flash a marker where the cursor is.
+   *
+   * A marker already on that exact line is left alone. Typing sends a cursor
+   * position per keystroke and they nearly all land on the line the last one
+   * did; rebuilding the marker for each would restart its fade every keystroke,
+   * so the indicator would blink for as long as the reader keeps typing instead
+   * of flashing once and settling.
+   */
   private showCursor(page: number, yPt: number): void {
     const element = this.column?.reveal(page, yPt);
     if (!element || !this.settings.cursorIndicator) return;
 
+    const top = `${yPt * PX_PER_PT * this.zoom}px`;
+    if (this.marker?.parentElement === element && this.marker.style.top === top) return;
+
+    this.marker?.remove();
     const marker = document.createElement('div');
     marker.className = 'cursor-indicator';
-    marker.style.top = `${yPt * PX_PER_PT * this.zoom}px`;
+    marker.style.top = top;
     element.append(marker);
+    this.marker = marker;
 
     // Fades out via CSS animation; remove it once it has.
-    setTimeout(() => marker.remove(), CURSOR_MS);
+    if (this.markerTimer) clearTimeout(this.markerTimer);
+    this.markerTimer = setTimeout(() => {
+      this.markerTimer = undefined;
+      marker.remove();
+      if (this.marker === marker) this.marker = null;
+    }, CURSOR_MS);
   }
 
   // ── Resize ─────────────────────────────────────────────────────────────────

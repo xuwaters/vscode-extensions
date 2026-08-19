@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { Updates } from '@microsoft/fast-element';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   PreviewPlace,
   PreviewSettings,
@@ -97,10 +97,38 @@ describe('the chrome', () => {
   });
 
   it('keeps the last good pages on screen, dimmed, when a compile fails', async () => {
-    preview.handle({ type: 'status', state: 'error', message: 'unexpected }' });
+    vi.useFakeTimers();
+    try {
+      preview.handle({ type: 'status', state: 'error', message: 'unexpected }' });
+      vi.advanceTimersByTime(1000);
+    } finally {
+      vi.useRealTimers();
+    }
     await Updates.next();
     expect(must('.status').textContent).toContain('unexpected }');
     expect(must('.pages').classList.contains('has-error')).toBe(true);
+  });
+
+  /**
+   * Typing passes through half-written expressions, so `error` and `compiling`
+   * arrive and leave several times a second. Announcing each of them would put
+   * a bar on screen and dim every page, twice per keystroke.
+   */
+  it('says nothing about a compile state that does not last', async () => {
+    vi.useFakeTimers();
+    try {
+      preview.handle({ type: 'status', state: 'compiling' });
+      vi.advanceTimersByTime(100);
+      preview.handle({ type: 'status', state: 'error', message: 'unexpected }' });
+      vi.advanceTimersByTime(100);
+      preview.handle({ type: 'status', state: 'ok' });
+      vi.advanceTimersByTime(1000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await Updates.next();
+    expect(query('.status')).toBeNull();
+    expect(must('.pages').classList.contains('has-error')).toBe(false);
   });
 
   it('counts the pages', async () => {

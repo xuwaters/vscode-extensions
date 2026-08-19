@@ -27,6 +27,7 @@ typst-preview * {
 }
 
 .shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -150,13 +151,28 @@ typst-preview * {
   background: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
 }
 
-/* Below the toolbar, not over it: a compile error must not swallow the zoom. */
+/*
+ * Below the toolbar, not over it: a compile error must not swallow the zoom.
+ *
+ * Out of the flow, though, and that part is not cosmetic. This bar comes and
+ * goes with the compiler while the reader types, and in the flow each
+ * appearance takes ~25px off the height of the scroller below it: the column
+ * jumps, the resize observer fires, and with Fit Page switched on the whole
+ * document rescales — twice per keystroke. Floating it over the top of the page
+ * area leaves the scroller exactly the size it was, so the pages do not move
+ * whatever the compiler is saying. `top` clears the toolbar and its border.
+ */
 .status {
-  flex: none;
+  position: absolute;
+  top: calc(var(--chrome-height) + 1px);
+  left: 0;
+  right: 0;
+  z-index: 2;
   padding: 4px 12px;
   font-size: 12px;
   background: var(--vscode-editorWidget-background);
   border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .status-error {
