@@ -215,6 +215,31 @@ fn definition_of_an_import_jumps_to_the_file() {
     );
 }
 
+#[test]
+fn definition_of_a_bibliography_path_jumps_to_the_file() {
+    let mut harness = Harness::new();
+    harness.open("refs.bib", REFS);
+    let (uri, position) =
+        harness.open_with_cursor("main.typ", "#bibliography(\"re/* CURSOR */fs.bib\")\n");
+
+    let result = harness.request("textDocument/definition", at(&uri, position));
+    assert!(
+        result["uri"].as_str().unwrap_or_default().ends_with("refs.bib"),
+        "got {result}"
+    );
+    assert_eq!(result["range"]["start"]["line"], json!(0));
+}
+
+#[test]
+fn definition_of_a_path_that_is_not_there_answers_null() {
+    let mut harness = Harness::new();
+    let (uri, position) =
+        harness.open_with_cursor("main.typ", "#image(\"mis/* CURSOR */sing.png\")\n");
+
+    let result = harness.request("textDocument/definition", at(&uri, position));
+    assert_eq!(result, json!(null), "a path that resolves nowhere is no jump");
+}
+
 // ── References and rename ────────────────────────────────────────────────────
 
 #[test]

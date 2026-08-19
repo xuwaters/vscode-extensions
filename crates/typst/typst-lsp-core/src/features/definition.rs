@@ -7,6 +7,10 @@
 //! * `Std` → no location exists, so we answer `null` and let hover carry the
 //!   standard-library documentation instead. Tinymist opens a generated docs
 //!   page here; that needs a docs pipeline we are not building.
+//!
+//! Two things `typst-ide` has no notion of are handled here: a path string that
+//! is not an import — `#bibliography("refs.bib")` — and a citation key, which
+//! lives in a `.bib` file the compiled document only carries labels from.
 
 use lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Position, Range};
 use typst::World;
@@ -15,6 +19,12 @@ use typst_ide::Definition;
 
 use crate::convert::range_to_lsp;
 use crate::{Ports, Server};
+
+/// Where a whole-file answer points: the top of the file.
+const FILE_START: Range = Range {
+    start: Position { line: 0, character: 0 },
+    end: Position { line: 0, character: 0 },
+};
 
 impl<Q: Ports> Server<Q> {
     /// `textDocument/definition`.
@@ -32,7 +42,8 @@ impl<Q: Ports> Server<Q> {
                 .map(GotoDefinitionResponse::Scalar);
         }
 
-        let (_, source, cursor) = self.locate(&position.text_document.uri, position.position)?;
+        let (id, source, cursor) =
+            self.locate(&position.text_document.uri, position.position)?;
 
         let definition = typst_ide::definition(
             self.session().world(),
@@ -51,9 +62,22 @@ impl<Q: Ports> Server<Q> {
             )
         });
 
-        // A citation key is defined in a `.bib` file, which typst-ide has no
-        // notion of: it can only place labels the compiled document carries.
         let Some(definition) = definition else {
+            // A path that is not an import: `bibliography`, `image`, `read` and
+            // the rest all name a file the reader should be able to jump into.
+            if let Some(path) = crate::features::links::path_at(&source, cursor)
+                && let Some(file) = self.resolve_path_id(id, &path)
+                && let Some(uri) = self.uris().to_uri(file)
+            {
+                return Some(GotoDefinitionResponse::Scalar(Location {
+                    uri,
+                    range: FILE_START,
+                }));
+            }
+
+            // A citation key is defined in a `.bib` file, which typst-ide has
+            // no notion of: it can only place labels the compiled document
+            // carries.
             let (file, target, entry) = self.cited_entry(&source, cursor)?;
             return Some(GotoDefinitionResponse::Scalar(Location {
                 uri: self.uris().to_uri(file)?,
@@ -73,10 +97,7 @@ impl<Q: Ports> Server<Q> {
             }
             Definition::File(file) => Some(GotoDefinitionResponse::Scalar(Location {
                 uri: self.uris().to_uri(file)?,
-                range: Range {
-                    start: Position { line: 0, character: 0 },
-                    end: Position { line: 0, character: 0 },
-                },
+                range: FILE_START,
             })),
             // A standard-library item has no source location to go to.
             Definition::Std(_) => None,

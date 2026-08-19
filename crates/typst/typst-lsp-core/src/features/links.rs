@@ -7,7 +7,9 @@
 
 use lsp_types::{DocumentLink, DocumentLinkParams, Uri};
 use typst::World;
-use typst::syntax::{FileId, LinkedNode, RootedPath, Source, SyntaxKind, VirtualPath, ast};
+use typst::syntax::{
+    FileId, LinkedNode, RootedPath, Side, Source, SyntaxKind, VirtualPath, ast,
+};
 
 use crate::convert::range_to_lsp;
 use crate::{Ports, Server};
@@ -53,8 +55,8 @@ impl<Q: Ports> Server<Q> {
     }
 
     /// Resolve a document-relative path the way the compiler would, and only
-    /// return a URI if the file is really there.
-    fn resolve_path(&self, from: FileId, path: &str) -> Option<Uri> {
+    /// return a file if it is really there.
+    pub(crate) fn resolve_path_id(&self, from: FileId, path: &str) -> Option<FileId> {
         let rooted = from.get();
         let vpath = if path.starts_with('/') {
             VirtualPath::new(path).ok()?
@@ -66,7 +68,55 @@ impl<Q: Ports> Server<Q> {
         // Reading is how we know it resolves; the result is cached for the rest
         // of the compile anyway.
         self.session().world().file(id).ok()?;
-        self.uris().to_uri(id)
+        Some(id)
+    }
+
+    /// The same, as a URI.
+    fn resolve_path(&self, from: FileId, path: &str) -> Option<Uri> {
+        self.uris().to_uri(self.resolve_path_id(from, path)?)
+    }
+}
+
+/// The document-relative path the cursor sits inside, if it sits in one.
+///
+/// Goto-definition should land wherever a ctrl-click on the document link
+/// would, and `typst-ide` only knows `#import` and `#include` — every other
+/// path-taking function is ours to answer.
+pub(crate) fn path_at(source: &Source, cursor: usize) -> Option<String> {
+    let root = LinkedNode::new(source.root());
+    let leaf = root
+        .leaf_at(cursor, Side::Before)
+        .or_else(|| root.leaf_at(cursor, Side::After))?;
+    if leaf.kind() != SyntaxKind::Str {
+        return None;
+    }
+
+    let (_, text) = inner_string(&leaf, source)?;
+    // A package spec is not a file path.
+    if text.starts_with('@') {
+        return None;
+    }
+
+    // Walk out of any wrapping: `bibliography(("a.bib", "b.bib"))` puts the
+    // string two levels below the call it belongs to.
+    let mut node = leaf.parent()?;
+    while matches!(
+        node.kind(),
+        SyntaxKind::Array | SyntaxKind::Parenthesized | SyntaxKind::Named
+    ) {
+        node = node.parent()?;
+    }
+
+    match node.kind() {
+        SyntaxKind::ModuleImport | SyntaxKind::ModuleInclude => Some(text),
+        SyntaxKind::Args => {
+            let call = node.parent()?.cast::<ast::FuncCall>()?;
+            let ast::Expr::Ident(name) = call.callee() else {
+                return None;
+            };
+            PATH_FUNCTIONS.contains(&name.get().as_str()).then_some(text)
+        }
+        _ => None,
     }
 }
 
