@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Client } from '../lsp/client.js';
+import { defaultProjectName, validateProjectName } from './projectName.js';
 
 /**
  * Scaffold a project from a Typst Universe template — P4-14.
@@ -8,12 +9,16 @@ import type { Client } from '../lsp/client.js';
  * A template package is an ordinary package whose `typst.toml` carries a
  * `[template]` section naming a directory to copy and an entry point to open.
  * The download and cache machinery is already in place for `#import
- * "@preview/…"`, so this is the UX on top of it: ask which template, ask where
- * to put it, copy, open.
+ * "@preview/…"`, so this is the UX on top of it: ask which template, ask for a
+ * parent directory and a name, copy, open.
+ *
+ * The name is asked for rather than assumed, because the alternative is making
+ * the reader leave, create an empty directory by hand, and come back.
  *
  * The copy is deliberately refuse-if-not-empty. A scaffolder that writes into a
  * directory with files already in it is a scaffolder that eventually overwrites
- * someone's work.
+ * someone's work — and a reader who typed the name of an existing project hears
+ * about it before anything is written.
  */
 
 /** The `[template]` section of a package manifest. */
@@ -45,7 +50,7 @@ export async function createFromTemplate(client: Client): Promise<void> {
   const spec = await pickTemplate();
   if (!spec) return;
 
-  const destination = await pickDestination();
+  const destination = await pickDestination(spec);
   if (!destination) return;
 
   const result = await vscode.window.withProgress(
@@ -106,16 +111,82 @@ async function pickTemplate(): Promise<string | undefined> {
   });
 }
 
-async function pickDestination(): Promise<vscode.Uri | undefined> {
+/**
+ * Ask where the project goes: a parent directory, then a name for the folder to
+ * create inside it. Returns the folder itself, which may not exist yet.
+ */
+async function pickDestination(spec: string): Promise<vscode.Uri | undefined> {
   const chosen = await vscode.window.showOpenDialog({
-    title: 'Typst: where should the project go?',
+    title: 'Typst: which folder should the project go in?',
     canSelectFiles: false,
     canSelectFolders: true,
     canSelectMany: false,
-    openLabel: 'Create here',
+    openLabel: 'Select parent folder',
     defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
   });
-  return chosen?.[0];
+  const parent = chosen?.[0];
+  if (!parent) return undefined;
+
+  const suggestion = defaultProjectName(spec);
+  const name = await vscode.window.showInputBox({
+    title: 'Typst: new project from template',
+    prompt: `A new folder in ${parent.fsPath}`,
+    value: suggestion,
+    valueSelection: [0, suggestion.length],
+    validateInput: (value) => validateDestination(parent, value),
+  });
+  if (name === undefined) return undefined;
+
+  return vscode.Uri.joinPath(parent, name.trim());
+}
+
+/**
+ * The name check the input box runs on every keystroke: the syntax rules, plus
+ * "is something already there?", so an existing project is refused while it is
+ * still a name and not a half-written directory.
+ */
+async function validateDestination(
+  parent: vscode.Uri,
+  value: string,
+): Promise<string | undefined> {
+  const complaint = validateProjectName(value);
+  if (complaint) return complaint;
+
+  const name = value.trim();
+  const target = vscode.Uri.joinPath(parent, name);
+  const stat = await statIfPresent(target);
+  if (!stat) return undefined;
+
+  if (stat.type !== vscode.FileType.Directory) {
+    return `${name} already exists, and is a file.`;
+  }
+  const existing = (await readDirectoryIfPresent(target)) ?? [];
+  if (existing.some(([entry]) => !entry.startsWith('.'))) {
+    return `${name} already exists and is not empty.`;
+  }
+  return undefined;
+}
+
+/** A path's stat, or `undefined` if nothing is there. */
+async function statIfPresent(
+  target: vscode.Uri,
+): Promise<vscode.FileStat | undefined> {
+  try {
+    return await vscode.workspace.fs.stat(target);
+  } catch {
+    return undefined;
+  }
+}
+
+/** A directory's entries, or `undefined` if it is not there (or is a file). */
+async function readDirectoryIfPresent(
+  target: vscode.Uri,
+): Promise<[string, vscode.FileType][] | undefined> {
+  try {
+    return await vscode.workspace.fs.readDirectory(target);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Copy a template's files, refusing to write into a directory with content. */
@@ -123,12 +194,14 @@ async function copyTemplate(
   result: TemplateResult,
   destination: vscode.Uri,
 ): Promise<void> {
-  const existing = await vscode.workspace.fs.readDirectory(destination);
+  // The dialog checked this too, but the disk can change underneath a reader
+  // who takes their time, and the cost of being wrong is their files.
+  const existing = (await readDirectoryIfPresent(destination)) ?? [];
   const visible = existing.filter(([name]) => !name.startsWith('.'));
   if (visible.length > 0) {
     throw new Error(
-      `${path.basename(destination.fsPath)} is not empty. Choose an empty folder ` +
-        'so nothing already there is overwritten.',
+      `${path.basename(destination.fsPath)} is not empty. Choose a name that is ` +
+        'not already taken, so nothing there is overwritten.',
     );
   }
 
