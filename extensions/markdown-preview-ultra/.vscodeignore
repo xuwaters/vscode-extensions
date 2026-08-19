@@ -19,6 +19,7 @@ scripts/
 tsconfig.json
 tsconfig.tsbuildinfo
 tsdown.config.mts
+vitest.config.mts
 
 # Build leftovers.
 target/
