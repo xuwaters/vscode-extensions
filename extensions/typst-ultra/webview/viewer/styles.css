@@ -195,11 +195,19 @@ typst-preview * {
  * measurement, so the width the fit is resolved against never depends on the
  * zoom the fit produced. (On platforms with overlay scrollbars — macOS by
  * default — the gutter is zero wide and this costs nothing.)
+ *
+ * `outline: none` because the focus this box takes is not the reader's doing.
+ * It is focusable only so that it scrolls, and the preview hands it the focus
+ * itself whenever the tab becomes the active one — so the ring would be drawn
+ * around the whole document on arriving at the tab and again on every arrow
+ * key, marking nothing the reader chose. The controls that *are* tabbed to
+ * keep their `:focus-visible` rings above.
  */
 .pages {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  outline: none;
   scrollbar-gutter: stable;
   padding: 16px;
   display: flex;
