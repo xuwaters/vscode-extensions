@@ -2,7 +2,12 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Client } from './lsp/client.js';
 import * as config from './config.js';
-import { rankEntryCandidates } from './entryPoints.js';
+import {
+  documentSearchGlob,
+  rankEntryCandidates,
+  walkForDocuments,
+  type DirectoryTree,
+} from './entryPoints.js';
 
 /**
  * Whether the compile root has been decided, as everything that has to respect
@@ -36,6 +41,77 @@ export type RootMode =
 
 const PIN_KEY = 'typstUltra.mainFile';
 const SUGGESTED_KEY = 'typstUltra.mainSuggested';
+
+/**
+ * How long a pause in typing means "that is the query".
+ *
+ * Long enough that walking a word back with backspace is one search rather
+ * than six, short enough to feel like it is keeping up.
+ */
+const SEARCH_DELAY = 150;
+
+/** Search hits to take. Past this the reader should type another letter. */
+const SEARCH_LIMIT = 128;
+
+/** A row of the compile-root quick pick. */
+interface PickItem extends vscode.QuickPickItem {
+  action: 'unpin' | 'pin';
+  uri?: vscode.Uri;
+}
+
+/** A file to pin, labelled the way the reader thinks of it. */
+function fileItem(uri: vscode.Uri): PickItem {
+  return {
+    label: `$(file) ${vscode.workspace.asRelativePath(uri)}`,
+    action: 'pin',
+    uri,
+  };
+}
+
+/** `vscode.workspace.fs`, in the shape the walk asks for. */
+const WORKSPACE_TREE: DirectoryTree<vscode.Uri> = {
+  async read(directory) {
+    const entries = await vscode.workspace.fs.readDirectory(directory);
+    return entries.map(
+      ([name, type]) => [name, (type & vscode.FileType.Directory) !== 0] as const,
+    );
+  },
+  join: (directory, name) => vscode.Uri.joinPath(directory, name),
+  id: (directory) => directory.toString(),
+};
+
+/**
+ * De-duplicate a pile of files, drop one of them, and put the likeliest entry
+ * point first. Every list in this menu is built this way, from whichever
+ * sources found it.
+ */
+function rank(found: readonly vscode.Uri[], exclude?: vscode.Uri): vscode.Uri[] {
+  const skip = exclude?.toString();
+  const byPath = new Map<string, vscode.Uri>();
+  for (const uri of found) {
+    if (uri.toString() === skip) continue;
+    byPath.set(vscode.workspace.asRelativePath(uri), uri);
+  }
+  return rankEntryCandidates([...byPath.keys()]).map(
+    (relative) => byPath.get(relative) as vscode.Uri,
+  );
+}
+
+/** The `.typ` files the reader has open, in tab order, nearest group first. */
+function openDocuments(): vscode.Uri[] {
+  const open: vscode.Uri[] = [];
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input: unknown = tab.input;
+      const uri =
+        input instanceof vscode.TabInputText || input instanceof vscode.TabInputCustom
+          ? input.uri
+          : undefined;
+      if (uri && /\.typc?$/i.test(uri.path)) open.push(uri);
+    }
+  }
+  return open;
+}
 
 /**
  * The compile root, in all three of its modes.
@@ -181,47 +257,111 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
     );
   }
 
-  /** The QuickPick behind the status bar item. */
+  /**
+   * The QuickPick behind the status bar item.
+   *
+   * Opens on what is already known — the focused file, the other open editors
+   * — and fills in from a short walk of the folders around them. It does not
+   * enumerate the workspace to open: a project of any size made that a wait,
+   * and the answer is nearly always the file the reader is in or one beside
+   * it. Typing hands the question to the workspace search instead, which is
+   * both narrowed by the query and bound by `files.exclude` and
+   * `search.exclude`, so `node_modules` and build output stay out of the way.
+   */
   async pick(): Promise<void> {
-    const active = vscode.window.activeTextEditor?.document.uri;
-    const candidates = await this.candidates();
+    const active = this.focused();
+    const picker = vscode.window.createQuickPick<PickItem>();
+    picker.title = 'Typst: compile root';
+    picker.placeholder = 'Which file should be compiled? Type to search the workspace';
 
-    interface Item extends vscode.QuickPickItem {
-      action: 'unpin' | 'pin';
-      uri?: vscode.Uri;
-    }
+    const head = this.actions(active);
+    // The rows that are on screen whatever the query is, so a search hit does
+    // not offer the same file a second time further down.
+    const shown = new Set(head.flatMap((item) => (item.uri ? [item.uri.toString()] : [])));
+    let nearby: PickItem[] = [];
+    let walking = true;
+    let searching = false;
+    // Only the latest query may write the list: a slow search for `ch` must
+    // not land on top of the results for `chapter`.
+    let query = 0;
+    let debounce: ReturnType<typeof setTimeout> | undefined;
+    let search: vscode.CancellationTokenSource | undefined;
 
-    const items: Item[] = [];
-    if (this.mode.kind === 'pinned') {
-      items.push({
-        label: '$(eye) Follow the focused editor',
-        description: 'Unpin the compile root',
-        action: 'unpin',
-      });
-    }
-    if (active) {
-      items.push({
-        label: `$(pin) Pin ${path.basename(active.fsPath)}`,
-        description: 'The file you are looking at',
-        action: 'pin',
-        uri: active,
-      });
-    }
-    for (const uri of candidates) {
-      if (active && uri.fsPath === active.fsPath) continue;
-      items.push({
-        label: `$(file) ${vscode.workspace.asRelativePath(uri)}`,
-        action: 'pin',
-        uri,
-      });
-    }
+    picker.items = head;
+    picker.busy = true;
+    picker.show();
 
-    const choice = await vscode.window.showQuickPick(items, {
-      title: 'Typst: compile root',
-      placeHolder: 'Which file should be compiled?',
+    const settle = () => {
+      picker.busy = walking || searching;
+    };
+
+    void this.nearbyCandidates(active).then(
+      (found) => {
+        nearby = found
+          .filter((uri) => !shown.has(uri.toString()))
+          .map((uri) => fileItem(uri));
+        for (const item of nearby) if (item.uri) shown.add(item.uri.toString());
+        walking = false;
+        if (!searching) picker.items = [...head, ...nearby];
+        settle();
+      },
+      () => {
+        walking = false;
+        settle();
+      },
+    );
+
+    picker.onDidChangeValue((value) => {
+      if (debounce) clearTimeout(debounce);
+      search?.cancel();
+      search = undefined;
+      const typed = value.trim();
+      const mine = ++query;
+
+      if (!typed) {
+        searching = false;
+        picker.items = [...head, ...nearby];
+        settle();
+        return;
+      }
+
+      searching = true;
+      settle();
+      debounce = setTimeout(() => {
+        const source = new vscode.CancellationTokenSource();
+        search = source;
+        void this.searchWorkspace(typed, source.token).then(
+          (found) => {
+            if (mine !== query) return;
+            picker.items = [
+              ...head,
+              ...nearby,
+              ...found
+                .filter((uri) => !shown.has(uri.toString()))
+                .map((uri) => fileItem(uri)),
+            ];
+            searching = false;
+            settle();
+          },
+          () => {
+            if (mine !== query) return;
+            searching = false;
+            settle();
+          },
+        );
+      }, SEARCH_DELAY);
     });
-    if (!choice) return;
 
+    const choice = await new Promise<PickItem | undefined>((resolve) => {
+      picker.onDidAccept(() => resolve(picker.selectedItems[0]));
+      picker.onDidHide(() => resolve(undefined));
+    });
+
+    if (debounce) clearTimeout(debounce);
+    search?.cancel();
+    picker.dispose();
+
+    if (!choice) return;
     if (choice.action === 'unpin') {
       await this.unpin();
     } else if (choice.uri) {
@@ -268,24 +408,91 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
   }
 
   /**
+   * The file the reader is on, which is not always an editor.
+   *
+   * Falls back to the last `.typ` we were following, because the preview is a
+   * webview and a custom editor: click into one and `activeTextEditor` goes
+   * away, taking with it the one row of this menu that is always right.
+   */
+  private focused(): vscode.Uri | undefined {
+    return (
+      vscode.window.activeTextEditor?.document.uri ??
+      (this.mode.kind === 'following' ? this.mode.uri : undefined)
+    );
+  }
+
+  /** The rows that need nothing looked up, so the menu can open on them. */
+  private actions(active: vscode.Uri | undefined): PickItem[] {
+    const items: PickItem[] = [];
+    if (this.mode.kind === 'pinned') {
+      items.push({
+        label: '$(eye) Follow the focused editor',
+        description: 'Unpin the compile root',
+        action: 'unpin',
+      });
+    }
+    if (active) {
+      items.push({
+        label: `$(pin) Pin ${path.basename(active.fsPath)}`,
+        description: 'The file you are looking at',
+        action: 'pin',
+        uri: active,
+      });
+    }
+    return items;
+  }
+
+  /**
+   * What to offer before the reader has typed: the other open editors, and the
+   * documents a short walk from the focused file.
+   *
+   * The walk starts at the focused file's own folder and then at the project
+   * root, which between them cover both halves of the usual answer — the
+   * chapter beside the one being edited, and the `main.typ` that includes it.
+   */
+  private async nearbyCandidates(active: vscode.Uri | undefined): Promise<vscode.Uri[]> {
+    const roots: vscode.Uri[] = [];
+    if (active) roots.push(vscode.Uri.joinPath(active, '..'));
+    const folder = active
+      ? vscode.workspace.getWorkspaceFolder(active)
+      : vscode.workspace.workspaceFolders?.[0];
+    if (folder) roots.push(folder.uri);
+
+    const walked = await walkForDocuments(roots, WORKSPACE_TREE);
+    return rank([...openDocuments(), ...walked], active);
+  }
+
+  /**
+   * The workspace's answer to what the reader typed.
+   *
+   * `undefined` for the excludes rather than a glob of our own: that is what
+   * asks the search service for the reader's `files.exclude` and
+   * `search.exclude`, so this skips the same `node_modules`, `target` and
+   * build output that quick open does, including whatever the project added.
+   */
+  private async searchWorkspace(
+    query: string,
+    token: vscode.CancellationToken,
+  ): Promise<vscode.Uri[]> {
+    const found = await vscode.workspace.findFiles(
+      documentSearchGlob(query),
+      undefined,
+      SEARCH_LIMIT,
+      token,
+    );
+    return rank(found, this.focused());
+  }
+
+  /**
    * Every `.typ` in the workspace, likeliest entry point first, optionally
    * without one file — the one that just failed to be a document.
+   *
+   * The full sweep, kept for the offer that follows a blank compile: nobody is
+   * waiting on a menu there, and the guess it makes should see everything.
    */
   private async candidates(exclude?: vscode.Uri): Promise<vscode.Uri[]> {
-    const found = await vscode.workspace.findFiles(
-      '**/*.typ',
-      '**/node_modules/**',
-      200,
-    );
-    const skip = exclude?.toString();
-    const byPath = new Map<string, vscode.Uri>();
-    for (const uri of found) {
-      if (uri.toString() === skip) continue;
-      byPath.set(vscode.workspace.asRelativePath(uri), uri);
-    }
-    return rankEntryCandidates([...byPath.keys()]).map(
-      (relative) => byPath.get(relative) as vscode.Uri,
-    );
+    const found = await vscode.workspace.findFiles('**/*.{typ,typc}', undefined, 200);
+    return rank(found, exclude);
   }
 
   /** `typstUltra.mainFile`, resolved against the project root. */
