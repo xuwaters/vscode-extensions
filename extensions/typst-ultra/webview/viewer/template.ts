@@ -110,7 +110,7 @@ export const template = html<TypstPreview>`
         class="field-input"
         type="text"
         inputmode="numeric"
-        title="Go to page — over the pages, ← → and PgUp/PgDn turn them, Home/End go to the ends"
+        title="Go to page — ← → and PgUp/PgDn turn the pages, Home/End go to the ends"
         aria-label="Page number"
         ${ref('pageInput')}
         :value="${(x) => x.pageField}"
@@ -131,13 +131,15 @@ export const template = html<TypstPreview>`
       `,
     )}
 
+    <!-- Focusable, because it is the only thing here that scrolls; the keys that
+         turn its pages are bound on the window rather than here, so that a tab
+         reached from the keyboard answers to them before it is clicked. -->
     <div
       class="pages ${(x) => x.columnClass}"
       tabindex="0"
       ${ref('scrollEl')}
       @scroll="${(x) => x.onScroll()}"
       @click="${(x, c) => x.onColumnClick(c.event)}"
-      @keydown="${(x, c) => x.onColumnKeydown(c.event as KeyboardEvent)}"
     ></div>
   </div>
 `;

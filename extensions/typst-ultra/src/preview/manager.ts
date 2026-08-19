@@ -270,7 +270,13 @@ export class PreviewManager implements vscode.Disposable {
       void this.onMessage(message);
     });
 
-    panel.onDidChangeViewState(() => this.stateEmitter.fire());
+    panel.onDidChangeViewState(() => {
+      // Coming back to this tab from the keyboard focuses the page but nothing
+      // in it, and the keys that turn the pages act on whatever holds the focus.
+      // Without this the reader has to click the page before → turns it.
+      if (panel.active) this.post({ type: 'focus' });
+      this.stateEmitter.fire();
+    });
 
     panel.onDidDispose(() => {
       this.panel = undefined;

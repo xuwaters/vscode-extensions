@@ -119,22 +119,58 @@ export class TypstPreview extends FASTElement {
 
   private resizeObserver: ResizeObserver | null = null;
 
+  private focusTimer: ReturnType<typeof setTimeout> | undefined;
+
   /**
-   * Zoom from the keyboard.
+   * The keyboard, for the whole page.
    *
-   * On `window` rather than on the element: the reader may have the focus in
-   * the toolbar's own boxes, and Ctrl+= there means the same thing it means
-   * over the page.
+   * On `window` rather than on the parts these keys act on, because the focus
+   * inside a webview is rarely where the reader thinks it is. A tab reached from
+   * the keyboard — Cmd+Shift+], the tab list, a mode switch — is handed the focus
+   * without anything *in* the page taking it, and a handler bound to the column
+   * hears nothing in that state: which is why → and ← used to turn the page only
+   * after the page had been clicked. Zoom was already bound here for the milder
+   * version of the same problem, the focus sitting in a toolbar box.
+   *
+   * The boxes are the one exception, and only for the page keys: an arrow there
+   * moves the caret through the number being typed, and taking that away would
+   * stop the reader editing it. Ctrl+= over a box still means zoom, because there
+   * is nothing else it could mean.
    */
   private readonly onKeydown = (event: KeyboardEvent): void => {
-    if (!event.ctrlKey && !event.metaKey) return;
+    if (event.ctrlKey || event.metaKey) {
+      this.onZoomKey(event);
+      return;
+    }
+    if (event.altKey || isTextEntry(event.target)) return;
+    this.onPageKey(event);
+  };
 
+  /**
+   * Take the focus back into the page column when the panel is handed it.
+   *
+   * The column is the only thing here that scrolls, and scrolling from the
+   * keyboard goes to whatever holds the focus — so a preview shown without it
+   * answers to no arrow at all until it is clicked. Deferred by a turn because a
+   * window's focus event can arrive before the browser has restored the element
+   * that had it, and nothing here should take the focus off a box the reader was
+   * typing in.
+   */
+  private readonly onWindowFocus = (): void => {
+    if (this.focusTimer) clearTimeout(this.focusTimer);
+    this.focusTimer = setTimeout(() => {
+      this.focusTimer = undefined;
+      this.focusColumn();
+    }, 0);
+  };
+
+  private onZoomKey(event: KeyboardEvent): void {
     if (event.key === '+' || event.key === '=') this.zoomBy(1);
     else if (event.key === '-') this.zoomBy(-1);
     else if (event.key === '0') this.applyFit('actual');
     else return;
     event.preventDefault();
-  };
+  }
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -148,17 +184,19 @@ export class TypstPreview extends FASTElement {
     this.applyZoom();
     this.observeResize();
     window.addEventListener('keydown', this.onKeydown);
-    // The arrows are bound on the column, so they only reach it while it has the
-    // focus. Nothing in a fresh panel has it, and asking the reader to click the
-    // page before they can turn it is a keyboard reader's worst tab — so the
-    // column takes it up front. This moves nothing outside the webview: focus
-    // inside a document the editor has not focused stays latent until it is.
-    this.scrollEl.focus({ preventScroll: true });
+    window.addEventListener('focus', this.onWindowFocus);
+    // Nothing in a fresh panel holds the focus, and the column is what scrolls —
+    // so it takes the focus up front. This moves nothing outside the webview:
+    // focus inside a document the editor has not focused stays latent until it
+    // is.
+    this.focusColumn();
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     window.removeEventListener('keydown', this.onKeydown);
+    window.removeEventListener('focus', this.onWindowFocus);
+    if (this.focusTimer) clearTimeout(this.focusTimer);
     if (this.scrollTimer) clearTimeout(this.scrollTimer);
     if (this.saveTimer) clearTimeout(this.saveTimer);
     if (this.statusTimer) clearTimeout(this.statusTimer);
@@ -232,6 +270,12 @@ export class TypstPreview extends FASTElement {
 
       case 'status':
         this.showStatus(message.state, message.message);
+        break;
+
+      case 'focus':
+        // The tab has just become the active one. VSCode hands the focus to the
+        // page without putting it on anything in it, so the column takes it.
+        this.focusColumn();
         break;
 
       case 'goToPage':
@@ -460,14 +504,8 @@ export class TypstPreview extends FASTElement {
   /**
    * Turn the page from the keyboard — the same set `pdf-ultra` answers to, so
    * that the two viewers in this repo are read the same way.
-   *
-   * Bound on the column rather than on `window` like the zoom keys are: an arrow
-   * in the page box or the zoom box moves the caret through the number being
-   * typed, and taking that away would stop the reader editing it.
    */
-  onColumnKeydown(event: KeyboardEvent): boolean {
-    if (event.ctrlKey || event.metaKey || event.altKey) return true;
-
+  private onPageKey(event: KeyboardEvent): void {
     if (event.key === 'PageDown') this.goToPage(this.shownPage() + 1);
     else if (event.key === 'PageUp') this.goToPage(this.shownPage() - 1);
     else if (event.key === 'Home') this.goToPage(0);
@@ -477,12 +515,24 @@ export class TypstPreview extends FASTElement {
       // and taking that away would leave no way to read its right-hand edge
       // without a mouse. Only when there is nothing to scroll do these turn the
       // page — which is the rule pdf.js's own viewer follows.
-      if (this.scrollsSideways()) return true;
+      if (this.scrollsSideways()) return;
       this.goToPage(this.shownPage() + (event.key === 'ArrowRight' ? 1 : -1));
-    } else return true;
+    } else return;
 
     event.preventDefault();
-    return true;
+  }
+
+  /**
+   * Put the focus on the page column, unless the reader has it somewhere else.
+   *
+   * Called when the panel is handed the focus and when the host says the tab has
+   * become the active one; both can happen with the focus on the document and on
+   * nothing in it, which is the state in which no key reaches the column.
+   */
+  focusColumn(): void {
+    const focused = document.activeElement;
+    if (focused !== null && focused !== document.body && focused !== this) return;
+    this.scrollEl?.focus({ preventScroll: true });
   }
 
   /** Whether the column is wider than the tab, so there is width to scroll. */
@@ -626,6 +676,22 @@ export class TypstPreview extends FASTElement {
     // Even at an unchanged zoom the panel now shows a different band of pages.
     this.column?.reportViewport();
   }
+}
+
+/**
+ * Whether a key went somewhere the reader is typing.
+ *
+ * The page keys stay out of those: in the zoom and page boxes an arrow moves the
+ * caret, and Home and End go to the ends of the number rather than of the
+ * document.
+ */
+function isTextEntry(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
 }
 
 function prefersDark(): boolean {

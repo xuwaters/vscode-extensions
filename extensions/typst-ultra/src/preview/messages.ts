@@ -83,6 +83,12 @@ export type HostToWebview =
   | { type: 'cursor'; page: number; xPt: number; yPt: number }
   | { type: 'status'; state: 'compiling' | 'ok' | 'error'; message?: string }
   | { type: 'settings'; settings: PreviewSettings }
+  /**
+   * The tab has become the active one. VSCode focuses the page itself but
+   * nothing in it, and the page keys act on whatever holds the focus — so the
+   * webview is told to put it on the page column.
+   */
+  | { type: 'focus' }
   | { type: 'goToPage'; page: number };
 
 /** Webview → host. */

@@ -314,6 +314,35 @@ describe('remembering how the preview was set up', () => {
   });
 });
 
+/**
+ * The column is the only thing in the page that scrolls, and scrolling from the
+ * keyboard goes to whatever holds the focus — so a preview whose focus is on
+ * nothing answers to no arrow at all.
+ */
+describe('the focus', () => {
+  it('is on the page column from the moment the preview is mounted', () => {
+    expect(document.activeElement).toBe(preview.scrollEl);
+  });
+
+  it('goes back to the column when the host says the tab is active', () => {
+    preview.scrollEl.blur();
+    expect(document.activeElement).not.toBe(preview.scrollEl);
+
+    preview.handle({ type: 'focus' });
+
+    expect(document.activeElement).toBe(preview.scrollEl);
+  });
+
+  it('is left where the reader put it', () => {
+    const box = must<HTMLInputElement>('.field-input');
+    box.focus();
+
+    preview.handle({ type: 'focus' });
+
+    expect(document.activeElement).toBe(box);
+  });
+});
+
 describe('turning the page', () => {
   const press = (key: string): KeyboardEvent => {
     const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
@@ -404,6 +433,22 @@ describe('turning the page', () => {
       must(selector).dispatchEvent(event);
       expect(event.defaultPrevented, `${selector} swallowed a keystroke`).toBe(false);
     }
+  });
+
+  /**
+   * The bug this set of tests grew out of: a tab reached with Cmd+Shift+] is
+   * handed the focus with nothing in the page holding it, and keys bound to the
+   * column never arrived — so the page could only be turned after a click.
+   */
+  it('turns the page with the focus on nothing in particular', () => {
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true,
+      cancelable: true,
+    });
+    document.body.dispatchEvent(event);
+
+    expect(preview.pageField).toBe('2');
   });
 
   /** The caret in the page box is what an arrow moves there, not the page. */
