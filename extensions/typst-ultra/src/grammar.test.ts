@@ -242,6 +242,106 @@ describe('a raw block without one', () => {
   });
 });
 
+/**
+ * Every bracket in `source`, paired the way VS Code's bracket-pair colouring
+ * pairs them.
+ *
+ * That feature reads the *standard* token type — Other, Comment, String, RegEx
+ * — which vscode-textmate derives from the scope name, and skips any bracket
+ * that is not Other. Semantic tokens never reach it. So a string the grammar
+ * fails to scope is a string whose brackets count, and whose `//` opens a
+ * comment that swallows every bracket after it on the line.
+ *
+ * Returns one `depth` per bracket, in document order; a matched pair shares a
+ * depth, and the colour is that depth modulo the palette.
+ */
+async function bracketDepths(source: string): Promise<{ bracket: string; depth: number }[]> {
+  const grammar = await stubbed.loadGrammar('source.typst');
+  const brackets: { bracket: string; depth: number }[] = [];
+
+  let stack = textmate.INITIAL;
+  let depth = 0;
+  for (const line of source.split('\n')) {
+    const { tokens, ruleStack } = grammar!.tokenizeLine2(line, stack);
+    stack = ruleStack;
+
+    for (let i = 0; i < tokens.length; i += 2) {
+      const start = tokens[i];
+      const end = i + 2 < tokens.length ? tokens[i + 2] : line.length;
+      // Bits 8–9 of the metadata are the standard token type; 0 is Other.
+      if (((tokens[i + 1] >>> 8) & 0b11) !== 0) continue;
+
+      for (const bracket of line.slice(start, end)) {
+        if ('([{'.includes(bracket)) brackets.push({ bracket, depth: depth++ });
+        else if (')]}'.includes(bracket)) brackets.push({ bracket, depth: --depth });
+      }
+    }
+  }
+  return brackets;
+}
+
+describe('bracket pair colouring', () => {
+  it('does not let a URL in a string open a comment', async () => {
+    const scopes = await scopesAt('#link("https://github.com/ada")\n', '//github');
+    expect(scopes).toContain('string.quoted.double.typst');
+    expect(scopes.some(scope => scope.startsWith('comment'))).toBe(false);
+  });
+
+  it('closes a call whose argument is a URL at the depth it opened', async () => {
+    const depths = await bracketDepths('#link("https://x.example/a")\n');
+    expect(depths).toEqual([
+      { bracket: '(', depth: 0 },
+      { bracket: ')', depth: 0 },
+    ]);
+  });
+
+  it('does not count brackets inside a string as nesting', async () => {
+    const depths = await bracketDepths('#let phone = ("+1 (555) 013-2400")\n');
+    expect(depths).toEqual([
+      { bracket: '(', depth: 0 },
+      { bracket: ')', depth: 0 },
+    ]);
+  });
+
+  it('keeps a nested array of URL pairs balanced all the way out', async () => {
+    const source = [
+      '#let profile = (',
+      '  contacts: (',
+      '    (text: "github.com/ada", url: "https://github.com/ada"),',
+      '    (text: "+1 (555) 013-2400", url: none),',
+      '  ),',
+      ')',
+      '',
+    ].join('\n');
+
+    // Depth per bracket, in order: the outer pair, `contacts`, then one pair
+    // per entry — each opener meeting its closer at the same depth.
+    expect((await bracketDepths(source)).map(b => b.depth)).toEqual([
+      0, 1, 2, 2, 2, 2, 1, 0,
+    ]);
+  });
+
+  it('still treats a real line comment as a comment', async () => {
+    expect(await scopesAt('// a note (unclosed\n', 'a note')).toContain(
+      'comment.line.double-slash.typst',
+    );
+    expect(await bracketDepths('#f() // (\n')).toEqual([
+      { bracket: '(', depth: 0 },
+      { bracket: ')', depth: 0 },
+    ]);
+  });
+
+  it('ignores an unpaired quote instead of running to the end of the file', async () => {
+    // In markup `"` is ordinary text. A begin/end string rule would open here
+    // and never close, taking the rest of the document with it.
+    const source = ['He said "look, and never stopped.', '#f(1)', ''].join('\n');
+    expect(await bracketDepths(source)).toEqual([
+      { bracket: '(', depth: 0 },
+      { bracket: ')', depth: 0 },
+    ]);
+  });
+});
+
 describe.skipIf(!BUILTINS)('against the VS Code on this machine', () => {
   it('names a scope VS Code really ships, for every language it ships', () => {
     for (const language of LANGUAGES.filter(l => l.provider === undefined)) {

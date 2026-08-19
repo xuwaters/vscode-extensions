@@ -5,6 +5,7 @@
   "_comment": "Deliberately minimal. This grammar only has to make a file look like Typst in the moments before semantic tokens arrive, and in themes or contexts where they do not. The real colouring comes from the actual parser via textDocument/semanticTokens — see decisions/0007. The one permanent exception is a raw block with a language tag: `source.typst.embedded` hands those to the language's own grammar, and the server emits no semantic tokens over them so nothing paints on top — see decisions/0013.",
   "patterns": [
     { "include": "#comment" },
+    { "include": "#string" },
     { "include": "#heading" },
     { "include": "#math" },
     { "include": "source.typst.embedded" },
@@ -31,6 +32,11 @@
           "end": "\\*/"
         }
       ]
+    },
+    "string": {
+      "_comment": "Not for colour — semantic tokens do that — but for the standard token type. A token scoped `string` is one VS Code's bracket-pair colouring skips over and one `autoClosingPairs`' `notIn` can name, so without this rule `\"https://github.com/ada\"` opens a line comment that swallows the rest of the line, brackets included, and `(555)` in a phone number counts as a nesting level. Matched whole rather than begin/end so an unpaired quote in markup — where `\"` is ordinary text, not a string — matches nothing instead of running to the end of the file.",
+      "name": "string.quoted.double.typst",
+      "match": "\"(?:[^\"\\\\\\n]|\\\\.)*\""
     },
     "heading": {
       "name": "markup.heading.typst",
