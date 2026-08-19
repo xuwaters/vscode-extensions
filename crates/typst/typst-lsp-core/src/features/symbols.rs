@@ -201,9 +201,15 @@ fn to_lsp(source: &Source, found: &Found) -> DocumentSymbol {
 }
 
 /// Walk the tree collecting symbols in document order.
+///
+/// A nameless symbol is an error on the client — `vscode-languageclient`
+/// rejects the whole response with "name must not be falsy" — so a half-typed
+/// construct that yields no name is dropped here rather than taking the
+/// document's outline down with it.
 fn flat_symbols(source: &Source) -> Vec<Found> {
     let mut out = Vec::new();
     walk(&LinkedNode::new(source.root()), source, &mut out);
+    out.retain(|found| !found.name.is_empty());
     out
 }
 
@@ -234,14 +240,22 @@ fn classify(node: &LinkedNode, source: &Source) -> Option<Found> {
     match node.kind() {
         SyntaxKind::Heading => {
             let heading = node.cast::<ast::Heading>()?;
-            let title = text(range.clone());
+            let depth = heading.depth().get();
+            let title = text(range.clone()).trim_start_matches('=').trim().to_string();
             Some(Found {
-                name: title.trim_start_matches('=').trim().to_string(),
+                // A line is a heading the moment its marker is typed; the title
+                // arrives a keystroke later. The marker stands in until then, so
+                // the outline has an entry to grow rather than a nameless symbol
+                // the client rejects outright.
+                name: match title.is_empty() {
+                    true => "=".repeat(depth),
+                    false => title,
+                },
                 detail: None,
                 kind: SymbolKind::STRING,
                 range: range.clone(),
                 selection: range,
-                depth: Some(heading.depth().get()),
+                depth: Some(depth),
             })
         }
 
@@ -332,6 +346,35 @@ mod tests {
             .map(|children| children.iter().any(|s| s.kind == SymbolKind::KEY))
             .unwrap_or(false);
         assert!(label, "the label belongs under its heading");
+    }
+
+    #[test]
+    fn a_heading_still_being_typed_keeps_a_name() {
+        // "= Background", one keystroke at a time. The client throws away the
+        // whole response over a single empty name, so every prefix must be safe.
+        let typed = "= Background\n";
+        for end in 0..=typed.len() {
+            let tree = symbols(&typed[..end]);
+            assert!(
+                names(&tree).iter().all(|name| !name.is_empty()),
+                "empty symbol name for prefix {:?}",
+                &typed[..end],
+            );
+        }
+
+        assert_eq!(names(&symbols("= ")), ["="], "the marker stands in");
+        assert_eq!(names(&symbols("== ")), ["=="]);
+        assert_eq!(names(&symbols("= B")), ["B"], "and gives way to the title");
+    }
+
+    /// Every name in the tree, parents before children.
+    fn names(tree: &[DocumentSymbol]) -> Vec<String> {
+        tree.iter()
+            .flat_map(|symbol| {
+                std::iter::once(symbol.name.clone())
+                    .chain(symbol.children.as_deref().map(names).unwrap_or_default())
+            })
+            .collect()
     }
 
     #[test]
