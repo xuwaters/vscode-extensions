@@ -286,6 +286,109 @@ describe('remembering how the preview was set up', () => {
   });
 });
 
+describe('turning the page', () => {
+  const press = (key: string): KeyboardEvent => {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    must('.pages').dispatchEvent(event);
+    return event;
+  };
+
+  beforeEach(() => {
+    openDocument(3);
+    sizeViewport(widthFor(1), 400);
+  });
+
+  it('is what the arrow keys do over the column', () => {
+    expect(press('ArrowRight').defaultPrevented).toBe(true);
+    expect(preview.pageField).toBe('2');
+
+    press('ArrowRight');
+    expect(preview.pageField).toBe('3');
+
+    press('ArrowLeft');
+    expect(preview.pageField).toBe('2');
+  });
+
+  /** The set `pdf-ultra` answers to, so both viewers are read the same way. */
+  it('answers to PgUp, PgDn, Home and End as well', () => {
+    press('PageDown');
+    expect(preview.pageField).toBe('2');
+
+    press('PageUp');
+    expect(preview.pageField).toBe('1');
+
+    press('End');
+    expect(preview.pageField).toBe('3');
+
+    press('Home');
+    expect(preview.pageField).toBe('1');
+  });
+
+  it('stops at both ends rather than running off them', () => {
+    press('ArrowLeft');
+    expect(preview.pageField).toBe('1');
+
+    preview.goToPage(2);
+    press('ArrowRight');
+    expect(preview.pageField).toBe('3');
+  });
+
+  /**
+   * A page zoomed past the width of the tab has somewhere to go sideways, and
+   * turning the page instead would leave no way to read its right-hand edge
+   * without a mouse.
+   */
+  it('leaves the arrows to the scroller while there is width to scroll', () => {
+    Object.defineProperty(preview.scrollEl, 'scrollWidth', {
+      value: 2000,
+      configurable: true,
+    });
+
+    expect(press('ArrowRight').defaultPrevented).toBe(false);
+    expect(preview.pageField).toBe('1');
+
+    // PgDn has no sideways meaning to give up, so it still turns the page.
+    press('PageDown');
+    expect(preview.pageField).toBe('2');
+  });
+
+  /** Ctrl+→ and friends are the editor's word-wise keys, not ours. */
+  it('leaves a modified arrow alone', () => {
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    must('.pages').dispatchEvent(event);
+
+    expect(preview.pageField).toBe('1');
+  });
+
+  /**
+   * FAST cancels any event whose handler does not return `true`. On a keydown
+   * binding that means the reader cannot type — a bug with no visible cause, so
+   * it is worth a test rather than a comment.
+   */
+  it('does not swallow the keystrokes it does not act on', () => {
+    for (const selector of ['.pages', '.field-input', '.field-input.wide']) {
+      const event = new KeyboardEvent('keydown', { key: 'a', cancelable: true });
+      must(selector).dispatchEvent(event);
+      expect(event.defaultPrevented, `${selector} swallowed a keystroke`).toBe(false);
+    }
+  });
+
+  /** The caret in the page box is what an arrow moves there, not the page. */
+  it('leaves the arrows to the toolbar boxes', () => {
+    const box = must<HTMLInputElement>('.field-input');
+    box.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
+    );
+
+    expect(preview.pageField).toBe('1');
+  });
+});
+
 describe('talking to the extension host', () => {
   it('asks for the pages that came into view', () => {
     openDocument(2);

@@ -45,7 +45,9 @@ download, no code signing.
 - Follows the active editor: click a second `.typ` and the preview switches to it
 - Two-way sync: cursor → page position, click on a page → source position
 - Virtualized — a 200-page document keeps the DOM bounded
-- Zoom, colour inversion, page numbers, find-in-page
+- Zoom, colour inversion, find-in-page
+- A page box you can type into, and arrow keys,
+  `PageUp`/`PageDown`/`Home`/`End` to turn the page from the keyboard
 - Fit width and fit page are modes, not one-shots: they stay switched on and
   follow the panel as it is resized, until you set the zoom by hand
 - A compile error dims the last good pages rather than blanking the preview
@@ -159,6 +161,15 @@ The preview follows whichever `.typ` you are looking at. Pin it with
 you edit another. The group the side preview opens in is locked, so files you
 open next land in the main group rather than on top of the preview
 (`preview.lockPreviewGroup`).
+
+### Reading with the keyboard
+
+In the pages themselves: `←` / `→` and `PgUp` / `PgDn` turn the page, `Home` and
+`End` go to the first and last. `←` / `→` give way to the scroller when the page
+is zoomed wider than the tab, because otherwise there would be no way to reach
+its right-hand edge without a mouse — the same rule `pdf-ultra` follows. Zoom is
+`Cmd/Ctrl+=` / `Cmd/Ctrl+-`, and `Cmd/Ctrl+0` is 100%; those work wherever the
+focus is in the preview, including the toolbar's boxes.
 
 ## Commands
 

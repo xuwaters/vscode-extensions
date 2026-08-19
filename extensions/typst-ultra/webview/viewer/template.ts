@@ -110,7 +110,7 @@ export const template = html<TypstPreview>`
         class="field-input"
         type="text"
         inputmode="numeric"
-        title="Go to page"
+        title="Go to page — over the pages, ← → and PgUp/PgDn turn them, Home/End go to the ends"
         aria-label="Page number"
         ${ref('pageInput')}
         :value="${(x) => x.pageField}"
@@ -137,6 +137,7 @@ export const template = html<TypstPreview>`
       ${ref('scrollEl')}
       @scroll="${(x) => x.onScroll()}"
       @click="${(x, c) => x.onColumnClick(c.event)}"
+      @keydown="${(x, c) => x.onColumnKeydown(c.event as KeyboardEvent)}"
     ></div>
   </div>
 `;

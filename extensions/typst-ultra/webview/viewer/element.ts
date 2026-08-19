@@ -132,6 +132,12 @@ export class TypstPreview extends FASTElement {
     this.applyZoom();
     this.observeResize();
     window.addEventListener('keydown', this.onKeydown);
+    // The arrows are bound on the column, so they only reach it while it has the
+    // focus. Nothing in a fresh panel has it, and asking the reader to click the
+    // page before they can turn it is a keyboard reader's worst tab — so the
+    // column takes it up front. This moves nothing outside the webview: focus
+    // inside a document the editor has not focused stays latent until it is.
+    this.scrollEl.focus({ preventScroll: true });
   }
 
   override disconnectedCallback(): void {
@@ -407,6 +413,53 @@ export class TypstPreview extends FASTElement {
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
+
+  /**
+   * Turn the page from the keyboard — the same set `pdf-ultra` answers to, so
+   * that the two viewers in this repo are read the same way.
+   *
+   * Bound on the column rather than on `window` like the zoom keys are: an arrow
+   * in the page box or the zoom box moves the caret through the number being
+   * typed, and taking that away would stop the reader editing it.
+   */
+  onColumnKeydown(event: KeyboardEvent): boolean {
+    if (event.ctrlKey || event.metaKey || event.altKey) return true;
+
+    if (event.key === 'PageDown') this.goToPage(this.shownPage() + 1);
+    else if (event.key === 'PageUp') this.goToPage(this.shownPage() - 1);
+    else if (event.key === 'Home') this.goToPage(0);
+    else if (event.key === 'End') this.goToPage(this.pageCount - 1);
+    else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      // A page zoomed past the width of the tab has somewhere to go sideways,
+      // and taking that away would leave no way to read its right-hand edge
+      // without a mouse. Only when there is nothing to scroll do these turn the
+      // page — which is the rule pdf.js's own viewer follows.
+      if (this.scrollsSideways()) return true;
+      this.goToPage(this.shownPage() + (event.key === 'ArrowRight' ? 1 : -1));
+    } else return true;
+
+    event.preventDefault();
+    return true;
+  }
+
+  /** Whether the column is wider than the tab, so there is width to scroll. */
+  private scrollsSideways(): boolean {
+    const el = this.scrollEl as HTMLElement | undefined;
+    return el !== undefined && el.scrollWidth > el.clientWidth + 1;
+  }
+
+  /**
+   * The page the reader is on, by index, as the toolbar has it.
+   *
+   * Read off the box rather than measured off the scroller, because the box is
+   * what the reader can see: `goToPage` writes it and scrolling follows it, so
+   * turning the page from it is what makes "3 / 12" and one press of → agree
+   * that the next page is 4.
+   */
+  private shownPage(): number {
+    const value = Number(this.pageField);
+    return Number.isFinite(value) ? Math.round(value) - 1 : 0;
+  }
 
   /** Scroll to a page, by index. */
   goToPage(index: number): void {
