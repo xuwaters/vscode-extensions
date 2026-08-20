@@ -2,7 +2,7 @@
   "name": "wx-vsce-log-viewer",
   "displayName": "Log Viewer Ultra",
   "description": "Pretty viewer for .log files with ANSI escape sequence rendering",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -96,25 +96,25 @@
         "command": "logViewer.focusSearch",
         "key": "ctrl+f",
         "mac": "cmd+f",
-        "when": "activeCustomEditorId == 'logViewer.editor'"
+        "when": "activeCustomEditorId == 'logViewer.editor' && !terminalFocus && !inputFocus"
       },
       {
         "command": "logViewer.fontSizeIncrease",
         "key": "ctrl+=",
         "mac": "cmd+=",
-        "when": "activeCustomEditorId == 'logViewer.editor'"
+        "when": "activeCustomEditorId == 'logViewer.editor' && !terminalFocus && !inputFocus"
       },
       {
         "command": "logViewer.fontSizeDecrease",
         "key": "ctrl+-",
         "mac": "cmd+-",
-        "when": "activeCustomEditorId == 'logViewer.editor'"
+        "when": "activeCustomEditorId == 'logViewer.editor' && !terminalFocus && !inputFocus"
       },
       {
         "command": "logViewer.fontSizeReset",
         "key": "ctrl+0",
         "mac": "cmd+0",
-        "when": "activeCustomEditorId == 'logViewer.editor'"
+        "when": "activeCustomEditorId == 'logViewer.editor' && !terminalFocus && !inputFocus"
       }
     ],
     "menus": {
