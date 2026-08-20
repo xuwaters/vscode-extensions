@@ -2,7 +2,7 @@
   "name": "wx-vsce-typst-ultra",
   "displayName": "Typst Ultra",
   "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact — diagnostics, completion, hover, goto-definition, semantic tokens, formatting, BibTeX bibliographies, two-way-synced preview, and PDF/SVG/PNG export",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -474,43 +474,43 @@
         "command": "typstUltra.setModeSplit",
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
-        "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        "when": "(editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && !terminalFocus"
       },
       {
         "command": "typstUltra.showPreviewToSide",
         "key": "ctrl+k v",
         "mac": "cmd+k v",
-        "when": "editorLangId == typst"
+        "when": "editorLangId == typst && !terminalFocus"
       },
       {
         "command": "typstUltra.toggleFocus",
         "key": "ctrl+k ctrl+v",
         "mac": "cmd+k cmd+v",
-        "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview"
+        "when": "(editorLangId == typst || activeWebviewPanelId == typstUltra.preview) && !terminalFocus"
       },
       {
         "command": "typstUltra.cycleMode",
         "key": "ctrl+k ctrl+m",
         "mac": "cmd+k cmd+m",
-        "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        "when": "(editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && !terminalFocus"
       },
       {
         "command": "typstUltra.toggleEditPreview",
         "key": "ctrl+k ctrl+p",
         "mac": "cmd+k cmd+p",
-        "when": "editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        "when": "(editorLangId == typst || activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && !terminalFocus"
       },
       {
         "command": "typstUltra.togglePreviewLock",
         "key": "ctrl+k ctrl+l",
         "mac": "cmd+k cmd+l",
-        "when": "activeWebviewPanelId == typstUltra.preview"
+        "when": "activeWebviewPanelId == typstUltra.preview && !terminalFocus"
       },
       {
         "command": "typstUltra.syncPreviewToCursor",
         "key": "ctrl+k ctrl+j",
         "mac": "cmd+k cmd+j",
-        "when": "editorLangId == typst"
+        "when": "editorLangId == typst && !terminalFocus"
       }
     ],
     "configuration": {
