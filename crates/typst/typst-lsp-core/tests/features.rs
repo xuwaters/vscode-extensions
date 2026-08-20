@@ -1078,6 +1078,64 @@ fn a_file_outside_the_compile_root_is_ignored_rather_than_mis_attributed() {
     assert!(harness.server().drain().is_empty());
 }
 
+// ── Untitled buffers ─────────────────────────────────────────────────────────
+
+#[test]
+fn an_untitled_buffer_becomes_the_compile_root_and_produces_pages() {
+    let mut harness = Harness::new();
+    let uri = harness.open_untitled("Untitled-1", "= Draft\n#pagebreak()\n= More\n");
+
+    let events = harness.compile(&uri);
+    let statuses = events_named(&events, "typst/compileStatus");
+    assert_eq!(statuses.last().unwrap()["state"], json!("ok"));
+
+    let result = harness.request("typst/documentMetrics", json!({ "uri": uri.as_str() }));
+    assert_eq!(result["pageCount"], json!(2));
+}
+
+#[test]
+fn an_untitled_buffers_diagnostics_come_back_addressed_to_it() {
+    let mut harness = Harness::new();
+    let uri = harness.open_untitled("Untitled-1", "#undefined-thing()\n");
+
+    let events = harness.compile(&uri);
+    let diagnostics = diagnostics_in(&events, &uri);
+    assert_eq!(diagnostics.len(), 1, "got {diagnostics:#?}");
+
+    // And they come back down again, rather than sticking to a buffer that has
+    // no file for the reader to open and fix.
+    harness.change(&uri, "= Fine now\n");
+    let events = harness.compile(&uri);
+    assert!(diagnostics_in(&events, &uri).is_empty());
+}
+
+#[test]
+fn an_untitled_buffer_is_edited_in_place_like_any_other() {
+    let mut harness = Harness::new();
+    let uri = harness.open_untitled("Untitled-1", "= One\n");
+    harness.compile(&uri);
+
+    harness.change(&uri, "= One\n#pagebreak()\n= Two\n");
+    let events = harness.compile(&uri);
+    let statuses = events_named(&events, "typst/compileStatus");
+    assert_eq!(statuses.last().unwrap()["pageCount"], json!(2));
+}
+
+#[test]
+fn a_package_import_still_resolves_from_an_untitled_buffer() {
+    // The buffer's own path is fictional, but a package path is absolute, so
+    // the one kind of import a scratch document is likely to reach for keeps
+    // working. Relative imports do not, and cannot: there is no directory.
+    let mut harness = Harness::new();
+    let uri = harness.open_untitled("Untitled-1", "#import \"nowhere.typ\": *\n");
+
+    let events = harness.compile(&uri);
+    let diagnostics = diagnostics_in(&events, &uri);
+    assert_eq!(diagnostics.len(), 1, "got {diagnostics:#?}");
+    let message = diagnostics[0]["message"].as_str().unwrap();
+    assert!(message.contains("file not found"), "got {message}");
+}
+
 // ── P4-07 and P4-13 ──────────────────────────────────────────────────────────
 
 #[test]

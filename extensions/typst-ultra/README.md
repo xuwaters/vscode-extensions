@@ -101,6 +101,13 @@ way.
 Open a `.typ` file. That is the whole setup — the server starts on the first
 typst document, and the compile root follows whichever file you are looking at.
 
+A new untitled file works too, once you set its language to Typst — it compiles,
+previews and exports like anything else, and becomes an ordinary file the moment
+you save it. The one thing a buffer with no file behind it cannot do is resolve a
+*relative* path: `#import "helper.typ"` has nothing to be relative to until the
+document has a directory of its own. Package imports and root-absolute paths like
+`/assets/logo.svg` work as usual.
+
 A `.bib` file in the same workspace is picked up as well, and editing one
 recompiles the document that cites it rather than trying to compile the
 bibliography. Opening a `.bib` in a workspace with no typst files in it does

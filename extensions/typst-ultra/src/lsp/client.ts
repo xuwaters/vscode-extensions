@@ -128,8 +128,16 @@ export class Client implements vscode.Disposable {
     const clientOptions: LanguageClientOptions = {
       // Bibliographies are part of a typst project, and the server speaks
       // BibTeX for them — see `crates/typst/typst-lsp-core/src/bib.rs`.
+      //
+      // `untitled` is here because a buffer that has never been saved is still
+      // a document: the server holds its text in the same overlay and compiles
+      // it under a reserved project path (decision 0014). Without this the
+      // client sends no `didOpen` for it at all, and the preview shows whatever
+      // was compiled last. No `untitled` BibTeX — a bibliography is read by
+      // path, so an unsaved one is nothing any document can cite.
       documentSelector: [
         { scheme: 'file', language: 'typst' },
+        { scheme: 'untitled', language: 'typst' },
         { scheme: 'file', language: 'bibtex' },
       ],
       outputChannel: this.output,

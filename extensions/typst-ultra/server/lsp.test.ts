@@ -269,4 +269,43 @@ describe.skipIf(!READY)('the built server, over LSP', () => {
     const after = await client.request('typst/documentMetrics', { uri: onePage });
     expect((after.result as { pageCount: number }).pageCount).toBe(1);
   }, 60_000);
+
+  /**
+   * A buffer that has never been saved, which decision 0014 makes a document
+   * like any other. Worth driving through the transport rather than only in
+   * Rust: the whole failure it fixes was a URI the client dropped on the way
+   * out and the server could not resolve on the way in.
+   */
+  it('compiles an untitled buffer and answers about it by its own URI', async () => {
+    const untitled = 'untitled:Untitled-1';
+
+    client.notify('textDocument/didOpen', {
+      textDocument: {
+        uri: untitled,
+        languageId: 'typst',
+        version: 1,
+        text: 'Scratch.\n#pagebreak()\nMore scratch.\n',
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const metrics = await client.request('typst/documentMetrics', { uri: untitled });
+    expect((metrics.result as { pageCount: number }).pageCount).toBe(2);
+
+    // And its problems come back addressed to the buffer, not to a file path
+    // the editor has nothing open under.
+    client.notify('textDocument/didChange', {
+      textDocument: { uri: untitled, version: 2 },
+      contentChanges: [{ text: '#undefined-call()\n' }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const published = client.notifications
+      .filter((message) => message.method === 'textDocument/publishDiagnostics')
+      .map((message) => message.params as { uri: string; diagnostics: unknown[] })
+      .filter((params) => params.uri === untitled);
+
+    expect(published.at(-1)?.diagnostics.length).toBe(1);
+  }, 60_000);
 });

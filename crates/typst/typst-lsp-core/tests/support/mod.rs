@@ -140,6 +140,24 @@ impl Harness {
         uri
     }
 
+    /// Open a buffer that has no file behind it, as `untitled:<name>`.
+    pub fn open_untitled(&mut self, name: &str, text: &str) -> Uri {
+        let uri: Uri = format!("untitled:{name}").parse().expect("valid uri");
+        self.version += 1;
+        self.server.on_notification(
+            "textDocument/didOpen",
+            json!({
+                "textDocument": {
+                    "uri": uri.as_str(),
+                    "languageId": "typst",
+                    "version": self.version,
+                    "text": text,
+                }
+            }),
+        );
+        uri
+    }
+
     /// Open a fixture that contains a `/* CURSOR */` marker, returning the URI
     /// and the position the marker sat at (with the marker removed).
     pub fn open_with_cursor(&mut self, relative: &str, text: &str) -> (Uri, Position) {

@@ -21,6 +21,7 @@ without reading the whole RFC or digging through chat logs.
 | [0011](0011-bibtex-support.md) | Speak BibTeX in the same server, with our own parser | Accepted | — |
 | [0012](0012-fonts-in-a-companion-extension.md) | Ship the bundled fonts in a companion extension | Accepted | — |
 | [0013](0013-embedded-raw-languages.md) | Colour ```` ```rust ```` with rust's own grammar, from a generated table | Accepted | — |
+| [0014](0014-untitled-buffers.md) | Compile untitled buffers from a reserved project path | Accepted | — |
 
 "OQ n" refers to the numbered open questions in [proposal.md §11](../proposal.md#11-open-questions), which
 now points here rather than restating the answers.

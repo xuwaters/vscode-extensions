@@ -1,3 +1,4 @@
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -121,7 +122,22 @@ export function resolveRoot(config: Config, document?: vscode.Uri): string {
       ? config.host.rootPath
       : path.join(workspaceRoot(document) ?? process.cwd(), config.host.rootPath);
   }
-  return workspaceRoot(document) ?? path.dirname(document?.fsPath ?? process.cwd());
+  return workspaceRoot(document) ?? documentRoot(document);
+}
+
+/**
+ * The root to use when no workspace folder answers the question.
+ *
+ * A file falls back to its own directory. An untitled buffer has no directory,
+ * and this is its common case — a scratch document in a window with no folder
+ * open — so the temporary directory stands in. Everything downstream assumes
+ * the root is a real absolute path it can build `file:` URIs from, and a
+ * relative `.` would produce URIs nothing can resolve. Nothing is read from
+ * there: an untitled buffer is served from the editor's copy of its text.
+ */
+function documentRoot(document?: vscode.Uri): string {
+  if (!document) return process.cwd();
+  return document.scheme === 'file' ? path.dirname(document.fsPath) : os.tmpdir();
 }
 
 function workspaceRoot(document?: vscode.Uri): string | undefined {

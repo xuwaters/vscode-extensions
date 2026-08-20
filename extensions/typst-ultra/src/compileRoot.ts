@@ -390,6 +390,11 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
    */
   async suggestEntry(blank: vscode.Uri): Promise<void> {
     if (this.entry) return;
+    // An untitled buffer cannot be part of a larger document: nothing on disk
+    // can import a file that has no path. So its blank preview means "you have
+    // not typed anything yet", and offering to pin `main.typ` over the top of
+    // a scratch document would answer a question nobody asked.
+    if (blank.scheme !== 'file') return;
     if (this.context.workspaceState.get<boolean>(SUGGESTED_KEY)) return;
 
     const candidates = await this.candidates(blank);

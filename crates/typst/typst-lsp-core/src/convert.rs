@@ -98,11 +98,27 @@ pub fn range_from_lsp(source: &Source, range: LspRange) -> Range<usize> {
     start..end.max(start)
 }
 
+/// Where an editor buffer with no file behind it lives inside the project.
+///
+/// `untitled:Untitled-1` is a document like any other — the editor holds its
+/// text, the compiler can compile it — but it has no path, and every typst
+/// [`FileId`] *is* a path under a root. Upstream typst offers two roots, the
+/// project and a package (decision 0001 rules out adding a third), so an
+/// untitled buffer is given a project path here, in a directory reserved for
+/// exactly that. The open-document overlay in `typst_session::Vfs` answers every
+/// read of it, so the directory never has to exist on disk.
+///
+/// The name is one nobody types by accident, because the mapping runs both
+/// ways: a real file under this directory would be reported back to the editor
+/// as an untitled buffer.
+const UNTITLED_DIR: &str = ".typst-ultra/untitled";
+
 /// Maps between workspace URIs and typst file ids.
 ///
 /// Project files hang off the compile root; package files hang off the package
 /// cache directory, which the host reports at startup because only it knows
-/// where typst-cli keeps things on this platform.
+/// where typst-cli keeps things on this platform. Untitled buffers hang off
+/// [`UNTITLED_DIR`], which is neither.
 #[derive(Debug, Clone)]
 pub struct UriMap {
     /// `file:///path/to/project`, no trailing slash.
@@ -132,6 +148,11 @@ impl UriMap {
     pub fn to_file_id(&self, uri: &Uri) -> Option<FileId> {
         let uri = decode(uri.as_str());
 
+        if let Some(name) = untitled_name(&uri) {
+            let vpath = VirtualPath::new(format!("{UNTITLED_DIR}/{name}")).ok()?;
+            return Some(FileId::new(RootedPath::new(VirtualRoot::Project, vpath)));
+        }
+
         if let Some(rest) = strip_root(&uri, &decode(&self.root)) {
             let vpath = VirtualPath::new(rest).ok()?;
             return Some(FileId::new(RootedPath::new(VirtualRoot::Project, vpath)));
@@ -160,7 +181,10 @@ impl UriMap {
         let vpath = path.vpath().get_without_slash();
 
         let text = match path.root() {
-            VirtualRoot::Project => format!("{}/{}", self.root, encode(vpath)),
+            VirtualRoot::Project => match untitled_part(vpath) {
+                Some(name) => format!("untitled:{}", encode(name)),
+                None => format!("{}/{}", self.root, encode(vpath)),
+            },
             VirtualRoot::Package(spec) => format!(
                 "{}/{}/{}/{}/{}",
                 self.package_root.as_ref()?,
@@ -173,6 +197,26 @@ impl UriMap {
 
         text.parse().ok()
     }
+}
+
+/// The buffer name inside an `untitled:` URI, if it names one we can hold.
+///
+/// A leading slash is dropped, so the two shapes VSCode produces — the bare
+/// `untitled:Untitled-1` of a new buffer and the `untitled:/path/to/draft.typ`
+/// of one that already knows where it will be saved — name the same thing. A
+/// `..` segment is refused rather than normalized: it would walk the path back
+/// out of [`UNTITLED_DIR`] and land on a real project file, which the buffer
+/// would then shadow.
+fn untitled_name(uri: &str) -> Option<&str> {
+    let name = uri.strip_prefix("untitled:")?.trim_start_matches('/');
+    let usable = !name.is_empty() && !name.split('/').any(|segment| segment == "..");
+    usable.then_some(name)
+}
+
+/// The buffer name inside a project path under [`UNTITLED_DIR`], if it is one.
+fn untitled_part(vpath: &str) -> Option<&str> {
+    let rest = vpath.strip_prefix(UNTITLED_DIR)?.strip_prefix('/')?;
+    (!rest.is_empty()).then_some(rest)
 }
 
 fn strip_root<'a>(uri: &'a str, root: &str) -> Option<&'a str> {
@@ -286,6 +330,60 @@ mod tests {
         let id = map.to_file_id(&uri).expect("spaces are still inside the root");
         assert_eq!(id.get().vpath().get_with_slash(), "/a file.typ");
         assert_eq!(map.to_uri(id).unwrap().as_str(), uri.as_str());
+    }
+
+    #[test]
+    fn untitled_buffers_map_to_a_reserved_project_path_and_back() {
+        let map = UriMap::new("file:///home/u/proj", None);
+        let uri: Uri = "untitled:Untitled-1".parse().unwrap();
+
+        let id = map.to_file_id(&uri).expect("an untitled buffer is compilable");
+        assert_eq!(
+            id.get().vpath().get_with_slash(),
+            "/.typst-ultra/untitled/Untitled-1"
+        );
+        // The way back matters as much as the way in: diagnostics, jumps and
+        // go-to-definition all address the editor through `to_uri`, and a
+        // `file:` URI would send them to a file that does not exist.
+        assert_eq!(map.to_uri(id).unwrap().as_str(), uri.as_str());
+    }
+
+    #[test]
+    fn an_untitled_buffer_with_a_path_keeps_it() {
+        let map = UriMap::new("file:///home/u/proj", None);
+        let uri: Uri = "untitled:/drafts/Untitled-2.typ".parse().unwrap();
+
+        let id = map.to_file_id(&uri).expect("still an untitled buffer");
+        assert_eq!(
+            id.get().vpath().get_with_slash(),
+            "/.typst-ultra/untitled/drafts/Untitled-2.typ"
+        );
+        // The leading slash is not part of the name, so it does not come back.
+        assert_eq!(map.to_uri(id).unwrap().as_str(), "untitled:drafts/Untitled-2.typ");
+    }
+
+    #[test]
+    fn an_untitled_name_cannot_climb_out_of_its_directory() {
+        let map = UriMap::new("file:///home/u/proj", None);
+        let escaping: Uri = "untitled:../../main.typ".parse().unwrap();
+        assert!(map.to_file_id(&escaping).is_none());
+
+        let unnamed: Uri = "untitled:".parse().unwrap();
+        assert!(map.to_file_id(&unnamed).is_none());
+    }
+
+    #[test]
+    fn a_real_file_in_the_reserved_directory_is_reported_as_untitled() {
+        // The documented cost of borrowing a project path: the mapping runs
+        // both ways, so a checked-in `.typst-ultra/untitled/` would be
+        // addressed as buffers. The name is chosen to make that not happen.
+        let map = UriMap::new("file:///home/u/proj", None);
+        let uri: Uri = "file:///home/u/proj/.typst-ultra/untitled/notes.typ"
+            .parse()
+            .unwrap();
+
+        let id = map.to_file_id(&uri).expect("inside the root");
+        assert_eq!(map.to_uri(id).unwrap().as_str(), "untitled:notes.typ");
     }
 
     #[test]
