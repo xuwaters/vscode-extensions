@@ -60,6 +60,16 @@ commands), and mirrors external document changes back into the engine.
   what runs once is `:` commands and undo, which already cover the document.
 - Mouse clicks and drags work: a drag enters visual mode.
 
+## Settings
+
+- `vimUltra.enabled` (default `true`) — modal editing on at startup;
+  `Vim Ultra: Toggle Vim Mode` flips it for the session.
+- `vimUltra.escapeAlwaysExitsInsert` (default `true`) — `escape` leaves insert
+  mode even when a popup would otherwise eat it: with the suggestion widget
+  open it closes the widget *and* drops you into normal mode, rather than
+  spending the key on the widget and leaving you still typing. Turn it off for
+  VSCode's two-press behaviour.
+
 ## Not yet implemented
 
 Marks, macros, dot-repeat, named registers, replace mode (`R`), block visual

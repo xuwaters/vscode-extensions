@@ -2,7 +2,7 @@
   "name": "wx-vsce-vim-ultra",
   "displayName": "Vim Ultra",
   "description": "Modal Vim editing on a Rust/WASM engine — motions, operators, text objects, counts, registers, visual modes, multiple cursors, regex search (/ ? n N * #) and search-and-replace (:s). Partial Vim: no other ex commands, macros, marks, dot-repeat, named registers, replace mode, or block visual.",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -30,6 +30,20 @@
         "command": "vimUltra.key",
         "args": "<esc>",
         "when": "editorTextFocus && vimUltra.active && !suggestWidgetVisible && !findWidgetVisible && !parameterHintsVisible && !renameInputVisible && !inlineSuggestionVisible"
+      },
+      {
+        "key": "escape",
+        "command": "runCommands",
+        "args": {
+          "commands": [
+            "hideSuggestWidget",
+            {
+              "command": "vimUltra.key",
+              "args": "<esc>"
+            }
+          ]
+        },
+        "when": "editorTextFocus && vimUltra.active && vimUltra.mode == 'insert' && suggestWidgetVisible && config.vimUltra.escapeAlwaysExitsInsert"
       },
       {
         "key": "enter",
@@ -148,6 +162,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable Vim modal editing on startup."
+        },
+        "vimUltra.escapeAlwaysExitsInsert": {
+          "type": "boolean",
+          "default": true,
+          "description": "Escape leaves insert mode even when a popup would otherwise consume it: the suggestion widget closes and you land in normal mode in one press. Turn this off for VSCode's behaviour, where the first Escape only closes the widget and a second one leaves insert mode."
         }
       }
     }
