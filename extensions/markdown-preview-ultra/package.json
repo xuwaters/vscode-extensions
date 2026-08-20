@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -217,49 +217,49 @@
         "command": "markdownPreviewUltra.showPreviewToSide",
         "key": "ctrl+k v",
         "mac": "cmd+k v",
-        "when": "editorLangId == markdown || editorLangId == mdx"
+        "when": "(editorLangId == markdown || editorLangId == mdx) && !terminalFocus"
       },
       {
         "command": "markdownPreviewUltra.setModeSplit",
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
-        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor"
+        "when": "(editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus"
       },
       {
         "command": "markdownPreviewUltra.toggleFocus",
         "key": "ctrl+k ctrl+v",
         "mac": "cmd+k cmd+v",
-        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview"
+        "when": "(editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview) && !terminalFocus"
       },
       {
         "command": "markdownPreviewUltra.togglePreviewLock",
         "key": "ctrl+k ctrl+l",
         "mac": "cmd+k cmd+l",
-        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview"
+        "when": "(editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview) && !terminalFocus"
       },
       {
         "command": "markdownPreviewUltra.navigateBack",
         "key": "alt+left",
         "mac": "ctrl+alt+-",
-        "when": "activeWebviewPanelId == markdownPreviewUltra.preview"
+        "when": "activeWebviewPanelId == markdownPreviewUltra.preview && !terminalFocus"
       },
       {
         "command": "markdownPreviewUltra.navigateForward",
         "key": "alt+right",
         "mac": "ctrl+alt+shift+-",
-        "when": "activeWebviewPanelId == markdownPreviewUltra.preview"
+        "when": "activeWebviewPanelId == markdownPreviewUltra.preview && !terminalFocus"
       },
       {
         "command": "markdownPreviewUltra.cycleMode",
         "key": "ctrl+k ctrl+m",
         "mac": "cmd+k cmd+m",
-        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor"
+        "when": "(editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus"
       },
       {
         "command": "markdownPreviewUltra.toggleEditPreview",
         "key": "ctrl+k ctrl+p",
         "mac": "cmd+k cmd+p",
-        "when": "editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor"
+        "when": "(editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus"
       }
     ],
     "configuration": {
