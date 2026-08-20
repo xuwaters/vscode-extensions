@@ -1,0 +1,58 @@
+{
+  "name": "vscode-extensions",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+
+  // NET_ADMIN and NET_RAW are what let init-firewall.sh install the egress
+  // allowlist. They are granted to the container, not to the user inside it:
+  // the sudoers rule in the Dockerfile means only that one script can use them.
+  "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"],
+
+  "remoteUser": "vscode",
+
+  "containerEnv": {
+    // Rust's target dir is thousands of small files. On a macOS bind mount that
+    // is painfully slow, so it lives on a named volume outside the workspace.
+    "CARGO_TARGET_DIR": "/home/vscode/.cache/cargo-target",
+
+    // The pnpm store has to sit on the same filesystem as node_modules or pnpm
+    // silently degrades from hardlinks to copies. .pnpm-store is already in
+    // .gitignore, so keeping it in the workspace costs nothing.
+    "npm_config_store_dir": "${containerWorkspaceFolder}/.pnpm-store",
+
+    // Dev Containers forwards the host's SSH agent by default. Clearing this
+    // means a compromised build script cannot sign or authenticate as you.
+    // Do git pushes on the host.
+    "SSH_AUTH_SOCK": ""
+  },
+
+  "mounts": [
+    // Both paths exist in the image owned by `vscode`, which is what makes the
+    // fresh volumes come up writable without a startup chown.
+    "source=vsce-cargo-registry,target=/usr/local/cargo/registry,type=volume",
+    "source=vsce-cargo-target,target=/home/vscode/.cache/cargo-target,type=volume"
+  ],
+
+  // The firewall goes up before postCreateCommand runs `pnpm install`, because
+  // that install is itself untrusted code execution. onCreateCommand is the
+  // first lifecycle hook; postStartCommand re-runs on every start to pick up
+  // rotated CDN addresses.
+  "onCreateCommand": "sudo /usr/local/sbin/init-firewall.sh",
+  "postStartCommand": "sudo /usr/local/sbin/init-firewall.sh",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vitest.explorer"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
