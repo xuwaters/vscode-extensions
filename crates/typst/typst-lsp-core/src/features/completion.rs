@@ -75,6 +75,10 @@ impl<Q: Ports> Server<Q> {
             .map(|(index, completion)| to_item(completion, range, index))
             .collect();
 
+        // The arguments a function accepts through a sink, which no signature
+        // records — plus the doc comments upstream does not look for.
+        self.document_named_arguments(&source, cursor, explicit, &mut items);
+
         // Postfix entries come last and sort last: a real field on the value is
         // nearly always the better answer (P4-13).
         items.extend(self.postfix_completions(&source, cursor));

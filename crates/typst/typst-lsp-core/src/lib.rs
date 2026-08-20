@@ -22,6 +22,7 @@ pub mod bib;
 pub mod capabilities;
 pub mod convert;
 pub mod dispatch;
+pub mod docs;
 pub mod features;
 pub mod settings;
 pub mod state;

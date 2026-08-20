@@ -12,6 +12,7 @@ use lsp_types::{
 use typst::foundations::{CastInfo, Func, ParamInfo, Repr};
 use typst::syntax::{LinkedNode, Side, SyntaxKind, ast};
 
+use crate::docs::DocComment;
 use crate::{Ports, Server};
 
 impl<Q: Ports> Server<Q> {
@@ -44,11 +45,47 @@ impl<Q: Ports> Server<Q> {
         let func = self.resolve_callee(&call_node, &call)?;
         let active = active_parameter(&call_node, cursor);
 
+        let mut signature = signature_of(&func);
+        // A closure carries no documentation of its own; the comment above it
+        // does, and that is where a package's parameter docs live.
+        if let Some(docs) = self.doc_comment_of(&func) {
+            document_signature(&mut signature, &docs);
+        }
+
         Some(SignatureHelp {
-            signatures: vec![signature_of(&func)],
+            signatures: vec![signature],
             active_signature: Some(0),
             active_parameter: active.map(|index| index as u32),
         })
+    }
+}
+
+/// Attach a doc comment's prose to a signature and its entries to the
+/// parameters they describe.
+fn document_signature(signature: &mut SignatureInformation, docs: &DocComment) {
+    if signature.documentation.is_none() {
+        signature.documentation = Some(Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: docs.markdown().to_string(),
+        }));
+    }
+
+    for parameter in signature.parameters.iter_mut().flatten() {
+        if parameter.documentation.is_some() {
+            continue;
+        }
+        let ParameterLabel::Simple(label) = &parameter.label else { continue };
+        // The label is `..name`, `name`, `name: types`, or `name = default`.
+        let name = label.trim_start_matches('.').split([':', ' ']).next().unwrap_or("");
+        let Some(entry) = docs.param(name) else { continue };
+        if entry.docs.is_empty() {
+            continue;
+        }
+
+        parameter.documentation = Some(Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: entry.docs.to_string(),
+        }));
     }
 }
 
@@ -64,8 +101,9 @@ fn signature_of(func: &Func) -> SignatureInformation {
         .zip(&rendered)
         .map(|(param, rendered)| ParameterInformation {
             label: ParameterLabel::Simple(rendered.clone()),
-            // Only native functions carry parameter documentation; a closure
-            // defined in the document has none to show.
+            // Only native functions carry parameter documentation here; a
+            // closure's comes from the doc comment above it, which
+            // `document_signature` fills in afterwards.
             documentation: param
                 .to_native()
                 .filter(|native| !native.docs.is_empty())

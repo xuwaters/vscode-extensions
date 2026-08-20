@@ -9,6 +9,7 @@ pub mod code_lens;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;
+pub mod doc_params;
 pub mod folding;
 pub mod formatting;
 pub mod hover;

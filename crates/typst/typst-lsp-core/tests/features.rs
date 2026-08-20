@@ -6,7 +6,7 @@
 
 mod support;
 
-use serde_json::json;
+use serde_json::{Value, json};
 use support::{Harness, at, diagnostics_in, events_named};
 
 // ── Diagnostics ──────────────────────────────────────────────────────────────
@@ -134,6 +134,191 @@ fn completion_preserves_upstreams_relevance_order() {
     let mut sorted = sorts.clone();
     sorted.sort_unstable();
     assert_eq!(sorts, sorted, "sortText must follow the returned order");
+}
+
+// ── Doc comments ─────────────────────────────────────────────────────────────
+//
+// `tests/fixtures/drawlib` is a cetz-shaped library: doc comments in the
+// ecosystem's convention, arguments taken through a sink and read back out of
+// a style dictionary. What such a function declares and what it accepts are
+// two different lists, and only the second one is any use in an editor.
+
+/// A call into `drawlib`, with the cursor where the marker sits.
+fn drawlib(call: &str) -> (Harness, lsp_types::Uri, lsp_types::Position) {
+    let mut harness = Harness::new();
+    let text = format!("#import \"drawlib/shapes.typ\": *\n#{call}\n");
+    let (uri, position) = harness.open_with_cursor("main.typ", &text);
+    (harness, uri, position)
+}
+
+/// Every completion label, in the order returned.
+fn labels(result: &Value) -> Vec<String> {
+    result["items"]
+        .as_array()
+        .expect("a completion list")
+        .iter()
+        .map(|item| item["label"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+/// The item with a given label.
+fn item<'a>(result: &'a Value, label: &str) -> &'a Value {
+    result["items"]
+        .as_array()
+        .expect("a completion list")
+        .iter()
+        .find(|item| item["label"] == json!(label))
+        .unwrap_or_else(|| panic!("no `{label}` in {:?}", labels(result)))
+}
+
+/// The reported bug: `circle` accepts `radius`, and nothing offered it.
+#[test]
+fn an_argument_a_sink_swallows_is_still_completed() {
+    let (mut harness, uri, position) = drawlib("circle((0, 0), /* CURSOR */)");
+
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    let labels = labels(&result);
+    assert!(labels.contains(&"radius".to_string()), "{labels:?}");
+
+    let radius = item(&result, "radius");
+    assert_eq!(radius["textEdit"]["newText"], json!("radius: $1"));
+    assert_eq!(radius["detail"], json!("radius: number, array = 1"));
+    assert!(
+        radius["documentation"]["value"]
+            .as_str()
+            .unwrap()
+            .contains("size of the circle's radius")
+    );
+
+    // The declared parameters must still be there, and still first.
+    assert_eq!(&labels[..2], ["name", "anchor"], "{labels:?}");
+}
+
+/// The docs name the keys worth knowing about; the style dictionary has the
+/// rest, and `fill` and `stroke` are always in the rest.
+#[test]
+fn the_style_root_fills_in_what_the_docs_leave_out() {
+    let (mut harness, uri, position) = drawlib("circle((0, 0), /* CURSOR */)");
+
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    let labels = labels(&result);
+    assert!(labels.contains(&"fill".to_string()), "{labels:?}");
+    assert!(labels.contains(&"stroke".to_string()), "{labels:?}");
+    assert_eq!(item(&result, "fill")["detail"], json!("fill = auto"));
+}
+
+/// `*Root:*` under a `==` heading with no keys of its own: the other spelling
+/// the ecosystem uses, and the dictionary is then the only source.
+#[test]
+fn a_root_with_no_documented_keys_still_resolves() {
+    let (mut harness, uri, position) =
+        drawlib("ellipse-through((0, 0), (1, 1), /* CURSOR */)");
+
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    let labels = labels(&result);
+    for expected in ["radius", "stroke", "fill"] {
+        assert!(labels.contains(&expected.to_string()), "{labels:?}");
+    }
+}
+
+#[test]
+fn an_argument_already_written_is_not_offered_again() {
+    let (mut harness, uri, position) = drawlib("circle((0, 0), radius: 2, /* CURSOR */)");
+
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    let labels = labels(&result);
+    assert!(!labels.contains(&"radius".to_string()), "{labels:?}");
+    assert!(labels.contains(&"fill".to_string()), "{labels:?}");
+}
+
+/// Past the colon the cursor is writing a value; a key name there is noise.
+#[test]
+fn a_value_position_gets_no_argument_names() {
+    let (mut harness, uri, position) = drawlib("circle((0, 0), radius: /* CURSOR */)");
+
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    assert!(!labels(&result).contains(&"fill".to_string()));
+}
+
+/// Nothing is invented for a function that declares everything it takes.
+#[test]
+fn a_function_without_a_sink_is_left_alone() {
+    let (mut harness, uri, position) = drawlib("label-at((0, 0), /* CURSOR */)");
+
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    assert_eq!(labels(&result), ["text"]);
+}
+
+/// Upstream looks for a comment directly above each parameter, which is not
+/// where the convention puts them.
+#[test]
+fn a_declared_parameter_takes_its_docs_from_the_comment_above_the_function() {
+    let (mut harness, uri, position) = drawlib("circle((0, 0), /* CURSOR */)");
+
+    let result = harness.request("textDocument/completion", at(&uri, position));
+    let name = item(&result, "name");
+    assert_eq!(name["detail"], json!("name: none, str"));
+    assert!(
+        name["documentation"]["value"]
+            .as_str()
+            .unwrap()
+            .contains("anchor other elements"),
+        "{:?}",
+        name["documentation"]
+    );
+}
+
+/// A doc comment says far more than its first sentence, which is all
+/// `typst-ide` reads out of one.
+#[test]
+fn hover_on_a_documented_function_shows_the_whole_comment() {
+    let (mut harness, uri, position) = drawlib("cir/* CURSOR */cle((0, 0))");
+
+    let result = harness.request("textDocument/hover", at(&uri, position));
+    let value = result["contents"]["value"].as_str().expect("a hover");
+
+    assert!(value.starts_with("Draws a circle or ellipse."), "{value}");
+    assert!(value.contains("**Styling**"), "the sections are markdown: {value}");
+    assert!(value.contains("- radius (number, array) = 1"), "{value}");
+    assert!(value.contains("```typst"), "examples keep their fences: {value}");
+}
+
+#[test]
+fn hover_on_an_argument_a_sink_swallows_explains_it() {
+    let (mut harness, uri, position) = drawlib("circle((0, 0), rad/* CURSOR */ius: 2)");
+
+    let result = harness.request("textDocument/hover", at(&uri, position));
+    let value = result["contents"]["value"].as_str().expect("a hover");
+    assert!(value.contains("radius: number, array = 1"), "{value}");
+    assert!(value.contains("size of the circle's radius"), "{value}");
+}
+
+#[test]
+fn signature_help_documents_a_closure_from_its_doc_comment() {
+    let (mut harness, uri, position) = drawlib("circle((0, 0), /* CURSOR */)");
+
+    let result = harness.request("textDocument/signatureHelp", at(&uri, position));
+    let signature = &result["signatures"][0];
+    assert_eq!(
+        signature["label"],
+        json!("circle(..points-style, name = none, anchor = none)")
+    );
+    assert!(
+        signature["documentation"]["value"]
+            .as_str()
+            .unwrap()
+            .contains("Draws a circle or ellipse.")
+    );
+
+    let sink = &signature["parameters"][0];
+    assert_eq!(sink["label"], json!("..points-style"));
+    assert!(
+        sink["documentation"]["value"]
+            .as_str()
+            .unwrap()
+            .contains("The position to place the circle on."),
+        "{sink:?}"
+    );
 }
 
 // ── Hover ────────────────────────────────────────────────────────────────────

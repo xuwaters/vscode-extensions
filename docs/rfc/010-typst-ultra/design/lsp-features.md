@@ -129,6 +129,36 @@ prefix, so a real field on the value always wins.
 One more thing we add: **`sortText` on every item**, derived from upstream's returned order. Without it a
 client re-sorts alphabetically and throws away the relevance ranking.
 
+**Arguments a signature does not declare.** `param_completions` reads `Func::params()`, which for a large
+part of the package ecosystem is not the list of arguments the function accepts. A drawing library takes
+them through a sink and reads them back out of a style dictionary:
+
+```typst
+#let circle(..points-style, name: none, anchor: none) = {
+  let style = styles.resolve(ctx.style, merge: points-style.named(), root: "circle")
+}
+```
+
+`circle((0, 0), radius: 2, fill: red)` is how that function is meant to be called and `radius` appears in
+no signature, so nothing offered it. The names are written down in two other places, and `docs.rs` +
+`features/doc_params.rs` read both:
+
+- the doc comment's `Styling` section, in the convention `tidy` established and the ecosystem follows —
+  entries as `- radius (number, array) = 1: …`, the root as ``*Root*: `circle` ``; and
+- the style dictionary that root names, which libraries keep as a `default` dictionary keyed by root
+  (`(circle: (radius: auto, stroke: auto, fill: auto), …)`), reached by evaluating the defining file's
+  imports through `analyze_import`. The docs list the keys that are *interesting*; the dictionary has the
+  ones that merely work — `fill` and `stroke` are documented nowhere and accepted everywhere.
+
+Both are conventions rather than language features, so every step fails soft: a function that follows
+neither gets nothing added. The gate on *where* to offer them mirrors upstream's `complete_params` exactly,
+down to the replacement offset, so the added items edit like the declared ones and a value position
+(`radius: |`) gets none of them.
+
+The same parse fills in what upstream's `find_param_docs` cannot: it looks for a comment written directly
+above each parameter, and the ecosystem writes them in the function's own comment instead. Declared
+parameters therefore arrive with `detail` and documentation too.
+
 ### 3.2 Hover
 
 ```rust
@@ -142,8 +172,15 @@ string; `Code` becomes a fenced ` ```typst ` block. `side` comes from whether th
 boundary — we pass `Side::Before` and retry with `Side::After` on `None`, matching how upstream's own tests
 probe.
 
-We extend the hover with one thing of ours: when the hovered node is a label or reference and a compiled
+We extend the hover with two things of ours. When the hovered node is a label or reference and a compiled
 document exists, we append the page number it resolves to.
+
+And a doc comment answers with the whole comment rather than its first sentence. Upstream finds the comment
+above a closure and then calls `summary()` on it, which drops the parameter list, the examples, and the
+style keys — for a library like cetz, most of what the function's documentation says. We render the whole
+thing as markdown instead (`= Heading` → bold, ` ```example ` → ` ```typst `), and hovering a *named
+argument* answers from the same parse, including the arguments the signature never declares. Signature help
+takes its documentation from there too, since a closure carries none of its own.
 
 ### 3.3 Goto-definition
 

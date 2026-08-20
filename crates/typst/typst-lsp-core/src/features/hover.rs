@@ -1,8 +1,10 @@
-//! Hover — `typst_ide::tooltip`, plus one extension of ours.
+//! Hover — `typst_ide::tooltip`, plus two extensions of ours.
 //!
 //! Upstream covers named-parameter docs, font information, label previews, and
 //! import targets. We add the page number a label resolves to, which is the
-//! thing you actually want to know when hovering `@intro` in a long document.
+//! thing you actually want to know when hovering `@intro` in a long document —
+//! and a package's doc comment in full, where upstream shows its first
+//! sentence (see `features::doc_params`).
 
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 use typst::syntax::{LinkedNode, Side, SyntaxKind};
@@ -23,6 +25,21 @@ impl<Q: Ports> Server<Q> {
         }
 
         let (_, source, cursor) = self.locate(&position.text_document.uri, position.position)?;
+
+        // A doc comment says more than upstream reads out of it: it takes the
+        // first sentence and drops the parameter list, the examples, and the
+        // style keys — which for a library like cetz is most of what the
+        // function's documentation says.
+        if let Some(value) = self.doc_comment_hover(&source, cursor) {
+            let leaf = LinkedNode::new(source.root()).leaf_at(cursor, Side::Before);
+            return Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: value.to_string(),
+                }),
+                range: leaf.map(|leaf| range_to_lsp(&source, leaf.range())),
+            });
+        }
 
         // Upstream's own tests probe both sides: which one carries the tooltip
         // depends on whether the cursor sits at a token boundary.

@@ -12,8 +12,12 @@ download, no code signing.
 - Diagnostics as you type, including errors inside imported files, filed under
   the right URI with the `#import` chain attached
 - Completion — 181 items at a bare cursor, context-aware across code, markup,
-  math, parameters, imports, labels, and packages
-- Hover, with the page number a label resolves to
+  math, parameters, imports, labels, and packages — including the arguments a
+  package takes through a `..sink` and documents in a doc comment, which no
+  signature records (cetz's `circle(.., radius: 2, fill: red)`)
+- Hover, with the page number a label resolves to, and a package's own doc
+  comment in full — parameters, examples, and style keys, not just its first
+  sentence
 - Goto-definition for local bindings, imports, package items, and labels — from
   `@intro` and from `<intro>` used as a value in code alike
 - Find references and rename, for labels and local bindings
