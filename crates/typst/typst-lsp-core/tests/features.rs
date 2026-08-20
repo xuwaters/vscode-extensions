@@ -240,6 +240,69 @@ fn definition_of_a_path_that_is_not_there_answers_null() {
     assert_eq!(result, json!(null), "a path that resolves nowhere is no jump");
 }
 
+#[test]
+fn definition_of_a_reference_jumps_to_the_label_that_declares_it() {
+    let mut harness = Harness::new();
+    let text = "= Intro <intro>\n\nSee @in/* CURSOR */tro.\n";
+    let (uri, position) = harness.open_with_cursor("main.typ", text);
+
+    let result = harness.request("textDocument/definition", at(&uri, position));
+    assert_eq!(result["uri"], json!(uri.as_str()));
+    assert_eq!(result["range"]["start"], json!({ "line": 0, "character": 8 }));
+    assert_eq!(result["range"]["end"], json!({ "line": 0, "character": 15 }));
+}
+
+#[test]
+fn definition_of_a_label_used_as_a_value_jumps_to_its_declaration() {
+    let mut harness = Harness::new();
+    let text = "= Intro <intro>\n\n#context counter(heading).at(<in/* CURSOR */tro>)\n";
+    let (uri, position) = harness.open_with_cursor("main.typ", text);
+
+    let result = harness.request("textDocument/definition", at(&uri, position));
+    assert_eq!(
+        result["range"]["start"],
+        json!({ "line": 0, "character": 8 }),
+        "`<intro>` in code names the label markup declares: {result:#}"
+    );
+}
+
+#[test]
+fn definition_of_a_label_reaches_across_the_compile_graph() {
+    let mut harness = Harness::new();
+    harness.open("chapter.typ", "= Intro <intro>\n");
+    let text = "#include \"chapter.typ\"\n\n#context counter(heading).at(<in/* CURSOR */tro>)\n";
+    let (uri, position) = harness.open_with_cursor("main.typ", text);
+    harness.compile(&uri);
+
+    let result = harness.request("textDocument/definition", at(&uri, position));
+    assert!(
+        result["uri"].as_str().unwrap_or_default().ends_with("chapter.typ"),
+        "got {result}"
+    );
+}
+
+#[test]
+fn definition_of_a_label_answers_without_a_compiled_document() {
+    let mut harness = Harness::new();
+    // `#lorem()` takes an integer; this document does not compile, which is the
+    // normal state of one being edited.
+    let text = "= Intro <intro>\n\n#lorem(\"x\")\n\nSee @in/* CURSOR */tro.\n";
+    let (uri, position) = harness.open_with_cursor("main.typ", text);
+    harness.compile(&uri);
+
+    let result = harness.request("textDocument/definition", at(&uri, position));
+    assert_eq!(result["range"]["start"]["line"], json!(0), "got {result}");
+}
+
+#[test]
+fn definition_standing_on_a_label_declaration_answers_null() {
+    let mut harness = Harness::new();
+    let (uri, position) = harness.open_with_cursor("main.typ", "= Intro <in/* CURSOR */tro>\n");
+
+    let result = harness.request("textDocument/definition", at(&uri, position));
+    assert_eq!(result, json!(null), "the declaration is where a jump would land");
+}
+
 // ── References and rename ────────────────────────────────────────────────────
 
 #[test]
@@ -268,6 +331,41 @@ fn references_respects_include_declaration() {
     let result = harness.request("textDocument/references", params);
 
     assert_eq!(result.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn references_counts_a_label_used_in_code_as_a_use_not_a_declaration() {
+    let mut harness = Harness::new();
+    let text =
+        "= Intro <in/* CURSOR */tro>\n\nSee @intro.\n\n#context counter(heading).at(<intro>)\n";
+    let (uri, position) = harness.open_with_cursor("main.typ", text);
+
+    let mut params = at(&uri, position);
+    params["context"] = json!({ "includeDeclaration": false });
+    let result = harness.request("textDocument/references", params);
+
+    let locations = result.as_array().expect("a location list");
+    assert_eq!(
+        locations.len(),
+        2,
+        "`@intro` and the `<intro>` argument, but not the declaration: {locations:#?}"
+    );
+    assert_eq!(locations[0]["range"]["start"]["line"], json!(2));
+    assert_eq!(locations[1]["range"]["start"]["line"], json!(4));
+}
+
+#[test]
+fn references_from_a_label_used_in_code_finds_the_whole_set() {
+    let mut harness = Harness::new();
+    let text =
+        "= Intro <intro>\n\nSee @intro.\n\n#context counter(heading).at(<in/* CURSOR */tro>)\n";
+    let (uri, position) = harness.open_with_cursor("main.typ", text);
+
+    let mut params = at(&uri, position);
+    params["context"] = json!({ "includeDeclaration": true });
+    let result = harness.request("textDocument/references", params);
+
+    assert_eq!(result.as_array().unwrap().len(), 3, "{result:#?}");
 }
 
 #[test]

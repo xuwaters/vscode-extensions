@@ -3,7 +3,10 @@
 //! `typst-ide` gives the resolution primitives; the search is ours.
 //!
 //! * **Labels and references** (`<intro>` / `@intro`) are the common case and
-//!   the reliable one: a syntax walk over every file in the compile graph.
+//!   the reliable one: a syntax walk over every file in the compile graph. Note
+//!   that `<intro>` is two different things depending on mode: in markup it
+//!   declares the label, in code — `#context counter(heading).at(<intro>)` — it
+//!   is a label value, which is a use like `@intro` is.
 //! * **Local bindings** (`#let x = …`) resolve through `named_items`, inverted:
 //!   find the definition, then collect the identifiers in the file that resolve
 //!   to the same definition span.
@@ -174,19 +177,79 @@ impl<Q: Ports> Server<Q> {
     }
 
     /// Every file the compile graph touched, plus the workspace files the host
-    /// reported, deduplicated.
+    /// reported, deduplicated. The file asked about comes first, so a search
+    /// that stops at its first hit prefers the one the reader is looking at.
     pub(crate) fn graph_files(&self, current: FileId) -> Vec<FileId> {
-        let mut ids = self.session().world().files();
+        let mut ids = vec![current];
+        for id in self.session().world().files() {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
         for id in &self.workspace_files {
             if !ids.contains(id) {
                 ids.push(*id);
             }
         }
-        if !ids.contains(&current) {
-            ids.push(current);
-        }
         ids
     }
+
+    /// The label name the cursor sits on — `<intro>` in either mode, or
+    /// `@intro` — without its delimiters.
+    pub(crate) fn label_at(&self, source: &Source, cursor: usize) -> Option<String> {
+        let root = LinkedNode::new(source.root());
+        let leaf = root
+            .leaf_at(cursor, Side::Before)
+            .or_else(|| root.leaf_at(cursor, Side::After))?;
+        enclosing_label_name(&leaf, source)
+    }
+
+    /// Where a label is declared: the one `<name>` written in markup, which is
+    /// the only spelling that attaches a label to content.
+    ///
+    /// This is a syntax walk rather than a query against the compiled document,
+    /// so the jump still works while the document is mid-edit and failing to
+    /// compile — which is most of the time a reader presses F12.
+    pub(crate) fn label_declaration(
+        &self,
+        current: FileId,
+        name: &str,
+    ) -> Option<Location> {
+        for id in self.graph_files(current) {
+            if super::bibtex::is_bib(id) {
+                continue;
+            }
+            let Ok(source) = self.session().world().source(id) else { continue };
+            let Some(uri) = self.uris().to_uri(id) else { continue };
+
+            let mut found = None;
+            walk(&LinkedNode::new(source.root()), &mut |node| {
+                if found.is_some() || !is_label_declaration(node) {
+                    return;
+                }
+                let range = node.range();
+                let Some(text) = source.text().get(range.clone()) else { return };
+                if text.trim_matches(['<', '>']) == name {
+                    found = Some(range);
+                }
+            });
+
+            if let Some(range) = found {
+                return Some(Location { uri, range: range_to_lsp(&source, range) });
+            }
+        }
+        None
+    }
+}
+
+/// Whether a `Label` node declares its label rather than merely naming it.
+///
+/// The two are spelled identically and differ only by mode: a declaration is a
+/// markup element, while a label value sits inside code — as an argument, the
+/// right-hand side of a `let`, a `show` rule's selector. Markup is the only
+/// parent a declaration ever has.
+fn is_label_declaration(node: &LinkedNode) -> bool {
+    node.kind() == SyntaxKind::Label && node.parent_kind() == Some(SyntaxKind::Markup)
 }
 
 /// The label name the cursor is inside, if any.
@@ -217,7 +280,8 @@ fn label_occurrences(
 
         let matches = match node.kind() {
             SyntaxKind::Label => {
-                include_declaration && text.trim_matches(['<', '>']) == name
+                text.trim_matches(['<', '>']) == name
+                    && (include_declaration || !is_label_declaration(node))
             }
             SyntaxKind::Ref => text.trim_start_matches('@') == name,
             _ => false,

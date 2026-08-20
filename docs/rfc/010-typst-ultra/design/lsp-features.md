@@ -15,10 +15,10 @@ Legend for **Source**:
 | `textDocument/publishDiagnostics` | 🟡 | 1 | `typst::compile` warnings + errors, span-mapped |
 | `textDocument/completion` | 🟢 | 2 | `typst_ide::autocomplete` — 181 items at a bare cursor |
 | `textDocument/hover` | 🟢 | 2 | `typst_ide::tooltip` |
-| `textDocument/definition` | 🟢 | 2 | `typst_ide::definition` |
+| `textDocument/definition` | 🟡 | 2 | `typst_ide::definition` + our label walk |
 | `textDocument/documentSymbol` | 🔵 | 2 | Syntax-tree walk |
 | `workspace/symbol` | 🔵 | 2 | Union of per-file symbol walks |
-| `textDocument/references` | 🟡 | 2 | `named_items` + `analyze_labels` + walk |
+| `textDocument/references` | 🟡 | 2 | `named_items` + syntax walk over the compile graph |
 | `textDocument/rename`, `prepareRename` | 🟡 | 2 | Same primitives, guarded |
 | `textDocument/semanticTokens/full`, `/full/delta` | 🟡 | 2 | `typst_syntax::highlight` → `Tag` |
 | `textDocument/foldingRange` | 🔵 | 2 | Syntax-tree walk |
@@ -158,6 +158,13 @@ pub enum Definition { Span(Span), File(FileId), Std(Value) }
   documentation through hover. (Tinymist opens a generated docs page here; that needs a docs pipeline we
   are not building in Phase 2.)
 
+**Labels are ours.** `typst-ide` resolves `@intro` by querying a compiled document's introspector, and does
+not resolve `<intro>` used as a value in code (`#context counter(heading).at(<intro>)`) at all. We answer
+both from a syntax walk over the compile graph, ahead of `typst-ide`: the target is the `<intro>` written in
+markup, which is the declaration `references` and `rename` already anchor on, and the walk keeps working
+while the document is mid-edit and failing to compile — which is most of the time a reader presses F12.
+Standing on the declaration itself we answer `null`, since the jump would land where the cursor already is.
+
 ---
 
 ## 4. Features we assemble (Phase 2)
@@ -220,8 +227,10 @@ semantic tokens are not a garnish — they are the primary coloring mechanism, a
 
 `typst-ide` gives the resolution primitives; the search is ours.
 
-- **Labels and references** (`<intro>` / `@intro`): `analyze_labels` on the compiled document plus a
-  syntax walk for `Ref` nodes. This is the common case and it is reliable.
+- **Labels and references** (`<intro>` / `@intro`): a syntax walk over every file in the compile graph.
+  This is the common case and it is reliable. `<intro>` is two different things depending on mode — in
+  markup it *declares* the label, in code it is a label value, a use like `@intro` is — so
+  `includeDeclaration: false` drops only the markup one.
 - **Local bindings** (`#let x = …`): `named_items` walks the scope chain from a node. We invert it —
   resolve the definition, then walk the file's tree collecting identifiers that resolve to the same
   definition span.

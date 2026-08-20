@@ -14,7 +14,8 @@ download, no code signing.
 - Completion — 181 items at a bare cursor, context-aware across code, markup,
   math, parameters, imports, labels, and packages
 - Hover, with the page number a label resolves to
-- Goto-definition for local bindings, imports, and package items
+- Goto-definition for local bindings, imports, package items, and labels — from
+  `@intro` and from `<intro>` used as a value in code alike
 - Find references and rename, for labels and local bindings
 - Document and workspace symbols, nested by heading level
 - Semantic tokens from the real parser — 22 tags, `full` and `full/delta`
