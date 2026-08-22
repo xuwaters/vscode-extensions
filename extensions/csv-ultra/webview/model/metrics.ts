@@ -71,6 +71,23 @@ export class ColumnMetrics {
     this.rebuild();
   }
 
+  /**
+   * Give several columns a width each, in one pass.
+   *
+   * Sizing a selection one column at a time would rebuild the prefix array once
+   * per column, which is quadratic in a number the reader picks — and picking
+   * every column is one keystroke.
+   */
+  setWidths(entries: Iterable<readonly [number, number]>): void {
+    let changed = false;
+    for (const [column, width] of entries) {
+      if (column < 0) continue;
+      this.widths.set(column, this.clamp(width));
+      changed = true;
+    }
+    if (changed) this.rebuild();
+  }
+
   /** Whether this column has a width of its own, rather than the default. */
   isSized(column: number): boolean {
     return this.widths.has(column);
@@ -203,6 +220,17 @@ export class RowMetrics {
     if (row < 0) return;
     this.heights.set(row, this.clamp(height));
     this.rebuild();
+  }
+
+  /** Give several rows a height each, in one pass — see `ColumnMetrics.setWidths`. */
+  setHeights(entries: Iterable<readonly [number, number]>): void {
+    let changed = false;
+    for (const [row, height] of entries) {
+      if (row < 0) continue;
+      this.heights.set(row, this.clamp(height));
+      changed = true;
+    }
+    if (changed) this.rebuild();
   }
 
   isSized(row: number): boolean {

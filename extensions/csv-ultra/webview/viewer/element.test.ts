@@ -725,6 +725,69 @@ describe('dragging a column edge and a row edge', () => {
     expect(styles('.row', 'height')[0]).toBe('50px');
     expect(styles('.row', 'top').slice(0, 2)).toEqual(['0px', '50px']);
   });
+
+  /** Double-click a point of the table — the auto-fit gesture. */
+  async function doubleClick([clientX, clientY]: [number, number]): Promise<void> {
+    must<HTMLElement>('.table').dispatchEvent(
+      new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX, clientY }),
+    );
+    await settle();
+  }
+
+  /** Drag across the two column heads, which selects both columns. */
+  const selectBothColumns = (): Promise<void> => drag([100, 10], [200, 10]);
+
+  /** Drag down the two row numbers. */
+  const selectTwoRows = (): Promise<void> => drag([10, 30], [10, 54]);
+
+  it('gives every selected column the width one of them was dragged to', async () => {
+    await selectBothColumns();
+    await drag([148, 10], [198, 10]);
+    // The blank column past the end of the file was not selected, so it stays.
+    expect(firstRow('width')).toEqual(['150px', '150px', '100px']);
+    expect(firstRow('left')).toEqual(['0px', '150px', '300px']);
+  });
+
+  it('sizes only the column the reader grabbed, when it is not one of the selected', async () => {
+    // Column 1 alone.
+    await drag([200, 10], [200, 10]);
+    await drag([148, 10], [198, 10]);
+    expect(firstRow('width')).toEqual(['150px', '100px', '100px']);
+  });
+
+  it('gives every selected row the height one of them was dragged to', async () => {
+    await selectTwoRows();
+    await drag([10, 44], [10, 74]);
+    expect(styles('.row', 'height').slice(0, 3)).toEqual(['50px', '50px', '20px']);
+    expect(styles('.row', 'top').slice(0, 3)).toEqual(['0px', '50px', '100px']);
+  });
+
+  it('sizes only the row the reader grabbed, when it is not one of the selected', async () => {
+    // Row 2 alone.
+    await drag([10, 90], [10, 90]);
+    await drag([10, 44], [10, 74]);
+    expect(styles('.row', 'height').slice(0, 3)).toEqual(['50px', '20px', '20px']);
+  });
+
+  // happy-dom lays nothing out, so a fitted column measures as empty and comes
+  // out at the minimum. Which columns it happened to is still the whole point.
+  it('fits every selected column when one of their edges is double-clicked', async () => {
+    await selectBothColumns();
+    await doubleClick([148, 10]);
+    expect(firstRow('width')).toEqual(['32px', '32px', '100px']);
+  });
+
+  it('fits every selected row when one of their edges is double-clicked', async () => {
+    await selectTwoRows();
+    await doubleClick([10, 44]);
+    expect(styles('.row', 'height').slice(0, 3)).toEqual(['12px', '12px', '20px']);
+  });
+
+  it('fits only the column double-clicked, when it is not one of the selected', async () => {
+    await drag([200, 10], [200, 10]);
+    await doubleClick([148, 10]);
+    expect(firstRow('width')).toEqual(['32px', '100px', '100px']);
+  });
 });
 
 describe('a value with newlines in it', () => {

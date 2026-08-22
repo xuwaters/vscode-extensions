@@ -52,8 +52,10 @@ they do everywhere else.
   format whose row order is often the data itself.
 
 - **Resize anything.** Drag a column's right edge or a row's bottom edge.
-  Double-click either edge to fit it to its content. Widths, heights, the sort
-  and the header choice are remembered per file, per workspace.
+  Double-click either edge to fit it to its content. Select several columns or
+  rows first and the edge speaks for all of them — one drag to give six columns
+  the same width, one double-click to fit each of them to its own. Widths,
+  heights, the sort and the header choice are remembered per file, per workspace.
 
 - **Copy and paste as a grid.** Copying puts tab-separated text on the
   clipboard, so it lands as cells in Excel, Numbers or Sheets. Pasting reads

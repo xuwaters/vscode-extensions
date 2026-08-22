@@ -25,6 +25,8 @@ import {
   cellCount,
   clampCell,
   extendTo,
+  hasColumn,
+  hasRow,
   reclamp,
   selectAll,
   selectColumns,
@@ -48,6 +50,17 @@ const PLACE_MS = 150;
 /** How far a keystroke moves the row height or the font size. */
 const HEIGHT_STEP = 4;
 const FONT_STEP = 1;
+
+/**
+ * Rows one gesture on a row's edge will size at once, at most.
+ *
+ * There is no such limit on columns: a file has as many columns as a person can
+ * name and as many rows as a machine can write. Fitting is the smaller number
+ * because every row of it costs a measure of every column, in the browser's own
+ * layout, one row at a time.
+ */
+const GROUP_ROWS = 4096;
+const GROUP_FIT_ROWS = 256;
 
 /** Most cells one Delete or paste will write. */
 const MAX_WRITE = 500_000;
@@ -280,16 +293,24 @@ export class CsvGrid extends FASTElement implements SheetView {
         onDragTo: (target) => this.onDragTo(target),
         onDragEnd: () => this.reportPlace(),
         onOpenEditor: (row, column) => this.beginEdit({ row, column }, true),
-        onColumnResized: (column, width) => {
-          this.columnMetrics.setWidth(column, width);
-          this.paint();
+        // Mid-drag it is the one column under the pointer; on release the size
+        // it settled at goes to everything selected with it.
+        onColumnResized: (column, width, done) => {
+          if (done) this.resizeColumns(column, width);
+          else {
+            this.columnMetrics.setWidth(column, width);
+            this.paint();
+          }
         },
-        onRowResized: (row, height) => {
-          this.rowMetrics.setHeight(row, height);
-          this.paint();
+        onRowResized: (row, height, done) => {
+          if (done) this.resizeRows(row, height);
+          else {
+            this.rowMetrics.setHeight(row, height);
+            this.paint();
+          }
         },
-        onFitColumn: (column) => this.fitColumns([column]),
-        onFitRow: (row) => this.fitRows([row]),
+        onFitColumn: (column) => this.fitColumns(this.columnGroup(column)),
+        onFitRow: (row) => this.fitRows(this.rowGroup(row)),
         onSortToggle: (column) => this.cycleSort(column),
         onScrolled: () => this.reportPlace(),
         onContext: (target, event) => this.openMenu(target, event),
@@ -1216,21 +1237,109 @@ export class CsvGrid extends FASTElement implements SheetView {
   }
 
   private fitColumns(columns: readonly number[]): void {
-    if (!this.sheet || columns.length === 0) return;
-    for (const column of columns) {
-      this.columnMetrics.setWidth(column, this.sheet.fitColumn(column, this.settings.maxColumnWidth));
-    }
+    const sheet = this.sheet;
+    if (!sheet || columns.length === 0) return;
+    this.columnMetrics.setWidths(
+      columns.map((column): [number, number] => [
+        column,
+        sheet.fitColumn(column, this.settings.maxColumnWidth),
+      ]),
+    );
     this.paint();
     this.reportPlace();
   }
 
   private fitRows(rows: readonly number[]): void {
-    if (!this.sheet) return;
-    for (const row of rows) {
-      this.rowMetrics.setHeight(row, this.sheet.fitRow(row, this.rowMetrics.max));
+    const sheet = this.sheet;
+    if (!sheet || rows.length === 0) return;
+    this.rowMetrics.setHeights(
+      rows.map((row): [number, number] => [row, sheet.fitRow(row, this.rowMetrics.max)]),
+    );
+    this.paint();
+    this.reportPlace();
+  }
+
+  /**
+   * Give a column a width, and every column selected with it the same one.
+   *
+   * Only on the release of the drag, never during it — see `onColumnResized`.
+   */
+  private resizeColumns(column: number, width: number): void {
+    this.columnMetrics.setWidths(
+      this.columnGroup(column).map((index): [number, number] => [index, width]),
+    );
+    this.paint();
+    this.reportPlace();
+  }
+
+  /**
+   * Give a row a height, and every row selected with it the same one.
+   *
+   * Every row at once is the one case that is not a list of rows: it is the
+   * *default* height being set. Two million remembered heights would be a map
+   * heavier than the file that earned it, and a layout memory with a pair in it
+   * for every row of the thing.
+   */
+  private resizeRows(row: number, height: number): void {
+    if (this.wholeTableSelected()) {
+      this.rowMetrics.clear();
+      this.rowMetrics.setDefault(height);
+    } else {
+      this.rowMetrics.setHeights(
+        this.rowGroup(row, GROUP_ROWS).map((index): [number, number] => [index, height]),
+      );
     }
     this.paint();
     this.reportPlace();
+  }
+
+  /**
+   * The columns one column's edge stands for.
+   *
+   * An edge on a column whose header is lit means every lit column — the
+   * spreadsheet's own rule, and the only way to give six columns one width
+   * without doing it six times. An edge outside the selection means that column
+   * alone: the reader grabbed *that* edge, not the selection.
+   */
+  private columnGroup(column: number): number[] {
+    if (!hasColumn(this.selection, column, this.bounds)) return [column];
+    const columns = selectedColumns(this.selection).filter((index) =>
+      hasColumn(this.selection, index, this.bounds),
+    );
+    return columns.length > 0 ? columns : [column];
+  }
+
+  /** The rows one row's edge stands for — see `columnGroup`, and `GROUP_ROWS`. */
+  private rowGroup(row: number, limit = GROUP_FIT_ROWS): number[] {
+    if (!hasRow(this.selection, row, this.bounds)) return [row];
+    // Counted before the list is built, rather than after: a band half a million
+    // rows deep would otherwise become a list that long on the way to being
+    // refused.
+    let selected = 0;
+    for (const rect of this.selection.ranges) {
+      if (rect.left === 0 && rect.right >= this.columns - 1) {
+        selected += rect.bottom - rect.top + 1;
+      }
+    }
+    if (selected > limit) {
+      this.say(`Too many rows selected — changed row ${this.rowNumber(row)} only`);
+      return [row];
+    }
+    const rows = selectedRows(this.selection).filter((index) =>
+      hasRow(this.selection, index, this.bounds),
+    );
+    return rows.length > 0 ? rows : [row];
+  }
+
+  /** Whether one range covers the whole table — what a select-all leaves behind. */
+  private wholeTableSelected(): boolean {
+    return this.selection.ranges.some(
+      (rect) =>
+        rect.top <= 0 &&
+        rect.left <= 0 &&
+        rect.bottom >= this.rows - 1 &&
+        rect.right >= this.columns - 1,
+    );
   }
 
   private resetLayout(): void {
