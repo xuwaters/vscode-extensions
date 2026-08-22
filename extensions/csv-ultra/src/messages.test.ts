@@ -99,7 +99,7 @@ describe('an edit, which is what makes these guards matter', () => {
 });
 
 describe('the commands the page may ask for', () => {
-  it('takes only the five the chrome has buttons for', () => {
+  it('takes only the ones the chrome has buttons for', () => {
     for (const command of HOST_COMMANDS) {
       expect(parseWebviewMessage({ type: 'run', command })).toEqual({ type: 'run', command });
     }

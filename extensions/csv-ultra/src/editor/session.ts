@@ -4,6 +4,7 @@ import {
   readGridSettings,
   readMaxFileSize,
   readQuoteStyle,
+  readReadOnly,
   readRememberLayout,
 } from '../config.js';
 import type { Dialect } from '../csv/dialect.js';
@@ -232,6 +233,14 @@ export class GridSession {
         break;
 
       case 'edit': {
+        // Read-only is the host's answer as well as the page's. The page guards
+        // every gesture that writes, but the page is not the authority on
+        // whether this file may be written — and it has already moved the cell
+        // on screen, so a refusal has to put the document back over the top.
+        if (readReadOnly(this.uri)) {
+          await this.load('external');
+          break;
+        }
         const dialect = this.dialect();
         const { table, length } = this.cache.of(this.document, dialect);
         const edits = editsFor(table, length, message.edit, readQuoteStyle(this.uri));

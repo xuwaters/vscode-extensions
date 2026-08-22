@@ -21,7 +21,38 @@ export function readGridSettings(uri?: vscode.Uri): GridSettings {
     wrap: config.get<boolean>('wrap') ?? false,
     zebraStripes: config.get<boolean>('zebraStripes') ?? true,
     alignNumbers: config.get<boolean>('alignNumbers') ?? true,
+    readOnly: readReadOnly(uri),
   };
+}
+
+/** Whether the table refuses to write — a mode, not a property of one file. */
+export function readReadOnly(uri?: vscode.Uri): boolean {
+  return at(uri).get<boolean>('readOnly') ?? false;
+}
+
+/**
+ * Flip read-only, and say where it landed.
+ *
+ * Written to the *settings* rather than held in memory, which is what makes the
+ * toolbar button outlast the tab it was pressed in: the next file opens read-only
+ * too, and every tab already open hears about it through `onDidChangeConfiguration`.
+ *
+ * It is written back to whichever scope already holds a value. Writing globally
+ * over a workspace `false` would leave the button doing nothing visible — the
+ * narrower scope wins the read — so the toggle edits the scope it is reading.
+ */
+export async function toggleReadOnly(uri?: vscode.Uri): Promise<boolean> {
+  const config = at(uri);
+  const scopes = config.inspect<boolean>('readOnly');
+  const target =
+    scopes?.workspaceFolderValue !== undefined
+      ? vscode.ConfigurationTarget.WorkspaceFolder
+      : scopes?.workspaceValue !== undefined
+        ? vscode.ConfigurationTarget.Workspace
+        : vscode.ConfigurationTarget.Global;
+  const next = !readReadOnly(uri);
+  await config.update('readOnly', next, target);
+  return next;
 }
 
 /** The configured delimiter, or `auto` — resolved against the file by `resolveDialect`. */

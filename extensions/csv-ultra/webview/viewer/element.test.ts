@@ -24,6 +24,7 @@ const settings: GridSettings = {
   wrap: false,
   zebraStripes: true,
   alignNumbers: true,
+  readOnly: false,
 };
 
 let grid: InstanceType<typeof CsvGrid>;
@@ -286,6 +287,171 @@ describe('editing a cell', () => {
       kind: 'cells',
       patches: [{ row: 3, column: 0, value: 'fig' }],
     });
+  });
+});
+
+/**
+ * The keys as the browser really delivers them — dispatched at the element the
+ * reader's focus is on, and left to bubble.
+ *
+ * The rest of the file calls `onKeydown` directly, which is the right way to ask
+ * what a key *means*; it cannot answer what a key *does*, because it misses both
+ * the template's binding above the table and the editor's listener below it.
+ * Everything in here is about those two.
+ */
+describe('the keys, dispatched the way a browser dispatches them', () => {
+  beforeEach(async () => {
+    await load('name,price\napple,3\npear,10\n');
+  });
+
+  const press = (target: EventTarget, init: KeyboardEventInit): KeyboardEvent => {
+    const event = new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    return event;
+  };
+
+  const editor = (): HTMLTextAreaElement => must<HTMLTextAreaElement>('.cell-editor');
+
+  it('lets a character be typed into an editor Enter opened', async () => {
+    press(must<HTMLElement>('.table'), { key: 'Enter' });
+    await settle();
+    expect(editor().hidden).toBe(false);
+    // The table's own keydown binding sits above the editor. Cancelling a key on
+    // its way up from a text box is cancelling the character.
+    expect(press(editor(), { key: 'a' }).defaultPrevented).toBe(false);
+  });
+
+  it('lets a character be typed into an editor a character opened', async () => {
+    press(must<HTMLElement>('.table'), { key: '3' });
+    await settle();
+    expect(editor().value).toBe('3');
+    expect(press(editor(), { key: '4' }).defaultPrevented).toBe(false);
+  });
+
+  it('lets the find box and the row box be typed into', async () => {
+    grid.handle({ type: 'command', command: 'find' });
+    await settle();
+    expect(press(must<HTMLInputElement>('.find-input'), { key: 'a' }).defaultPrevented).toBe(false);
+    expect(press(must<HTMLInputElement>('.row-input'), { key: '7' }).defaultPrevented).toBe(false);
+  });
+
+  it('still cancels the keys the table acts on itself', async () => {
+    const table = must<HTMLElement>('.table');
+    expect(press(table, { key: 'ArrowDown' }).defaultPrevented).toBe(true);
+    expect(press(table, { key: 'Tab' }).defaultPrevented).toBe(true);
+  });
+
+  it('closes the editor when Enter commits, rather than reopening it below', async () => {
+    press(must<HTMLElement>('.table'), { key: 'F2' });
+    await settle();
+    editor().value = 'quince';
+    press(editor(), { key: 'Enter' });
+    await settle();
+    expect(editor().hidden).toBe(true);
+    expect(grid.selection.active).toEqual({ row: 1, column: 0 });
+    expect(lastEdit()?.edit).toEqual({
+      kind: 'cells',
+      patches: [{ row: 1, column: 0, value: 'quince' }],
+    });
+  });
+
+  it('closes the editor when Tab commits', async () => {
+    press(must<HTMLElement>('.table'), { key: 'F2' });
+    await settle();
+    press(editor(), { key: 'Tab' });
+    await settle();
+    expect(editor().hidden).toBe(true);
+    expect(grid.selection.active).toEqual({ row: 0, column: 1 });
+  });
+
+  it('closes the editor when Escape throws the edit away', async () => {
+    press(must<HTMLElement>('.table'), { key: 'F2' });
+    await settle();
+    press(editor(), { key: 'Escape' });
+    await settle();
+    expect(editor().hidden).toBe(true);
+    expect(lastEdit()).toBeUndefined();
+  });
+});
+
+describe('a read-only table', () => {
+  beforeEach(async () => {
+    await load('name,price\napple,3\npear,10\n', { readOnly: true });
+  });
+
+  it('shows the toggle as pressed, with the padlock shut', async () => {
+    const shut = must('[aria-label="Toggle read-only"]');
+    expect(shut.getAttribute('aria-pressed')).toBe('true');
+    const shackle = (): string => must('[aria-label="Toggle read-only"] path').getAttribute('d') ?? '';
+    expect(shackle()).toBe('M5 7V4.8a3 3 0 016 0V7');
+
+    grid.handle({ type: 'settings', settings: { ...settings, readOnly: false } });
+    await settle();
+    expect(must('[aria-label="Toggle read-only"]').getAttribute('aria-pressed')).toBe('false');
+    // …and the padlock is open, because a tint alone does not say which way round.
+    expect(shackle()).not.toBe('M5 7V4.8a3 3 0 016 0V7');
+  });
+
+  it('asks the host to flip the setting, so the next file opens the same way', () => {
+    must<HTMLButtonElement>('[aria-label="Toggle read-only"]').click();
+    expect(posted).toContainEqual({ type: 'run', command: 'toggleReadOnly' });
+  });
+
+  it('opens no cell editor, whichever way the reader asks for one', async () => {
+    for (const key of ['Enter', 'F2', 'x']) {
+      grid.onKeydown(new KeyboardEvent('keydown', { key, cancelable: true }));
+    }
+    await settle();
+    expect(must<HTMLTextAreaElement>('.cell-editor').hidden).toBe(true);
+    expect(grid.notice).toBe('This table is read-only');
+    expect(lastEdit()).toBeUndefined();
+  });
+
+  it('writes nothing for Delete, a paste, or a structural change', async () => {
+    grid.onKeydown(new KeyboardEvent('keydown', { key: 'Delete', cancelable: true }));
+    grid.handle({ type: 'paste', text: 'x\ty' });
+    for (const command of ['insertRowBelow', 'deleteRows', 'insertColumnLeft', 'deleteColumns'] as const) {
+      grid.handle({ type: 'command', command });
+    }
+    await settle();
+    expect(lastEdit()).toBeUndefined();
+    expect(painted().get('0:0')).toBe('apple');
+  });
+
+  it('sorts the view but refuses to write the order down', async () => {
+    grid.handle({ type: 'command', command: 'sortDescending' });
+    await settle();
+    expect(painted().get('0:0')).toBe('pear');
+    // …and the chip offers no Write button to press.
+    expect(query('[aria-label="Write the sorted order into the file"]')).toBeNull();
+    grid.handle({ type: 'command', command: 'applySort' });
+    await settle();
+    expect(lastEdit()).toBeUndefined();
+  });
+
+  it('still copies, and offers a menu of only what it can do', async () => {
+    grid.onKeydown(new KeyboardEvent('keydown', { key: 'c', metaKey: true, cancelable: true }));
+    await settle();
+    expect(posted).toContainEqual({ type: 'clipboard', text: 'apple' });
+
+    must<HTMLElement>('.table').dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }),
+    );
+    await settle();
+    const labels = all('.menu-item').map((item) => item.textContent?.trim());
+    expect(labels).toEqual(['Copy']);
+  });
+
+  it('closes an open editor when the setting arrives mid-edit', async () => {
+    await load('name,price\napple,3\n');
+    grid.onKeydown(new KeyboardEvent('keydown', { key: 'F2', cancelable: true }));
+    await settle();
+    expect(must<HTMLTextAreaElement>('.cell-editor').hidden).toBe(false);
+
+    grid.handle({ type: 'settings', settings: { ...settings, readOnly: true } });
+    await settle();
+    expect(must<HTMLTextAreaElement>('.cell-editor').hidden).toBe(true);
+    expect(lastEdit()).toBeUndefined();
   });
 });
 

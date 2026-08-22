@@ -19,6 +19,25 @@ import type { CsvGrid, MenuItem } from './element.js';
 const apple = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
 const shortcut = (windows: string, mac: string): string => (apple ? mac : windows);
 
+/**
+ * A keydown binding that leaves the default action alone.
+ *
+ * A FAST event binding calls `preventDefault()` on the event unless the
+ * expression returns `true`, and for a keydown that is almost never what was
+ * meant. The table's handler sits *above* the cell editor, and the find and row
+ * boxes are text boxes — so the automatic cancel takes every character typed
+ * into any of the three, and the box that appears is a box you cannot type in.
+ *
+ * The handlers cancel the keys they actually act on themselves, one at a time,
+ * which is the only place that decision can be made correctly.
+ */
+const keys =
+  (handle: (grid: CsvGrid, event: KeyboardEvent) => void) =>
+  (grid: CsvGrid, context: { event: Event }): boolean => {
+    handle(grid, context.event as KeyboardEvent);
+    return true;
+  };
+
 const chrome = html<CsvGrid>`
   <div class="chrome" role="toolbar" aria-label="Table tools">
     <button
@@ -96,6 +115,42 @@ const chrome = html<CsvGrid>`
       </svg>
     </button>
 
+    <button
+      class="btn ${(x) => (x.readOnly ? 'on' : '')}"
+      title="${(x) =>
+        x.readOnly
+          ? 'Read-only — click to allow editing again'
+          : 'Read-only: look, don’t touch. Stays on for the next file you open.'}"
+      aria-label="Toggle read-only"
+      aria-pressed="${(x) => String(x.readOnly)}"
+      @click="${(x) => x.runHost('toggleReadOnly')}"
+    >
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <!--
+          Closed while read-only and open while not: the tint alone reads as
+          "this button is selected", which says nothing about which way round.
+        -->
+        <path
+          d="${(x) => (x.readOnly ? 'M5 7V4.8a3 3 0 016 0V7' : 'M5 7V4.8a3 3 0 015.9-.7')}"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linecap="round"
+        />
+        <rect
+          x="3.2"
+          y="7"
+          width="9.6"
+          height="6.4"
+          rx="1.2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.3"
+        />
+        <circle cx="8" cy="10.2" r="1.05" fill="currentColor" />
+      </svg>
+    </button>
+
     ${when(
       (x) => x.sort !== null,
       html<CsvGrid>`
@@ -105,14 +160,20 @@ const chrome = html<CsvGrid>`
             >Sorted by ${(x) => x.sortLabel}
             ${(x) => (x.sort?.direction === 'asc' ? '↑' : '↓')}</span
           >
-          <button
-            class="chip-btn"
-            title="Write this order into the file"
-            aria-label="Write the sorted order into the file"
-            @click="${(x) => x.applySort()}"
-          >
-            Write
-          </button>
+          <!-- Sorting is a view; only *writing* it down is an edit. -->
+          ${when(
+            (x) => !x.readOnly,
+            html<CsvGrid>`
+              <button
+                class="chip-btn"
+                title="Write this order into the file"
+                aria-label="Write the sorted order into the file"
+                @click="${(x) => x.applySort()}"
+              >
+                Write
+              </button>
+            `,
+          )}
           <button
             class="chip-btn"
             title="Back to the file's own order"
@@ -139,7 +200,7 @@ const chrome = html<CsvGrid>`
             ${ref('findInput')}
             :value="${(x) => x.findQuery}"
             @input="${(x, c) => x.onFindInput(c.event)}"
-            @keydown="${(x, c) => x.onFindKeydown(c.event as KeyboardEvent)}"
+            @keydown="${keys((x, event) => x.onFindKeydown(event))}"
           />
           <button
             class="mini ${(x) => (x.matchCase ? 'on' : '')}"
@@ -209,7 +270,7 @@ const chrome = html<CsvGrid>`
       @change="${(x, c) => x.onRowEntered(c.event)}"
       @focus="${(_, c) => (c.event.target as HTMLInputElement).select()}"
       @blur="${(x) => x.showRow()}"
-      @keydown="${(x, c) => x.onRowKeydown(c.event as KeyboardEvent)}"
+      @keydown="${keys((x, event) => x.onRowKeydown(event))}"
     />
     <span class="count">/ ${(x) => x.rowsLabel}</span>
 
@@ -225,7 +286,7 @@ const chrome = html<CsvGrid>`
 `;
 
 const table = html<CsvGrid>`
-  <div class="table" ${ref('tableEl')} tabindex="0" @keydown="${(x, c) => x.onKeydown(c.event as KeyboardEvent)}">
+  <div class="table" ${ref('tableEl')} tabindex="0" @keydown="${keys((x, event) => x.onKeydown(event))}">
     <!--
       Purely visual: the corner is hit-tested by geometry like every other
       region of the table, so it needs no ref and no listener of its own.

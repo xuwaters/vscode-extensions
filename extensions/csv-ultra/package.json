@@ -2,7 +2,7 @@
   "name": "wx-vsce-csv-ultra",
   "displayName": "CSV Ultra",
   "description": "CSV and TSV as a spreadsheet: an Excel-style custom editor with in-place editing, sorting, column and row selection, resizable columns and rows — plus rainbow column colours in the text editor and CSV ⇄ TSV conversion",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -158,6 +158,12 @@
         "icon": "$(symbol-string)"
       },
       {
+        "command": "csvUltra.toggleReadOnly",
+        "title": "Toggle Read-Only",
+        "category": "CSV Ultra",
+        "icon": "$(lock)"
+      },
+      {
         "command": "csvUltra.setDelimiter",
         "title": "Read With Delimiter…",
         "category": "CSV Ultra",
@@ -305,6 +311,10 @@
         { "command": "csvUltra.findPrevious", "when": "csvUltra.active" },
         { "command": "csvUltra.goToRow", "when": "csvUltra.active" },
         { "command": "csvUltra.toggleHeaderRow", "when": "csvUltra.active" },
+        {
+          "command": "csvUltra.toggleReadOnly",
+          "when": "csvUltra.active || editorLangId =~ /^(csv|tsv|psv)$/"
+        },
         { "command": "csvUltra.setDelimiter", "when": "csvUltra.active" },
         { "command": "csvUltra.convertDelimiter", "when": "csvUltra.active || editorLangId =~ /^(csv|tsv|psv)$/" },
         { "command": "csvUltra.convertToTsv", "when": "csvUltra.active || editorLangId =~ /^(csv|tsv|psv)$/" },
@@ -351,6 +361,11 @@
           "command": "csvUltra.autoFitColumns",
           "when": "activeCustomEditorId == 'csvUltra.editor'",
           "group": "navigation@4"
+        },
+        {
+          "command": "csvUltra.toggleReadOnly",
+          "when": "activeCustomEditorId == 'csvUltra.editor'",
+          "group": "navigation@5"
         },
         {
           "command": "csvUltra.open",
@@ -574,6 +589,11 @@
           "type": "boolean",
           "default": true,
           "description": "Right-align cells that hold a number, the way a spreadsheet does."
+        },
+        "csvUltra.readOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open tables read-only: no cell editing, no paste, no insert or delete, and no writing a sort into the file. Sorting, finding, resizing and copying still work. The lock in the table's toolbar toggles this setting, so it stays on for the next file you open."
         },
         "csvUltra.rememberLayout": {
           "type": "boolean",

@@ -30,6 +30,15 @@ export interface GridSettings {
   wrap: boolean;
   zebraStripes: boolean;
   alignNumbers: boolean;
+  /**
+   * Look, don't touch.
+   *
+   * A mode rather than a per-tab toggle, and deliberately: it is a setting, so
+   * it survives the tab it was turned on in and applies to the next file opened
+   * as well. Somebody reading a production export wants that to hold for the
+   * whole sitting, not for one tab until they forget.
+   */
+  readOnly: boolean;
 }
 
 /**
@@ -61,16 +70,18 @@ export interface GridLayout {
  *
  * A closed union rather than a command string, and validated against it, because
  * the other side of this message is `executeCommand`: a page that could name any
- * command could run any command in the window. These five are the ones with a
- * control in the table's own chrome — the dialogs and the editor swap, which a
- * webview cannot do for itself.
+ * command could run any command in the window. These are the ones with a control
+ * in the table's own chrome — the dialogs, the editor swap and the read-only
+ * switch, none of which a webview can do for itself.
  */
 export type HostCommand =
   | 'openInTextEditor'
   | 'setDelimiter'
   | 'convertDelimiter'
   | 'saveAsTsv'
-  | 'saveAsCsv';
+  | 'saveAsCsv'
+  /** Flips the setting; the change comes back to every tab as `settings`. */
+  | 'toggleReadOnly';
 
 export const HOST_COMMANDS: readonly HostCommand[] = [
   'openInTextEditor',
@@ -78,6 +89,7 @@ export const HOST_COMMANDS: readonly HostCommand[] = [
   'convertDelimiter',
   'saveAsTsv',
   'saveAsCsv',
+  'toggleReadOnly',
 ];
 
 /** What the title bar, a key, or the palette can ask the table to do. */

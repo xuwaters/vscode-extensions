@@ -68,6 +68,15 @@ they do everywhere else.
 - **Right-click** a cell, a row number or a column letter for insert, delete,
   sort and fit.
 
+- **A read-only lock.** The padlock in the toolbar puts the table into look,
+  don't touch: no cell editing, no paste, no insert or delete, no writing a sort
+  down. Sorting, finding, resizing and copying all still work, and the
+  right-click menu shrinks to what the table can actually do.
+
+  It is a *setting* (`csvUltra.readOnly`), not a per-tab switch, so it stays on
+  for every table you open until you turn it off — which is the point when you
+  are picking your way through a production export.
+
 - **A footer that adds up.** Select a block and it reports the count, how many
   cells are filled, and the sum, average, minimum and maximum of the numbers in
   it.
@@ -185,6 +194,7 @@ and the keyboard not to be in the terminal or an input box:
 | `csvUltra.wrap` | `false` | Wrap cell text instead of clipping it |
 | `csvUltra.zebraStripes` | `true` | Tint every other row |
 | `csvUltra.alignNumbers` | `true` | Right-align cells holding a number |
+| `csvUltra.readOnly` | `false` | Look, don't touch — the toolbar's padlock |
 | `csvUltra.rememberLayout` | `true` | Reopen with the widths, heights and sort you left |
 | `csvUltra.maxFileSizeBytes` | `33554432` | Largest file the table builds from |
 | `csvUltra.rainbow.enabled` | `true` | Colour the columns in the text editor |

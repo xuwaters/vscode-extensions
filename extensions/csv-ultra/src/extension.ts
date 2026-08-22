@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { toggleReadOnly } from './config.js';
 import { TableCache } from './document/table.js';
 import { CsvEditorProvider } from './editor/provider.js';
 import { Rainbow } from './text/rainbow.js';
@@ -64,6 +65,17 @@ export function activate(context: vscode.ExtensionContext): void {
     command('findNext', () => provider.run('findNext')),
     command('findPrevious', () => provider.run('findPrevious')),
     command('goToRow', () => provider.goToRow()),
+
+    // Not a grid command: it writes a *setting*, and the change comes back to
+    // every open tab — this one included — as a `settings` message. Round-
+    // tripping it through the page would have flipped one tab and left the rest.
+    command('toggleReadOnly', async () => {
+      const on = await toggleReadOnly(provider.activeUri());
+      void vscode.window.setStatusBarMessage(
+        `CSV Ultra: the table is ${on ? 'read-only' : 'editable'}`,
+        2000,
+      );
+    }),
 
     command('toggleHeaderRow', () => provider.run('toggleHeaderRow')),
     command('toggleWrap', () => provider.run('toggleWrap')),

@@ -148,6 +148,15 @@ export class CsvEditorProvider
     return this.sessions.size === 1 ? [...this.sessions][0] : undefined;
   }
 
+  /**
+   * The file a resource-scoped setting should be read and written for: the tab
+   * in front, or the text editor holding the same kind of file when there is no
+   * table open at all.
+   */
+  activeUri(): vscode.Uri | undefined {
+    return this.target()?.uri ?? this.activeDocument()?.uri;
+  }
+
   /** Run a grid command against the tab in front of the reader. */
   run(command: GridCommand): void {
     const session = this.target();

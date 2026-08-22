@@ -130,6 +130,7 @@ export class CsvGrid extends FASTElement implements SheetView {
    */
   @observable hasHeader = false;
   @observable wrap = false;
+  @observable readOnly = false;
 
   /** Bound by the template. */
   tableEl!: HTMLElement;
@@ -166,6 +167,7 @@ export class CsvGrid extends FASTElement implements SheetView {
     wrap: false,
     zebraStripes: true,
     alignNumbers: true,
+    readOnly: false,
   };
 
   /** Every record's values, padded, in file order. */
@@ -202,7 +204,7 @@ export class CsvGrid extends FASTElement implements SheetView {
     return this.columnCount + 1;
   }
 
-  /** Recompute the two flags the toolbar shows and the sheet draws from. */
+  /** Recompute the flags the toolbar shows and the sheet draws from. */
   private refreshFlags(): void {
     this.hasHeader =
       this.headerOverride ??
@@ -212,6 +214,21 @@ export class CsvGrid extends FASTElement implements SheetView {
           ? false
           : this.guessedHeader);
     this.wrap = this.wrapOverride ?? this.settings.wrap;
+    // No per-tab override, deliberately: read-only is a mode the reader turned
+    // on, and a tab that quietly kept writing would defeat the point of it.
+    this.readOnly = this.settings.readOnly;
+  }
+
+  /**
+   * Turn back a gesture that would write, and say why.
+   *
+   * Read-only is a mode, not a failure, so it answers in the footer where every
+   * other thing the table has to say goes — not in a dialog.
+   */
+  private refuse(): boolean {
+    if (!this.readOnly) return false;
+    this.say('This table is read-only');
+    return true;
   }
 
   get zebra(): boolean {
@@ -425,6 +442,9 @@ export class CsvGrid extends FASTElement implements SheetView {
   private applySettings(settings: GridSettings): void {
     this.settings = settings;
     this.refreshFlags();
+    // Locking the table with a cell editor open: the edit in it was never
+    // committed, and leaving the box there would only end in a refusal.
+    if (this.readOnly && this.sheet?.isEditing) this.cancelEdit();
     this.applyMetrics();
     this.rebuildOrder();
     this.sheet?.invalidate();
@@ -666,6 +686,11 @@ export class CsvGrid extends FASTElement implements SheetView {
    * to be active. The shortcuts that *are* contributed — find, go to row, the
    * font size — arrive as `command` messages instead, which is also what makes
    * them rebindable.
+   *
+   * Every key this handler acts on cancels itself, and the ones it does not act
+   * on are left strictly alone — the cell editor is drawn inside the table, so
+   * a keystroke arriving here on its way up from the editor is a character
+   * somebody is typing. See `keys` in the template for the other half of that.
    */
   onKeydown(event: KeyboardEvent): void {
     if (this.state !== 'ready' || this.sheet?.isEditing) return;
@@ -790,6 +815,19 @@ export class CsvGrid extends FASTElement implements SheetView {
     }
   }
 
+  /**
+   * The keys the cell editor answers to.
+   *
+   * The three it consumes stop here rather than being left to bubble. The
+   * editor is drawn *inside* the table, so an uncaught keystroke reaches the
+   * table's own handler — and by the time Enter gets there the edit it just
+   * committed is over, so the table reads it as "open an editor" and puts a
+   * fresh one on the cell below. The reader commits one cell and finds
+   * themselves editing the next.
+   *
+   * Everything else is left alone all the way up: the characters are the
+   * textarea's, and VSCode watches the same events for `⌘S` and its friends.
+   */
   private readonly onEditorKeydown = (event: KeyboardEvent): void => {
     const input = this.sheet?.input;
     if (!input) return;
@@ -797,10 +835,12 @@ export class CsvGrid extends FASTElement implements SheetView {
 
     if (event.key === 'Escape') {
       this.cancelEdit();
+      event.stopPropagation();
       event.preventDefault();
       return;
     }
     if (event.key === 'Enter') {
+      event.stopPropagation();
       if (event.altKey) {
         // Alt+Enter puts a line break *in the cell* — which the writer quotes,
         // so a multi-line value stays one field.
@@ -818,6 +858,7 @@ export class CsvGrid extends FASTElement implements SheetView {
       return;
     }
     if (event.key === 'Tab') {
+      event.stopPropagation();
       this.commitEdit();
       this.setSelection(
         atCell({ row: active.row, column: active.column + (event.shiftKey ? -1 : 1) }, this.bounds),
@@ -835,6 +876,7 @@ export class CsvGrid extends FASTElement implements SheetView {
 
   private beginEdit(cell: Cell, replace: boolean, seed?: string): void {
     if (this.state !== 'ready' || !this.sheet) return;
+    if (this.refuse()) return;
     const at = clampCell(cell, this.bounds);
     this.editingAt = at;
     const current = this.value(at.row, at.column);
@@ -871,6 +913,10 @@ export class CsvGrid extends FASTElement implements SheetView {
    */
   private write(patches: ReadonlyArray<{ cell: Cell; value: string }>): void {
     if (patches.length === 0) return;
+    // The backstop, under every gesture that writes cells. The callers refuse
+    // first, so they can say something better than "no" about what they were
+    // asked to do; this one is here so a path added later cannot slip past.
+    if (this.refuse()) return;
     const wire: CellPatch[] = [];
     let grew = false;
     // Where the file ends, taken once: the loop below appends to `records`, and
@@ -908,6 +954,7 @@ export class CsvGrid extends FASTElement implements SheetView {
   }
 
   private clearSelection(): void {
+    if (this.refuse()) return;
     const patches: Array<{ cell: Cell; value: string }> = [];
     for (const rect of this.selection.ranges) {
       for (let row = rect.top; row <= rect.bottom; row += 1) {
@@ -930,6 +977,7 @@ export class CsvGrid extends FASTElement implements SheetView {
   }
 
   private pasteText(text: string): void {
+    if (this.refuse()) return;
     const block = fromDelimited(text);
     if (block.length === 0) return;
     const { active } = this.selection;
@@ -958,6 +1006,7 @@ export class CsvGrid extends FASTElement implements SheetView {
   // ── Structure ─────────────────────────────────────────────────────────────
 
   private insertRows(below: boolean): void {
+    if (this.refuse()) return;
     const rows = selectedRows(this.selection).filter((row) => row < this.order.length);
     const anchor = rows.length > 0 ? (below ? rows[rows.length - 1]! : rows[0]!) : this.selection.active.row;
     const at = this.fileRow(anchor) + (below ? 1 : 0);
@@ -974,6 +1023,7 @@ export class CsvGrid extends FASTElement implements SheetView {
   }
 
   private deleteRows(): void {
+    if (this.refuse()) return;
     const rows = selectedRows(this.selection)
       .filter((row) => row < this.order.length)
       .map((row) => this.fileRow(row));
@@ -985,6 +1035,7 @@ export class CsvGrid extends FASTElement implements SheetView {
   }
 
   private insertColumns(right: boolean): void {
+    if (this.refuse()) return;
     const columns = selectedColumns(this.selection);
     const anchor = columns.length > 0 ? (right ? columns[columns.length - 1]! : columns[0]!) : this.selection.active.column;
     const count = Math.max(1, columns.length);
@@ -996,6 +1047,7 @@ export class CsvGrid extends FASTElement implements SheetView {
   }
 
   private deleteColumns(): void {
+    if (this.refuse()) return;
     const columns = selectedColumns(this.selection).filter((column) => column < this.columnCount);
     if (columns.length === 0) return this.say('No columns selected');
     this.host.post({ type: 'edit', edit: { kind: 'deleteColumns', columns } });
@@ -1032,6 +1084,7 @@ export class CsvGrid extends FASTElement implements SheetView {
 
   /** The template's Write button, and the palette's command. */
   applySort(): void {
+    if (this.refuse()) return;
     if (!this.sort) return this.say('Nothing is sorted');
     this.host.post({
       type: 'edit',
@@ -1271,11 +1324,24 @@ export class CsvGrid extends FASTElement implements SheetView {
   }
 
   private menuFor(target: PickTarget): MenuItem[] {
-    const items: MenuItem[] = [
-      { label: 'Copy', run: () => this.copy() },
+    const items: MenuItem[] = [{ label: 'Copy', run: () => this.copy() }];
+    // A read-only menu is the short one. Offering Delete rows and answering
+    // "no" would be a menu that lies about what the table will do.
+    if (this.readOnly) {
+      if (target.kind === 'column') {
+        items.push(
+          { label: 'Sort ascending', run: () => this.setSort({ column: target.column, direction: 'asc' }) },
+          { label: 'Sort descending', run: () => this.setSort({ column: target.column, direction: 'desc' }) },
+          { label: 'Fit width', run: () => this.fitColumns([target.column]) },
+        );
+      }
+      if (target.kind === 'row') items.push({ label: 'Fit height', run: () => this.fitRows([target.row]) });
+      return items;
+    }
+    items.push(
       { label: 'Paste', run: () => this.host.post({ type: 'requestPaste' }) },
       { label: 'Clear', run: () => this.clearSelection() },
-    ];
+    );
     if (target.kind !== 'column') {
       items.push(
         { label: 'Insert row above', run: () => this.insertRows(false) },
