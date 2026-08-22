@@ -353,25 +353,48 @@ impl Session {
         }
     }
 
-    /// A non-empty selection was made outside the engine (mouse drag):
-    /// enter charwise visual around it. Coordinates are VSCode-style
-    /// (end-exclusive); the engine keeps inclusive char positions.
-    pub fn set_selection(&mut self, anchor: Pos, active: Pos) -> Effects {
+    /// A non-empty selection was made outside the engine: enter charwise
+    /// visual around it. Coordinates are VSCode-style (end-exclusive); the
+    /// engine keeps inclusive char positions.
+    ///
+    /// `by_hand` is the host saying the user drew this selection themselves —
+    /// dragging with the pointer, or holding shift on the arrows. A selection
+    /// a *command* left behind is not an invitation to visual mode: the match
+    /// `cmd+f` leaves highlighted, or the placeholder a completion lands on,
+    /// is something the next keystroke clears or replaces. Entering visual
+    /// there is what makes the `j` after closing the find box extend a
+    /// selection nobody asked for.
+    ///
+    /// Insert mode is left by `<esc>` and nothing else, whoever made the
+    /// selection: `shift+arrow` and a snippet placeholder both mean "keep
+    /// typing", and typing over a selection is what any editor does.
+    pub fn set_selection(&mut self, anchor: Pos, active: Pos, by_hand: bool) -> Effects {
         let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
         self.pending = Pending::default();
         self.secondaries.clear();
-        if anchor <= active {
+        if !by_hand || self.mode == Mode::Insert {
+            // No visual anchor: the cursor goes where the host's caret is,
+            // and the body stays the host's business. A command that moves
+            // the caret ends visual mode (`set_position`); one that leaves a
+            // selection behind is no different.
+            if matches!(self.mode, Mode::Visual { .. }) {
+                self.mode = Mode::Normal;
+            }
+            self.cursor = self.clamp_to_mode(active);
+            self.anchor = self.cursor;
+        } else if anchor <= active {
             self.anchor = self.clamp_normal(anchor);
             self.cursor = self.clamp_normal(char_before(&self.buf, active));
+            self.mode = Mode::Visual { linewise: false };
         } else {
             self.anchor = self.clamp_normal(char_before(&self.buf, anchor));
             self.cursor = self.clamp_normal(active);
+            self.mode = Mode::Visual { linewise: false };
         }
-        self.mode = Mode::Visual { linewise: false };
         self.desired_col = self.cursor.col;
         Effects {
             mode: self.mode.label(),
-            selections: Vec::new(), // don't fight the mouse
+            selections: Vec::new(), // don't fight the host for its selection
             edits: Vec::new(),
             commands: Vec::new(),
             pending: String::new(),
@@ -383,12 +406,15 @@ impl Session {
     /// The editor's whole selection set changed: extra cursors were added
     /// (`cmd+alt+arrow`, `cmd+d`), removed, or moved as a group. Selections
     /// are VSCode-style (end-exclusive) with the primary first; one of them
-    /// takes the single-cursor paths above.
-    pub fn set_cursors(&mut self, sels: &[(Pos, Pos)]) -> Effects {
+    /// takes the single-cursor paths above. `by_hand` says the user drew the
+    /// selection rather than a command leaving it behind; see `set_selection`.
+    /// Several selections *with* bodies are `cmd+d` and friends, which are
+    /// visual mode at every cursor however they were made.
+    pub fn set_cursors(&mut self, sels: &[(Pos, Pos)], by_hand: bool) -> Effects {
         match sels {
             [] => self.set_position(self.cursor.line, self.cursor.col),
             [(anchor, active)] if anchor == active => self.set_position(active.line, active.col),
-            [(anchor, active)] => self.set_selection(*anchor, *active),
+            [(anchor, active)] => self.set_selection(*anchor, *active, by_hand),
             _ => self.set_multi_cursors(sels),
         }
     }
@@ -397,8 +423,11 @@ impl Session {
         let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
         self.pending = Pending::default();
         // Several selections with a body (`cmd+d` on a word, a multi-cursor
-        // drag) are visual mode at every cursor; bare cursors are not.
-        let visual = sels.iter().any(|(a, c)| a != c);
+        // drag) are visual mode at every cursor; bare cursors are not. Insert
+        // mode stays insert either way — see `set_selection`.
+        let insert = self.mode == Mode::Insert;
+        let bodied = sels.iter().any(|(a, c)| a != c);
+        let visual = !insert && bodied;
         self.mode = match self.mode {
             _ if visual => Mode::Visual { linewise: false },
             Mode::Insert => Mode::Insert,
@@ -407,7 +436,13 @@ impl Session {
         let mut states = Vec::with_capacity(sels.len());
         let mut clamped = false;
         for &(anchor, active) in sels {
-            let (a, c) = if anchor == active {
+            let (a, c) = if insert {
+                // No visual anchor while inserting: every cursor is its
+                // selection's head, and the host keeps the bodies.
+                let p = self.clamp_insert(active);
+                clamped |= p != active;
+                (p, p)
+            } else if anchor == active {
                 let p = self.clamp_to_mode(active);
                 clamped |= p != active;
                 (p, p)
@@ -433,9 +468,10 @@ impl Session {
         self.secondaries = states;
         Effects {
             mode: self.mode.label(),
-            // Only a normal-mode cursor sitting past the last char needs
-            // correcting; otherwise don't fight the editor for its selection.
-            selections: if clamped && !visual {
+            // Only a bare cursor sitting past what the mode allows needs
+            // correcting; otherwise don't fight the editor for its selection
+            // — collapsing it is what dropping a body would do here.
+            selections: if clamped && !bodied {
                 self.current_selections()
             } else {
                 Vec::new()

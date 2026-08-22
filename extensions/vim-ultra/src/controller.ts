@@ -15,6 +15,14 @@ const CENTER_PEEK_LINES = 15;
 
 type IndentCommand = Extract<EngineCommand, { kind: 'indentLines' }>;
 
+/** Did the user draw this selection, or did a command leave it behind? */
+function byHand(kind: vscode.TextEditorSelectionChangeKind | undefined): boolean {
+  return (
+    kind === vscode.TextEditorSelectionChangeKind.Mouse ||
+    kind === vscode.TextEditorSelectionChangeKind.Keyboard
+  );
+}
+
 /** Editor selections as the engine takes them; both count UTF-16 columns. */
 function enginePositions(sels: readonly vscode.Selection[]): EngineSelection[] {
   return sels.map((s) => ({
@@ -411,8 +419,11 @@ export class VimController implements vscode.Disposable {
     if (ser === this.mirrored) return; // our own write, engine knows
     this.mirrored = ser;
     // Every selection, not just the primary: extra cursors (cmd+alt+arrow,
-    // cmd+d) are cursors the engine drives too.
-    const fx = session.setCursors(enginePositions(e.selections));
+    // cmd+d) are cursors the engine drives too. Who made the selection
+    // decides whether a body means visual mode: the user's own pointer or
+    // shift+arrow does, a command's leftover highlight (the `cmd+f` match, a
+    // completion's placeholder — kind `Command`, or none at all) does not.
+    const fx = session.setCursors(enginePositions(e.selections), byHand(e.kind));
     if (fx) void this.applyEffects(e.textEditor, session, fx, true);
   }
 

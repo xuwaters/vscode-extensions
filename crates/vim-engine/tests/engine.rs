@@ -558,10 +558,84 @@ fn external_change_mirroring() {
 #[test]
 fn mouse_drag_enters_visual() {
     let mut s = session("hello world");
-    let fx = s.set_selection(Pos::new(0, 0), Pos::new(0, 5));
+    let fx = s.set_selection(Pos::new(0, 0), Pos::new(0, 5), true);
     assert_eq!(fx.mode, "visual");
     feed(&mut s, "d");
     assert_eq!(s.text(), " world");
+}
+
+#[test]
+fn a_commands_selection_does_not_enter_visual() {
+    // cmd+f, enter, escape: the find widget leaves its match selected. That
+    // highlight is not a visual selection — the `j` after it has to move the
+    // cursor, not drag a selection along.
+    let mut s = session("hello world\nsecond line");
+    let fx = s.set_selection(Pos::new(0, 6), Pos::new(0, 11), false);
+    assert_eq!(fx.mode, "normal");
+    assert!(fx.selections.is_empty()); // the host keeps its highlight
+    let fx = feed(&mut s, "j");
+    assert_eq!(fx.mode, "normal");
+    assert_eq!(actives(&fx), [(1, 10)]);
+    assert_eq!(fx.selections[0].anchor, fx.selections[0].active); // collapsed
+
+    // And searching from visual mode ends it, the way a command that moves
+    // the cursor does.
+    feed(&mut s, "v");
+    let fx = s.set_selection(Pos::new(0, 6), Pos::new(0, 11), false);
+    assert_eq!(fx.mode, "normal");
+}
+
+#[test]
+fn selection_while_inserting_stays_in_insert() {
+    // shift+right in insert mode: the host reports a selection with a body,
+    // which must not end the insert the way a mouse drag from normal mode
+    // starts visual.
+    let mut s = at("hello world", 0, 5);
+    feed(&mut s, "i");
+    let fx = s.set_selection(Pos::new(0, 5), Pos::new(0, 8), true);
+    assert_eq!(fx.mode, "insert");
+    assert_eq!(s.cursor(), Pos::new(0, 8));
+    // Nothing sent back: the host keeps the selection it just made.
+    assert!(fx.selections.is_empty());
+    // And the mode is still the one <esc> leaves.
+    let fx = feed(&mut s, "<esc>");
+    assert_eq!(fx.mode, "normal");
+    assert_eq!(s.cursor(), Pos::new(0, 7));
+}
+
+#[test]
+fn completion_placeholder_stays_in_insert() {
+    // Accepting a suggestion: the host replaces the typed word and selects
+    // the snippet placeholder it landed on. Still insert.
+    let mut s = at("con", 0, 3);
+    feed(&mut s, "a");
+    s.apply_change(Pos::new(0, 0), Pos::new(0, 3), "concat(sep)");
+    let fx = s.set_selection(Pos::new(0, 7), Pos::new(0, 10), false);
+    assert_eq!(fx.mode, "insert");
+    assert_eq!(s.text(), "concat(sep)");
+    // Typing over the placeholder is the host's business; the mode survives.
+    assert_eq!(s.mode_label(), "insert");
+}
+
+#[test]
+fn multi_selection_while_inserting_stays_in_insert() {
+    // Two placeholders of the same snippet, or shift+arrow with several
+    // cursors: bodies at every cursor, still insert.
+    let mut s = at("aa\naa", 0, 0);
+    feed(&mut s, "i");
+    let fx = s.set_cursors(
+        &[
+            (Pos::new(0, 0), Pos::new(0, 2)),
+            (Pos::new(1, 0), Pos::new(1, 2)),
+        ],
+        true,
+    );
+    assert_eq!(fx.mode, "insert");
+    assert!(fx.selections.is_empty());
+    assert_eq!(s.cursor(), Pos::new(0, 2));
+    let fx = feed(&mut s, "<esc>");
+    assert_eq!(fx.mode, "normal");
+    assert_eq!(actives(&fx), [(0, 1), (1, 1)]);
 }
 
 #[test]
@@ -1054,7 +1128,7 @@ fn cursors(s: &mut Session, at: &[(usize, usize)]) {
         .iter()
         .map(|&(line, col)| (Pos::new(line, col), Pos::new(line, col)))
         .collect();
-    s.set_cursors(&sels);
+    s.set_cursors(&sels, true);
 }
 
 /// Where every cursor ended up.
@@ -1155,10 +1229,13 @@ fn multi_cursor_linewise_delete() {
 fn multi_cursor_selections_are_visual_mode() {
     // cmd+d style: two selections with a body.
     let mut s = session("foo\nfoo");
-    s.set_cursors(&[
-        (Pos::new(0, 0), Pos::new(0, 3)),
-        (Pos::new(1, 0), Pos::new(1, 3)),
-    ]);
+    s.set_cursors(
+        &[
+            (Pos::new(0, 0), Pos::new(0, 3)),
+            (Pos::new(1, 0), Pos::new(1, 3)),
+        ],
+        false,
+    );
     assert_eq!(s.mode_label(), "visual");
     feed(&mut s, "d");
     assert_eq!(s.text(), "\n");

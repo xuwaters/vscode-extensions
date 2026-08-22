@@ -71,8 +71,9 @@ interface WasmSession {
     anchorCol: number,
     activeLine: number,
     activeCol: number,
+    byHand: boolean,
   ): string;
-  set_cursors(selectionsJson: string): string;
+  set_cursors(selectionsJson: string, byHand: boolean): string;
   take_edits(): Uint8Array;
   mode(): string;
   text(): string;
@@ -159,9 +160,15 @@ export class EngineSession {
     return this.parse(() => this.session?.set_position(line, col));
   }
 
-  setSelection(anchor: EnginePos, active: EnginePos): Effects | null {
+  setSelection(anchor: EnginePos, active: EnginePos, byHand = false): Effects | null {
     return this.parse(() =>
-      this.session?.set_selection(anchor.line, anchor.col, active.line, active.col),
+      this.session?.set_selection(
+        anchor.line,
+        anchor.col,
+        active.line,
+        active.col,
+        byHand,
+      ),
     );
   }
 
@@ -169,15 +176,20 @@ export class EngineSession {
    * The editor's whole selection set, primary first. One selection behaves
    * like `setPosition`/`setSelection`; more put the engine in multi-cursor
    * editing, where every key runs at every cursor.
+   *
+   * `byHand` says the user drew the selection (pointer drag, shift+arrow)
+   * rather than a command leaving it behind; only the former starts visual
+   * mode. Defaults to false: a cursor sync the controller does on its own
+   * account is nobody's drag.
    */
-  setCursors(selections: readonly EngineSelection[]): Effects | null {
+  setCursors(selections: readonly EngineSelection[], byHand = false): Effects | null {
     const wire = selections.map((s) => ({
       anchorLine: s.anchor.line,
       anchorCol: s.anchor.col,
       activeLine: s.active.line,
       activeCol: s.active.col,
     }));
-    return this.parse(() => this.session?.set_cursors(JSON.stringify(wire)));
+    return this.parse(() => this.session?.set_cursors(JSON.stringify(wire), byHand));
   }
 
   mode(): EngineMode {

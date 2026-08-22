@@ -130,17 +130,21 @@ impl Session {
         self.effects_json(fx)
     }
 
-    /// A non-empty selection was made outside the engine (mouse drag).
+    /// A non-empty selection was made outside the engine. `by_hand`: the user
+    /// drew it (pointer drag, shift+arrow) rather than a command leaving it
+    /// behind (`cmd+f`, a completion's placeholder).
     pub fn set_selection(
         &mut self,
         anchor_line: usize,
         anchor_col: usize,
         active_line: usize,
         active_col: usize,
+        by_hand: bool,
     ) -> String {
         let fx = self.inner.set_selection(
             Pos::new(anchor_line, anchor_col),
             Pos::new(active_line, active_col),
+            by_hand,
         );
         self.effects_json(fx)
     }
@@ -148,8 +152,8 @@ impl Session {
     /// The editor's whole selection set, primary first: a JSON array of
     /// `{anchorLine, anchorCol, activeLine, activeCol}`. Used when the editor
     /// has more than one cursor; one selection behaves like `set_position` /
-    /// `set_selection`.
-    pub fn set_cursors(&mut self, selections_json: &str) -> String {
+    /// `set_selection`, `by_hand` and all.
+    pub fn set_cursors(&mut self, selections_json: &str, by_hand: bool) -> String {
         let Ok(sels) = serde_json::from_str::<Vec<SelectionIn>>(selections_json) else {
             return "null".to_string();
         };
@@ -162,7 +166,7 @@ impl Session {
                 )
             })
             .collect();
-        let fx = self.inner.set_cursors(&sels);
+        let fx = self.inner.set_cursors(&sels, by_hand);
         self.effects_json(fx)
     }
 

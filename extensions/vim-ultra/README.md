@@ -58,7 +58,12 @@ commands), and mirrors external document changes back into the engine.
   cursor, so `c` changes each occurrence. What is shared is the mode, the
   register (`p` pastes the same text everywhere) and the search history;
   what runs once is `:` commands and undo, which already cover the document.
-- Mouse clicks and drags work: a drag enters visual mode.
+- Mouse clicks and drags work: a drag enters visual mode, and so does
+  `shift+arrow` from normal mode. A selection a *command* leaves behind does
+  not: the match still highlighted after `cmd+f`, or the placeholder a
+  completion lands on, leaves the mode alone — the next key moves the cursor
+  or types over the text, rather than dragging a visual selection along.
+  Insert mode is left by `escape` and nothing else.
 
 ## Settings
 

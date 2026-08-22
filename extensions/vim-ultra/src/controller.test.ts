@@ -6,8 +6,12 @@ import { VimController } from './controller';
 import { EngineSession, type SessionFactory } from './engine';
 import {
   EndOfLine,
+  Range,
   Selection,
+  TextEditorCursorStyle,
+  TextEditorSelectionChangeKind as Kind,
   resetStub,
+  stubCommands,
   stubEvents,
   window,
   type StubDocument,
@@ -73,6 +77,24 @@ function moveCursor(editor: StubEditor, line: number, col: number): void {
   stubEvents.selection.fire({ textEditor: editor, selections: editor.selections });
 }
 
+/**
+ * VSCode made a selection with a body. `kind` is how it says who made it:
+ * the pointer, the keyboard, a command — or nothing at all, which is what
+ * several of its own commands report.
+ */
+function select(editor: StubEditor, sel: Selection, kind?: number): void {
+  editor.selections = [sel];
+  stubEvents.selection.fire({ textEditor: editor, selections: editor.selections, kind });
+}
+
+/** The mode the controller last published to the `when`-clause context. */
+function contextMode(): unknown {
+  const set = stubCommands.filter(
+    (c) => c.command === 'setContext' && c.args[0] === 'vimUltra.mode',
+  );
+  return set.at(-1)?.args[1];
+}
+
 describe.skipIf(!built)('vim controller', () => {
   let controller: VimController;
 
@@ -119,5 +141,69 @@ describe.skipIf(!built)('vim controller', () => {
     doc.selections = [new Selection(2, 0, 2, 0)]; // moved with no event at all
     await controller.type('k');
     expect(doc.selections[0].active.line).toBe(1);
+  });
+
+  it('stays in insert when shift+arrow selects', async () => {
+    const doc = makeEditor('file:///a.ts', 'hello world', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    await controller.type('i');
+    expect(contextMode()).toBe('insert');
+
+    select(doc, new Selection(0, 0, 0, 5), Kind.Keyboard); // shift+right ×5
+    expect(contextMode()).toBe('insert');
+    expect(doc.options.cursorStyle).toBe(TextEditorCursorStyle.Line);
+    // The selection is the user's; the controller must not collapse it.
+    expect(doc.selections).toHaveLength(1);
+    expect(doc.selections[0].anchor).toEqual({ line: 0, character: 0 });
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 5 });
+  });
+
+  it('stays in insert when a suggestion lands on a placeholder', async () => {
+    // Tab on the suggest widget: the typed word is replaced and VSCode
+    // selects the snippet placeholder it landed on. That selection is not a
+    // reason to leave insert.
+    const doc = makeEditor('file:///a.ts', 'con', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    await controller.type('A'); // append: insert at the end of "con"
+    expect(contextMode()).toBe('insert');
+
+    stubEvents.docChange.fire({
+      document: doc.document,
+      contentChanges: [{ range: new Range(0, 0, 0, 3), text: 'concat(sep)' }],
+    });
+    select(doc, new Selection(0, 7, 0, 10), Kind.Command); // "sep" selected
+
+    expect(contextMode()).toBe('insert');
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 10 });
+  });
+
+  it('stays in normal mode when the find widget leaves a match selected', async () => {
+    // cmd+f, enter, escape: the match stays highlighted. Visual mode there
+    // turns the next `j` into a drag — the bug this pins.
+    const doc = makeEditor('file:///a.ts', 'hello world\nsecond line', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    select(doc, new Selection(0, 6, 0, 11), Kind.Command); // "world" found
+    expect(contextMode()).toBe('normal');
+
+    await controller.type('j');
+    expect(contextMode()).toBe('normal');
+    expect(doc.selections).toHaveLength(1);
+    expect(doc.selections[0].anchor).toEqual(doc.selections[0].active);
+    expect(doc.selections[0].active.line).toBe(1);
+  });
+
+  it('still enters visual when the pointer drags a selection', async () => {
+    const doc = makeEditor('file:///a.ts', 'hello world', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    select(doc, new Selection(0, 0, 0, 5), Kind.Mouse);
+    expect(contextMode()).toBe('visual');
   });
 });

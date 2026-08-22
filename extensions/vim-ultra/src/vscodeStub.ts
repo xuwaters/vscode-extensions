@@ -55,6 +55,7 @@ export const TextEditorRevealType = {
   AtTop: 3,
 } as const;
 export const TextEditorCursorStyle = { Line: 1, Block: 2 } as const;
+export const TextEditorSelectionChangeKind = { Keyboard: 1, Mouse: 2, Command: 3 } as const;
 
 export interface Disposable {
   dispose(): void;
