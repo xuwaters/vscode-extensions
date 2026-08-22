@@ -639,6 +639,62 @@ fn multi_selection_while_inserting_stays_in_insert() {
 }
 
 #[test]
+fn backwards_drag_keeps_the_last_character() {
+    // Dragging a line end-to-start. The press lands past the last character,
+    // where normal mode won't let the caret stay, so the click that opens the
+    // drag comes back clamped onto the last character — and the drag's anchor
+    // with it. Reading that anchor as the far end of the selection is what
+    // used to drop the last character of the line.
+    let mut s = session("hello world");
+    let fx = s.set_cursors(&[(Pos::new(0, 11), Pos::new(0, 11))], true);
+    assert_eq!(actives(&fx), [(0, 10)]);
+    let fx = s.set_selection(Pos::new(0, 10), Pos::new(0, 0), true);
+    assert_eq!(fx.mode, "visual");
+    // The host's highlight stopped one short of the 'd'; hand back the one
+    // that covers it, so what is painted is what `d` deletes.
+    assert_eq!(actives(&fx), [(0, 0)]);
+    assert_eq!(fx.selections[0].anchor, Pos::new(0, 11));
+    feed(&mut s, "d");
+    assert_eq!(s.text(), "");
+}
+
+#[test]
+fn backwards_drag_past_the_line_end_is_left_alone() {
+    // The widened anchor comes back to the host, which reports it on the next
+    // drag event: the engine must land on the same place and stop correcting.
+    let mut s = session("hello world");
+    let fx = s.set_selection(Pos::new(0, 11), Pos::new(0, 4), true);
+    assert_eq!(fx.mode, "visual");
+    assert!(fx.selections.is_empty()); // the host's highlight is already right
+    feed(&mut s, "d");
+    assert_eq!(s.text(), "hell");
+}
+
+#[test]
+fn backwards_drag_mid_line_matches_the_highlight() {
+    // Nowhere near the end of the line, the host's anchor really is one past
+    // the last character it covers — no widening.
+    let mut s = session("hello world");
+    let fx = s.set_selection(Pos::new(0, 6), Pos::new(0, 0), true);
+    assert_eq!(fx.mode, "visual");
+    assert!(fx.selections.is_empty());
+    feed(&mut s, "d");
+    assert_eq!(s.text(), "world");
+}
+
+#[test]
+fn backwards_drag_across_lines_keeps_the_line_it_started_on() {
+    // Same drag from the end of the second line up to the first: the anchor
+    // sits on that line's last character.
+    let mut s = session("one\ntwo\nthree");
+    let fx = s.set_selection(Pos::new(1, 2), Pos::new(0, 1), true);
+    assert_eq!(fx.mode, "visual");
+    assert_eq!(fx.selections[0].anchor, Pos::new(1, 3));
+    feed(&mut s, "d");
+    assert_eq!(s.text(), "o\nthree");
+}
+
+#[test]
 fn set_position_clamps_in_normal_mode() {
     let mut s = session("abc");
     let fx = s.set_position(0, 3); // vscode allows col==len; vim clamps

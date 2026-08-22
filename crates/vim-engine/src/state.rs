@@ -368,10 +368,17 @@ impl Session {
     /// Insert mode is left by `<esc>` and nothing else, whoever made the
     /// selection: `shift+arrow` and a snippet placeholder both mean "keep
     /// typing", and typing over a selection is what any editor does.
+    ///
+    /// A right-to-left drag reads its far end through `drag_start`, which is
+    /// where a line dragged end-to-start keeps its last character.
     pub fn set_selection(&mut self, anchor: Pos, active: Pos, by_hand: bool) -> Effects {
         let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
         self.pending = Pending::default();
         self.secondaries.clear();
+        // A drag anchored on the last character of a line covers it, so the
+        // host's highlight — which stops one character short — is the one that
+        // has to move. Every other case leaves the host's selection alone.
+        let mut widened = false;
         if !by_hand || self.mode == Mode::Insert {
             // No visual anchor: the cursor goes where the host's caret is,
             // and the body stays the host's business. A command that moves
@@ -387,14 +394,19 @@ impl Session {
             self.cursor = self.clamp_normal(char_before(&self.buf, active));
             self.mode = Mode::Visual { linewise: false };
         } else {
-            self.anchor = self.clamp_normal(char_before(&self.buf, anchor));
+            self.anchor = self.drag_start(anchor);
             self.cursor = self.clamp_normal(active);
             self.mode = Mode::Visual { linewise: false };
+            widened = self.anchor != self.clamp_normal(char_before(&self.buf, anchor));
         }
         self.desired_col = self.cursor.col;
         Effects {
             mode: self.mode.label(),
-            selections: Vec::new(), // don't fight the host for its selection
+            selections: if widened {
+                self.current_selections()
+            } else {
+                Vec::new() // don't fight the host for its selection
+            },
             edits: Vec::new(),
             commands: Vec::new(),
             pending: String::new(),
@@ -435,6 +447,9 @@ impl Session {
         };
         let mut states = Vec::with_capacity(sels.len());
         let mut clamped = false;
+        // See `set_selection`: a drag anchored on a line's last character
+        // covers it, and the host's highlight has to be widened to match.
+        let mut widened = false;
         for &(anchor, active) in sels {
             let (a, c) = if insert {
                 // No visual anchor while inserting: every cursor is its
@@ -452,10 +467,9 @@ impl Session {
                     self.clamp_normal(char_before(&self.buf, active)),
                 )
             } else {
-                (
-                    self.clamp_normal(char_before(&self.buf, anchor)),
-                    self.clamp_normal(active),
-                )
+                let start = self.drag_start(anchor);
+                widened |= start != self.clamp_normal(char_before(&self.buf, anchor));
+                (start, self.clamp_normal(active))
             };
             states.push(CursorState {
                 pos: c,
@@ -468,10 +482,11 @@ impl Session {
         self.secondaries = states;
         Effects {
             mode: self.mode.label(),
-            // Only a bare cursor sitting past what the mode allows needs
-            // correcting; otherwise don't fight the editor for its selection
-            // — collapsing it is what dropping a body would do here.
-            selections: if clamped && !bodied {
+            // Only a bare cursor sitting past what the mode allows, or a body
+            // the engine widened, needs correcting; otherwise don't fight the
+            // editor for its selection — collapsing it is what dropping a body
+            // would do here.
+            selections: if widened || (clamped && !bodied) {
                 self.current_selections()
             } else {
                 Vec::new()
@@ -669,6 +684,24 @@ impl Session {
         self.anchor = state.anchor;
         self.desired_col = state.desired_col;
         self.pending = state.pending;
+    }
+
+    /// The character a right-to-left drag started on, inclusive.
+    ///
+    /// The host's anchor is the far end of such a selection, one *past* the
+    /// last character it covers — except at the end of a line. Normal mode
+    /// keeps the caret off the position past the last character, so the click
+    /// that began the drag was pulled back onto that character, and the anchor
+    /// the host reports sits *on* it rather than after it. Stepping back from
+    /// there is what drops the last character of a line dragged end-to-start.
+    fn drag_start(&self, anchor: Pos) -> Pos {
+        let len = self.buf.line_len(anchor.line);
+        let inclusive = len > 0 && anchor.col >= self.last_char_col(anchor.line, len);
+        self.clamp_normal(if inclusive {
+            anchor
+        } else {
+            char_before(&self.buf, anchor)
+        })
     }
 
     /// Column of the last char on a line (0 when empty).
