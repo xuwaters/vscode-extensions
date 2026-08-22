@@ -577,7 +577,7 @@
         },
         "csvUltra.wrap": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Wrap a cell's text instead of clipping it. Rows keep their height — double-click a row's bottom edge to fit one to its wrapped content."
         },
         "csvUltra.zebraStripes": {

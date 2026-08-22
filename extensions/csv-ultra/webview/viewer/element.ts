@@ -129,7 +129,7 @@ export class CsvGrid extends FASTElement implements SheetView {
    * flipped. `refreshFlags` is the one place either is computed.
    */
   @observable hasHeader = false;
-  @observable wrap = false;
+  @observable wrap = true;
   @observable readOnly = false;
 
   /** Bound by the template. */
@@ -164,7 +164,7 @@ export class CsvGrid extends FASTElement implements SheetView {
     autoFitOnOpen: true,
     fontSize: 0,
     fontFamily: 'editor',
-    wrap: false,
+    wrap: true,
     zebraStripes: true,
     alignNumbers: true,
     readOnly: false,

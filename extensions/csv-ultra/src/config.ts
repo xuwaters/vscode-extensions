@@ -18,7 +18,7 @@ export function readGridSettings(uri?: vscode.Uri): GridSettings {
     autoFitOnOpen: config.get<boolean>('autoFitOnOpen') ?? true,
     fontSize: clamp(config.get<number>('fontSize'), 0, 48, 0),
     fontFamily: asEnum(config.get<string>('fontFamily'), ['editor', 'ui'], 'editor'),
-    wrap: config.get<boolean>('wrap') ?? false,
+    wrap: config.get<boolean>('wrap') ?? true,
     zebraStripes: config.get<boolean>('zebraStripes') ?? true,
     alignNumbers: config.get<boolean>('alignNumbers') ?? true,
     readOnly: readReadOnly(uri),

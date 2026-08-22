@@ -191,7 +191,7 @@ and the keyboard not to be in the terminal or an input box:
 | `csvUltra.autoFitOnOpen` | `true` | Fit the columns to their content on open |
 | `csvUltra.fontSize` | `0` | 0 follows the editor |
 | `csvUltra.fontFamily` | `editor` | Monospace, so digits line up |
-| `csvUltra.wrap` | `false` | Wrap cell text instead of clipping it |
+| `csvUltra.wrap` | `true` | Wrap cell text instead of clipping it |
 | `csvUltra.zebraStripes` | `true` | Tint every other row |
 | `csvUltra.alignNumbers` | `true` | Right-align cells holding a number |
 | `csvUltra.readOnly` | `false` | Look, don't touch — the toolbar's padlock |
