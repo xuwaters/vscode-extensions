@@ -10,10 +10,10 @@ a text editor with **every column in its own colour** — which is the one thing
 that makes a forty-column CSV readable as text, because the problem was never
 the characters, it was telling which comma you are between.
 
-Every edit the table makes is a `WorkspaceEdit` on the underlying text document.
-So undo, redo, the dirty dot, `⌘S`, hot exit, revert, the diff view and a text
-editor open on the same file in the next group are all VS Code's own, and all
-work without this extension reimplementing any of them.
+Every edit the table makes is an edit to the file's own text. So undo, redo, the
+dirty dot, `⌘S`, hot exit, revert, the diff view and a text editor open on the
+same file in the next group are all VS Code's own, and all behave exactly as
+they do everywhere else.
 
 ## The table
 
@@ -197,21 +197,16 @@ editor and reach the table only when you ask for it (*Open in CSV Ultra*):
 }
 ```
 
-## How it is built
+## Privacy and safety
 
-TypeScript throughout, bundled by tsdown into two artifacts: the extension host
-(CommonJS, Node) and the webview (ESM, browser). The table is a
-[`@microsoft/fast-element`](https://github.com/microsoft/fast) custom element
-rendering into its own shadow root, themed entirely from VS Code's own CSS
-custom properties. No runtime dependencies beyond fast-element, no network
-access, and a CSP of `default-src 'none'` with a per-load script nonce.
+Nothing in the table reaches the network: no CDN, no web fonts, no telemetry, no
+remote origin of any kind. Your data never leaves your machine, and a CSV opens
+the same offline as online.
 
-The parser and writer live in `src/csv/` and are imported by *both* sides of the
-webview boundary, so the table on screen and the bytes on disk cannot disagree
-about what the file says. The page never writes text: it says "row 4, column 2
-now holds this" and the extension host decides which bytes that is.
+The only file the extension writes is the one you are editing — through VS
+Code's own edit and save, so nothing is written until you save it. **Save a Copy
+as TSV…** writes a new file, through a save dialog, and that is its only other
+write.
 
-`pnpm test` runs the suite — the RFC 4180 parser and its tolerances, the edit
-engine (asserting on the *file* each edit produces, not on offsets), the
-protocol guards, the virtualization arithmetic, the selection model, the
-clipboard, and the element itself mounted under happy-dom.
+A cell holding `<script>` or a `javascript:` URL is shown as the text it is. It
+is never treated as markup, whoever sent you the file.
