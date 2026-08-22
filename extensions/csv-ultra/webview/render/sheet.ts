@@ -229,7 +229,13 @@ export class Sheet {
     const head = this.view.header(column);
     consider(head === '' ? columnLabel(column) : head, true);
     const rows = Math.min(this.view.rows, FIT_SAMPLE);
-    for (let row = 0; row < rows; row += 1) consider(this.view.value(row, column), false);
+    // Measured as the cell will paint it. Wrapping, a multi-line value is as
+    // wide as its widest line; not wrapping, it is one line of every line it has,
+    // and fitting to the widest of them would leave the column short.
+    for (let row = 0; row < rows; row += 1) {
+      const value = this.view.value(row, column);
+      consider(this.view.wrap ? value : oneLine(value), false);
+    }
     measure.textContent = '';
     measure.classList.remove('measure-head');
     return Math.min(max, widest + FIT_PADDING);
@@ -436,9 +442,15 @@ export class Sheet {
         live.cells = [];
         for (let column = columns.first; column <= columns.last; column += 1) {
           const cell = this.cellPool.pop() ?? document.createElement('div');
-          cell.style.left = `${columnMetrics.offset(column)}px`;
-          cell.style.width = `${columnMetrics.width(column)}px`;
-          cell.textContent = this.view.value(row, column);
+          const value = this.view.value(row, column);
+          // A cell that is not wrapping is one line tall, so a value with
+          // newlines in it has to become one line or all but the first of them
+          // is painted below the cell's own bottom edge, where nobody sees it.
+          const shown = this.view.wrap ? value : oneLine(value);
+          cell.textContent = shown;
+          // The rest of it is still worth being able to read.
+          if (shown === value) cell.removeAttribute('title');
+          else cell.title = value;
           live.cells.push(cell);
           live.element.append(cell);
         }
@@ -447,11 +459,15 @@ export class Sheet {
         live.generation = this.generation;
       }
 
-      // Classes change on every keystroke of a selection, so they are set on
-      // every pass whether or not the cells were rebuilt.
+      // Geometry and classes are set on every pass whether or not the cells were
+      // rebuilt: a column drag changes neither the window nor the generation, and
+      // a cell left at the width it was built with is a column whose header moves
+      // and whose values do not.
       for (let index = 0; index < live.cells.length; index += 1) {
         const column = columns.first + index;
         const cell = live.cells[index]!;
+        cell.style.left = `${columnMetrics.offset(column)}px`;
+        cell.style.width = `${columnMetrics.width(column)}px`;
         const key = `${row}:${column}`;
         const active = selection.active.row === row && selection.active.column === column;
         cell.className =
@@ -676,4 +692,18 @@ type Zone =
 
 function isNumeric(value: string): boolean {
   return value !== '' && parseNumber(value) !== null;
+}
+
+/**
+ * A quoted value's newlines, as one line.
+ *
+ * A CSV field may hold as many lines as it likes, and a row is as tall as the
+ * reader left it. Rather than paint the first line and hide the rest, the breaks
+ * are shown where they are — an arrow the width of a character, so that what is
+ * one field still reads as one field, and turning wrapping on gives the value
+ * back its real shape.
+ */
+function oneLine(value: string): string {
+  if (!value.includes('\n') && !value.includes('\r')) return value;
+  return value.replace(/\r\n|[\r\n]/g, ' ↵ ');
 }

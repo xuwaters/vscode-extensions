@@ -671,6 +671,91 @@ describe('a document that changed underneath', () => {
   });
 });
 
+describe('dragging a column edge and a row edge', () => {
+  beforeEach(async () => {
+    await load('name,price\napple,3\npear,10\nplum,2\n');
+    // happy-dom lays nothing out, so both header strips report no size and every
+    // pointer would land in the body. Give them the sizes the stylesheet does.
+    Object.defineProperty(must<HTMLElement>('.colhead'), 'offsetHeight', {
+      value: 24,
+      configurable: true,
+    });
+    Object.defineProperty(must<HTMLElement>('.rowhead'), 'offsetWidth', {
+      value: 48,
+      configurable: true,
+    });
+  });
+
+  /** Press on a point of the table, move to another, let go. */
+  async function drag(from: [number, number], to: [number, number]): Promise<void> {
+    const at = ([clientX, clientY]: [number, number]): MouseEventInit => ({
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY,
+    });
+    must<HTMLElement>('.table').dispatchEvent(new MouseEvent('pointerdown', at(from)));
+    window.dispatchEvent(new MouseEvent('pointermove', at(to)));
+    window.dispatchEvent(new MouseEvent('pointerup', at(to)));
+    await settle();
+  }
+
+  const styles = (selector: string, property: 'width' | 'height' | 'left' | 'top'): string[] =>
+    all(selector).map((element) => (element as HTMLElement).style[property]);
+
+  /** One style off every cell of the topmost painted row. */
+  const firstRow = (property: 'width' | 'left'): string[] =>
+    [...(all('.row')[0]?.querySelectorAll('.cell') ?? [])].map(
+      (cell) => (cell as HTMLElement).style[property],
+    );
+
+  it('widens the cells under a column head, not only the head', async () => {
+    // The right edge of column 0: the row-number gutter is 48 wide, the column 100.
+    await drag([148, 10], [198, 10]);
+    expect(styles('.chead', 'width')[0]).toBe('150px');
+    expect(firstRow('width').slice(0, 2)).toEqual(['150px', '100px']);
+    // …and the column beside it moves over by what the first one gained.
+    expect(firstRow('left').slice(0, 2)).toEqual(['0px', '150px']);
+  });
+
+  it('grows the row under a row number, not only the number', async () => {
+    // The bottom edge of row 0: the column heads are 24 tall, the row 20.
+    await drag([10, 44], [10, 74]);
+    expect(styles('.rhead', 'height')[0]).toBe('50px');
+    expect(styles('.row', 'height')[0]).toBe('50px');
+    expect(styles('.row', 'top').slice(0, 2)).toEqual(['0px', '50px']);
+  });
+});
+
+describe('a value with newlines in it', () => {
+  const file = 'name,note\napple,"first\nsecond"\n';
+
+  const note = (): HTMLElement =>
+    [...(all('.row')[0]?.querySelectorAll('.cell') ?? [])][1] as HTMLElement;
+
+  it('shows every line of it on the one line the cell has', async () => {
+    await load(file);
+    expect(note().textContent).toBe('first ↵ second');
+    // …and the value itself is still there to be read in full.
+    expect(note().title).toBe('first\nsecond');
+  });
+
+  it('gives the value its shape back when the reader turns wrapping on', async () => {
+    await load(file);
+    grid.toggleWrap();
+    await settle();
+    expect(note().textContent).toBe('first\nsecond');
+    expect(note().hasAttribute('title')).toBe(false);
+  });
+
+  it('leaves a single-line value alone', async () => {
+    await load(file);
+    const first = [...(all('.row')[0]?.querySelectorAll('.cell') ?? [])][0] as HTMLElement;
+    expect(first.textContent).toBe('apple');
+    expect(first.hasAttribute('title')).toBe(false);
+  });
+});
+
 describe('landing on a cell the reader came from', () => {
   it('takes a file row and finds it in the view', async () => {
     await load('name,n\ncharlie,3\nalpha,10\n');
