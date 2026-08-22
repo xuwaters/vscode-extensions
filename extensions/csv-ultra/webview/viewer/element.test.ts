@@ -321,6 +321,42 @@ describe('the clipboard', () => {
       ],
     });
   });
+
+  it('keeps a row pasted into the blank row past the end on one row', async () => {
+    // Copy a row, click the blank row below the last one, paste. Every cell of it
+    // belongs to the one record being appended — numbering them against a file
+    // that is growing as they are written scattered them down a diagonal, a
+    // record per cell.
+    grid.selection = { ...grid.selection, active: { row: 3, column: 0 } };
+    grid.handle({ type: 'paste', text: 'x\ty' });
+    await settle();
+    expect(lastEdit()?.edit).toEqual({
+      kind: 'cells',
+      patches: [
+        { row: 3, column: 0, value: 'x' },
+        { row: 3, column: 1, value: 'y' },
+      ],
+    });
+    expect(painted().get('3:0')).toBe('x');
+    expect(painted().get('3:1')).toBe('y');
+  });
+
+  it('numbers the rows of a block pasted over the bottom edge consecutively', async () => {
+    grid.selection = { ...grid.selection, active: { row: 2, column: 0 } };
+    grid.handle({ type: 'paste', text: 'p\tq\nr\ts\nt\tu' });
+    await settle();
+    expect(lastEdit()?.edit).toEqual({
+      kind: 'cells',
+      patches: [
+        { row: 2, column: 0, value: 'p' },
+        { row: 2, column: 1, value: 'q' },
+        { row: 3, column: 0, value: 'r' },
+        { row: 3, column: 1, value: 's' },
+        { row: 4, column: 0, value: 't' },
+        { row: 4, column: 1, value: 'u' },
+      ],
+    });
+  });
 });
 
 describe('sorting', () => {

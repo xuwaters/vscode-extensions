@@ -473,9 +473,20 @@ export class CsvGrid extends FASTElement implements SheetView {
     return { rows: this.rows, columns: this.columns };
   }
 
-  /** A view row as the file numbers it. One past the end for the blank row. */
-  private fileRow(row: number): number {
-    return this.order[row] ?? this.records.length;
+  /**
+   * A view row as the file numbers it.
+   *
+   * The rows past the end of `order` are the blank ones the table grows into.
+   * They number on from the end of the file, so a block pasted over the bottom
+   * edge becomes consecutive new records rather than piling into one.
+   *
+   * `end` is the end of the file to count from. A caller part way through
+   * appending records has to pass the end it *started* with — read afresh, it
+   * moves out from under every row still to be written, and a row of cells walks
+   * down a diagonal, a record per cell.
+   */
+  private fileRow(row: number, end = this.records.length): number {
+    return this.order[row] ?? end + (row - this.order.length);
   }
 
   // ── Painting and reporting ────────────────────────────────────────────────
@@ -862,9 +873,12 @@ export class CsvGrid extends FASTElement implements SheetView {
     if (patches.length === 0) return;
     const wire: CellPatch[] = [];
     let grew = false;
+    // Where the file ends, taken once: the loop below appends to `records`, and
+    // every row of this write has to be numbered against the file as it was.
+    const end = this.records.length;
 
     for (const { cell, value } of patches) {
-      const file = this.fileRow(cell.row);
+      const file = this.fileRow(cell.row, end);
       wire.push({ row: file, column: cell.column, value });
 
       while (this.records.length <= file) {
