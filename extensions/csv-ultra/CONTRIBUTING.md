@@ -136,7 +136,9 @@ markup; the policy is the second line of defence rather than the first.
   offsets (`src/document/edits.test.ts`)
 - The protocol guards (`src/messages.test.ts`) and layout eviction
   (`src/editor/layoutMemory.test.ts`)
-- The rainbow's paint plan (`src/text/paint.test.ts`)
+- The rainbow's paint plan (`src/text/paint.test.ts`), and the palette itself —
+  neighbouring columns held apart in OKLab, every colour readable on its own
+  theme's background (`src/text/palette.test.ts`)
 - The virtualization arithmetic, the selection model, find and the clipboard
   (`webview/model/`)
 - `<csv-grid>` itself, mounted under happy-dom

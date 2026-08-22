@@ -79,6 +79,12 @@ ten. The status bar names the cell your cursor is in — `R412 · C price` — u
 the file's own header for the column, which is the fastest way to read a wide
 CSV as text.
 
+The ten are not in spectral order, and that is the point: neighbouring columns
+would then get neighbouring hues, and a salmon column beside an apricot one is
+one column as far as the eye is concerned. Instead the hues are handed out in
+steps of a third of the wheel, and lightness alternates on top of that, so a
+column and the one beside it differ twice over.
+
 The colours are **theme colours**, `csvUltra.column1` … `csvUltra.column10`,
 with defaults for dark, light and both high-contrast themes. Override them where
 you override every other colour:

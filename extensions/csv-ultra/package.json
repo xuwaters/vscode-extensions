@@ -2,7 +2,7 @@
   "name": "wx-vsce-csv-ultra",
   "displayName": "CSV Ultra",
   "description": "CSV and TSV as a spreadsheet: an Excel-style custom editor with in-place editing, sorting, column and row selection, resizable columns and rows — plus rainbow column colours in the text editor and CSV ⇄ TSV conversion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -60,52 +60,52 @@
       {
         "id": "csvUltra.column1",
         "description": "Rainbow colour for the 1st column, and every 10th after it.",
-        "defaults": { "dark": "#E06C75", "light": "#C0392B", "highContrast": "#FF8A80", "highContrastLight": "#A50E0E" }
+        "defaults": { "dark": "#FFA8A0", "light": "#BB3F3D", "highContrast": "#FFB7B0", "highContrastLight": "#AD001A" }
       },
       {
         "id": "csvUltra.column2",
         "description": "Rainbow colour for the 2nd column, and every 10th after it.",
-        "defaults": { "dark": "#D19A66", "light": "#B35C00", "highContrast": "#FFB86C", "highContrastLight": "#8A4300" }
+        "defaults": { "dark": "#77B244", "light": "#345E00", "highContrast": "#6FBD0E", "highContrastLight": "#264800" }
       },
       {
         "id": "csvUltra.column3",
         "description": "Rainbow colour for the 3rd column, and every 10th after it.",
-        "defaults": { "dark": "#E5C07B", "light": "#8A6D00", "highContrast": "#F1D700", "highContrastLight": "#6B5300" }
+        "defaults": { "dark": "#84CBFF", "light": "#0077B2", "highContrast": "#9AD4FF", "highContrastLight": "#006192" }
       },
       {
         "id": "csvUltra.column4",
         "description": "Rainbow colour for the 4th column, and every 10th after it.",
-        "defaults": { "dark": "#98C379", "light": "#2E7D32", "highContrast": "#7CFC7C", "highContrastLight": "#1B5E20" }
+        "defaults": { "dark": "#E372AE", "light": "#8B1B5F", "highContrast": "#FB66B8", "highContrastLight": "#700049" }
       },
       {
         "id": "csvUltra.column5",
         "description": "Rainbow colour for the 5th column, and every 10th after it.",
-        "defaults": { "dark": "#56B6C2", "light": "#00796B", "highContrast": "#5AF0F0", "highContrastLight": "#005B50" }
+        "defaults": { "dark": "#DFC231", "light": "#836F00", "highContrast": "#EDCB00", "highContrastLight": "#6A5A00" }
       },
       {
         "id": "csvUltra.column6",
         "description": "Rainbow colour for the 6th column, and every 10th after it.",
-        "defaults": { "dark": "#61AFEF", "light": "#1565C0", "highContrast": "#7FC7FF", "highContrastLight": "#0B4A8F" }
+        "defaults": { "dark": "#00B3C2", "light": "#005D65", "highContrast": "#00BAC9", "highContrastLight": "#00464C" }
       },
       {
         "id": "csvUltra.column7",
         "description": "Rainbow colour for the 7th column, and every 10th after it.",
-        "defaults": { "dark": "#8E9BFF", "light": "#4527A0", "highContrast": "#A9B4FF", "highContrastLight": "#311B92" }
+        "defaults": { "dark": "#E0A9FF", "light": "#904EB1", "highContrast": "#E5B7FF", "highContrastLight": "#8415AF" }
       },
       {
         "id": "csvUltra.column8",
         "description": "Rainbow colour for the 8th column, and every 10th after it.",
-        "defaults": { "dark": "#C678DD", "light": "#7B1FA2", "highContrast": "#E39BF7", "highContrastLight": "#5C1580" }
+        "defaults": { "dark": "#E2841B", "light": "#784100", "highContrast": "#ED8700", "highContrastLight": "#5C3100" }
       },
       {
         "id": "csvUltra.column9",
         "description": "Rainbow colour for the 9th column, and every 10th after it.",
-        "defaults": { "dark": "#EE9BC8", "light": "#AD1457", "highContrast": "#FFB3D9", "highContrastLight": "#880E4F" }
+        "defaults": { "dark": "#2CE2B1", "light": "#008465", "highContrast": "#00EFB9", "highContrastLight": "#006B52" }
       },
       {
         "id": "csvUltra.column10",
         "description": "Rainbow colour for the 10th column, and every 10th after it.",
-        "defaults": { "dark": "#C4A484", "light": "#6D4C41", "highContrast": "#D9BC9C", "highContrastLight": "#4E342E" }
+        "defaults": { "dark": "#8793FD", "light": "#3F40A6", "highContrast": "#8E9AFF", "highContrastLight": "#3004AC" }
       }
     ],
     "commands": [
