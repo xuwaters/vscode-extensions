@@ -686,19 +686,37 @@ describe('dragging a column edge and a row edge', () => {
     });
   });
 
-  /** Press on a point of the table, move to another, let go. */
-  async function drag(from: [number, number], to: [number, number]): Promise<void> {
-    const at = ([clientX, clientY]: [number, number]): MouseEventInit => ({
-      bubbles: true,
-      cancelable: true,
-      clientX,
-      clientY,
-    });
+  const at = ([clientX, clientY]: [number, number]): MouseEventInit => ({
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY,
+  });
+
+  /** Press on a point of the table and move to another, without letting go. */
+  async function dragging(from: [number, number], to: [number, number]): Promise<void> {
     must<HTMLElement>('.table').dispatchEvent(new MouseEvent('pointerdown', at(from)));
     window.dispatchEvent(new MouseEvent('pointermove', at(to)));
+    await settle();
+  }
+
+  async function release(to: [number, number]): Promise<void> {
     window.dispatchEvent(new MouseEvent('pointerup', at(to)));
     await settle();
   }
+
+  /** Press on a point of the table, move to another, let go. */
+  async function drag(from: [number, number], to: [number, number]): Promise<void> {
+    await dragging(from, to);
+    await release(to);
+  }
+
+  async function rightClick(point: [number, number]): Promise<void> {
+    must<HTMLElement>('.table').dispatchEvent(new MouseEvent('contextmenu', at(point)));
+    await settle();
+  }
+
+  const menuLabels = (): string[] => all('.menu-item').map((item) => item.textContent?.trim() ?? '');
 
   const styles = (selector: string, property: 'width' | 'height' | 'left' | 'top'): string[] =>
     all(selector).map((element) => (element as HTMLElement).style[property]);
@@ -763,7 +781,7 @@ describe('dragging a column edge and a row edge', () => {
   });
 
   it('sizes only the row the reader grabbed, when it is not one of the selected', async () => {
-    // Row 2 alone.
+    // The blank row past the end of the file, alone.
     await drag([10, 90], [10, 90]);
     await drag([10, 44], [10, 74]);
     expect(styles('.row', 'height').slice(0, 3)).toEqual(['50px', '20px', '20px']);
@@ -787,6 +805,64 @@ describe('dragging a column edge and a row edge', () => {
     await drag([200, 10], [200, 10]);
     await doubleClick([148, 10]);
     expect(firstRow('width')).toEqual(['32px', '100px', '100px']);
+  });
+
+  it('sizes the whole group while the pointer is still down', async () => {
+    await selectBothColumns();
+    await dragging([148, 10], [198, 10]);
+    expect(firstRow('width')).toEqual(['150px', '150px', '100px']);
+    // …and going back the other way, still without letting go, follows.
+    window.dispatchEvent(new MouseEvent('pointermove', at([168, 10])));
+    await settle();
+    expect(firstRow('width')).toEqual(['120px', '120px', '100px']);
+    await release([168, 10]);
+    expect(firstRow('width')).toEqual(['120px', '120px', '100px']);
+  });
+
+  it('sizes every selected row while the pointer is still down', async () => {
+    await selectTwoRows();
+    await dragging([10, 44], [10, 74]);
+    expect(styles('.row', 'height').slice(0, 3)).toEqual(['50px', '50px', '20px']);
+  });
+
+  // The size the drag reports is measured against the size the column had when
+  // it began, so the group tracking it cannot feed its own growth back in.
+  it('does not compound the group size over the frames of one drag', async () => {
+    await selectBothColumns();
+    await dragging([148, 10], [168, 10]);
+    window.dispatchEvent(new MouseEvent('pointermove', at([188, 10])));
+    await settle();
+    await release([188, 10]);
+    expect(firstRow('width')).toEqual(['140px', '140px', '100px']);
+  });
+
+  it('keeps a selection of several columns when one of them is right-clicked', async () => {
+    await selectBothColumns();
+    await rightClick([100, 10]);
+    expect(grid.selection.ranges[0]).toMatchObject({ left: 0, right: 1 });
+    expect(menuLabels()).toContain('Fit widths');
+  });
+
+  it('moves the selection to a column right-clicked outside it', async () => {
+    await selectBothColumns();
+    // The blank column past the end of the file, which was not selected.
+    await rightClick([300, 10]);
+    expect(grid.selection.ranges[0]).toMatchObject({ left: 2, right: 2 });
+    expect(menuLabels()).toContain('Fit width');
+  });
+
+  it('keeps a selection of several rows when one of them is right-clicked', async () => {
+    await selectTwoRows();
+    await rightClick([10, 30]);
+    expect(grid.selection.ranges[0]).toMatchObject({ top: 0, bottom: 1 });
+    expect(menuLabels()).toContain('Fit heights');
+  });
+
+  it('moves the selection to a row right-clicked outside it', async () => {
+    await selectTwoRows();
+    await rightClick([10, 70]);
+    expect(grid.selection.ranges[0]).toMatchObject({ top: 2, bottom: 2 });
+    expect(menuLabels()).toContain('Fit height');
   });
 });
 

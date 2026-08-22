@@ -46,22 +46,27 @@ export interface SheetCallbacks {
   onDragEnd(): void;
   onOpenEditor(row: number, column: number): void;
   /**
-   * A column's edge moved. Reported on every frame of the drag, and once more on
-   * release with `done`, which is when the size is the one the reader settled on.
+   * A column's edge is being dragged.
    *
-   * The two are separate because a group resize can only happen at the end: were
-   * the columns left of the dragged one to widen mid-drag, the edge under the
-   * pointer would slide out from beneath it and the drag would run away from the
-   * hand doing it.
+   * The phase is reported as well as the size because what a drag *means* can
+   * take more than one column with it, and the element wants to work that out
+   * once, on the press, rather than on every frame of the gesture.
+   *
+   * `start` carries the size the column already had and is not a change; `move`
+   * is the size under the pointer now; `end` closes the gesture and carries the
+   * size it closed at.
    */
-  onColumnResized(column: number, width: number, done: boolean): void;
-  onRowResized(row: number, height: number, done: boolean): void;
+  onColumnResized(column: number, width: number, phase: ResizePhase): void;
+  onRowResized(row: number, height: number, phase: ResizePhase): void;
   onFitColumn(column: number): void;
   onFitRow(row: number): void;
   onSortToggle(column: number): void;
   onScrolled(): void;
   onContext(target: PickTarget, event: MouseEvent): void;
 }
+
+/** Where a resize drag has got to: the press, a move, the release. */
+export type ResizePhase = 'start' | 'move' | 'end';
 
 /** What was under the pointer. */
 export type PickTarget =
@@ -553,22 +558,14 @@ export class Sheet {
     if (!zone) return;
 
     if (zone.kind === 'column-handle') {
-      this.dragging = {
-        kind: 'column',
-        index: zone.column,
-        start: event.clientX,
-        size: this.view.columnMetrics.width(zone.column),
-        last: null,
-      };
+      const size = this.view.columnMetrics.width(zone.column);
+      this.dragging = { kind: 'column', index: zone.column, start: event.clientX, size };
+      this.callbacks.onColumnResized(zone.column, size, 'start');
       event.preventDefault();
     } else if (zone.kind === 'row-handle') {
-      this.dragging = {
-        kind: 'row',
-        index: zone.row,
-        start: event.clientY,
-        size: this.view.rowMetrics.height(zone.row),
-        last: null,
-      };
+      const size = this.view.rowMetrics.height(zone.row);
+      this.dragging = { kind: 'row', index: zone.row, start: event.clientY, size };
+      this.callbacks.onRowResized(zone.row, size, 'start');
       event.preventDefault();
     } else {
       this.dragging = { kind: 'select' };
@@ -585,29 +582,30 @@ export class Sheet {
   private readonly onPointerMove = (event: PointerEvent): void => {
     const drag = this.dragging;
     if (!drag) return;
+    // Against the size the column had when the drag began, and the pointer's
+    // distance from where it went down — never against the size it has now,
+    // which is a size this drag put there and would compound.
     if (drag.kind === 'column') {
-      drag.last = drag.size + (event.clientX - drag.start);
-      this.callbacks.onColumnResized(drag.index, drag.last, false);
+      this.callbacks.onColumnResized(drag.index, drag.size + (event.clientX - drag.start), 'move');
       return;
     }
     if (drag.kind === 'row') {
-      drag.last = drag.size + (event.clientY - drag.start);
-      this.callbacks.onRowResized(drag.index, drag.last, false);
+      this.callbacks.onRowResized(drag.index, drag.size + (event.clientY - drag.start), 'move');
       return;
     }
     const zone = this.zoneAt(event);
     if (zone && zone.kind === 'body') this.callbacks.onDragTo(zone.target);
   };
 
-  private readonly onPointerUp = (): void => {
+  private readonly onPointerUp = (event: PointerEvent): void => {
     const drag = this.dragging;
     if (drag?.kind === 'select') this.callbacks.onDragEnd();
-    // A resize that actually moved is reported once more, settled. A handle
-    // merely clicked is not: it would hand the rest of the selection a size the
-    // reader never dragged to.
-    else if (drag && drag.last !== null) {
-      if (drag.kind === 'column') this.callbacks.onColumnResized(drag.index, drag.last, true);
-      else this.callbacks.onRowResized(drag.index, drag.last, true);
+    // A resize is closed whether or not it moved, so that the element can let go
+    // of whatever it was holding for the length of the gesture.
+    else if (drag?.kind === 'column') {
+      this.callbacks.onColumnResized(drag.index, drag.size + (event.clientX - drag.start), 'end');
+    } else if (drag?.kind === 'row') {
+      this.callbacks.onRowResized(drag.index, drag.size + (event.clientY - drag.start), 'end');
     }
     this.dragging = null;
     window.removeEventListener('pointermove', this.onPointerMove);
@@ -703,9 +701,9 @@ interface RowElements {
 
 type Drag =
   | { kind: 'select' }
-  /** `last` is the size reported most recently, or null if the drag has not moved. */
-  | { kind: 'column'; index: number; start: number; size: number; last: number | null }
-  | { kind: 'row'; index: number; start: number; size: number; last: number | null };
+  /** `start` is where the pointer went down; `size` what the column had then. */
+  | { kind: 'column'; index: number; start: number; size: number }
+  | { kind: 'row'; index: number; start: number; size: number };
 
 type Zone =
   | { kind: 'body'; target: PickTarget }

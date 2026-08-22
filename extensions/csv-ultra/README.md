@@ -68,7 +68,8 @@ they do everywhere else.
   a running count, and `F3` / `Shift+F3` to step through.
 
 - **Right-click** a cell, a row number or a column letter for insert, delete,
-  sort and fit.
+  sort and fit. Right-clicking inside a selection keeps it, so the menu acts on
+  everything you picked and not on the one row the pointer landed on.
 
 - **A read-only lock.** The padlock in the toolbar puts the table into look,
   don't touch: no cell editing, no paste, no insert or delete, no writing a sort

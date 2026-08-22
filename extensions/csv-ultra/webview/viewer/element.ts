@@ -37,7 +37,7 @@ import {
   type Selection,
 } from '../model/selection.js';
 import { edgeFrom, findMatches, nextMatch } from '../model/view.js';
-import { Sheet, type PickTarget, type SheetView } from '../render/sheet.js';
+import { Sheet, type PickTarget, type ResizePhase, type SheetView } from '../render/sheet.js';
 import sheetStyles from './styles.css';
 import { template } from './template.js';
 
@@ -195,6 +195,12 @@ export class CsvGrid extends FASTElement implements SheetView {
   private matchList: Cell[] = [];
   private matchIndex = -1;
   private editingAt: Cell | null = null;
+  /**
+   * What a resize drag is sizing, settled on the press and held until release.
+   * `every` is the whole table selected, which moves the default row height
+   * rather than remembering one per row.
+   */
+  private resizing: { group: number[]; every: boolean } | null = null;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private placeTimer: ReturnType<typeof setTimeout> | undefined;
   private resizeObserver: ResizeObserver | null = null;
@@ -293,22 +299,8 @@ export class CsvGrid extends FASTElement implements SheetView {
         onDragTo: (target) => this.onDragTo(target),
         onDragEnd: () => this.reportPlace(),
         onOpenEditor: (row, column) => this.beginEdit({ row, column }, true),
-        // Mid-drag it is the one column under the pointer; on release the size
-        // it settled at goes to everything selected with it.
-        onColumnResized: (column, width, done) => {
-          if (done) this.resizeColumns(column, width);
-          else {
-            this.columnMetrics.setWidth(column, width);
-            this.paint();
-          }
-        },
-        onRowResized: (row, height, done) => {
-          if (done) this.resizeRows(row, height);
-          else {
-            this.rowMetrics.setHeight(row, height);
-            this.paint();
-          }
-        },
+        onColumnResized: (column, width, phase) => this.resizeColumns(column, width, phase),
+        onRowResized: (row, height, phase) => this.resizeRows(row, height, phase),
         onFitColumn: (column) => this.fitColumns(this.columnGroup(column)),
         onFitRow: (row) => this.fitRows(this.rowGroup(row)),
         onSortToggle: (column) => this.cycleSort(column),
@@ -1260,16 +1252,32 @@ export class CsvGrid extends FASTElement implements SheetView {
   }
 
   /**
-   * Give a column a width, and every column selected with it the same one.
+   * Give a column a width, and every column selected with it the same one, on
+   * every frame of the drag.
    *
-   * Only on the release of the drag, never during it — see `onColumnResized`.
+   * Which columns those are is settled on the press and held for the length of
+   * the gesture. Working it out per frame would be the same answer sixty times a
+   * second — the selection cannot change while a handle is held — and for rows
+   * it would also mean the same refusal announced sixty times.
+   *
+   * One consequence is worth knowing: when the group reaches to the *left* of
+   * the column being dragged, those columns widen too, so the edge under the
+   * pointer slides right of it. The width still follows the pointer one pixel
+   * for one, which is the number the reader is actually choosing.
    */
-  private resizeColumns(column: number, width: number): void {
-    this.columnMetrics.setWidths(
-      this.columnGroup(column).map((index): [number, number] => [index, width]),
-    );
+  private resizeColumns(column: number, width: number, phase: ResizePhase): void {
+    if (phase === 'start') {
+      this.resizing = { group: this.columnGroup(column), every: false };
+      return;
+    }
+    if (phase === 'end') {
+      this.resizing = null;
+      this.reportPlace();
+      return;
+    }
+    const group = this.resizing?.group ?? [column];
+    this.columnMetrics.setWidths(group.map((index): [number, number] => [index, width]));
     this.paint();
-    this.reportPlace();
   }
 
   /**
@@ -1280,17 +1288,26 @@ export class CsvGrid extends FASTElement implements SheetView {
    * heavier than the file that earned it, and a layout memory with a pair in it
    * for every row of the thing.
    */
-  private resizeRows(row: number, height: number): void {
-    if (this.wholeTableSelected()) {
+  private resizeRows(row: number, height: number, phase: ResizePhase): void {
+    if (phase === 'start') {
+      this.resizing = this.wholeTableSelected()
+        ? { group: [], every: true }
+        : { group: this.rowGroup(row, GROUP_ROWS), every: false };
+      return;
+    }
+    if (phase === 'end') {
+      this.resizing = null;
+      this.reportPlace();
+      return;
+    }
+    if (this.resizing?.every) {
       this.rowMetrics.clear();
       this.rowMetrics.setDefault(height);
     } else {
-      this.rowMetrics.setHeights(
-        this.rowGroup(row, GROUP_ROWS).map((index): [number, number] => [index, height]),
-      );
+      const group = this.resizing?.group ?? [row];
+      this.rowMetrics.setHeights(group.map((index): [number, number] => [index, height]));
     }
     this.paint();
-    this.reportPlace();
   }
 
   /**
@@ -1312,16 +1329,7 @@ export class CsvGrid extends FASTElement implements SheetView {
   /** The rows one row's edge stands for — see `columnGroup`, and `GROUP_ROWS`. */
   private rowGroup(row: number, limit = GROUP_FIT_ROWS): number[] {
     if (!hasRow(this.selection, row, this.bounds)) return [row];
-    // Counted before the list is built, rather than after: a band half a million
-    // rows deep would otherwise become a list that long on the way to being
-    // refused.
-    let selected = 0;
-    for (const rect of this.selection.ranges) {
-      if (rect.left === 0 && rect.right >= this.columns - 1) {
-        selected += rect.bottom - rect.top + 1;
-      }
-    }
-    if (selected > limit) {
+    if (this.wholeRows() > limit) {
       this.say(`Too many rows selected — changed row ${this.rowNumber(row)} only`);
       return [row];
     }
@@ -1329,6 +1337,22 @@ export class CsvGrid extends FASTElement implements SheetView {
       hasRow(this.selection, index, this.bounds),
     );
     return rows.length > 0 ? rows : [row];
+  }
+
+  /**
+   * How many whole rows the selection holds.
+   *
+   * Counted from the rectangles rather than listed: a band half a million rows
+   * deep would otherwise become a list that long on its way to being refused for
+   * being that long. Overlapping bands are counted twice, which can only make a
+   * limit stricter and never lets one through.
+   */
+  private wholeRows(): number {
+    let rows = 0;
+    for (const rect of this.selection.ranges) {
+      if (rect.left === 0 && rect.right >= this.columns - 1) rows += rect.bottom - rect.top + 1;
+    }
+    return rows;
   }
 
   /** Whether one range covers the whole table — what a select-all leaves behind. */
@@ -1416,12 +1440,19 @@ export class CsvGrid extends FASTElement implements SheetView {
       // every table does and what stops a menu acting on something off screen.
       if (!inside) this.setSelection(atCell(cell, this.bounds), false);
     } else if (target.kind === 'row') {
-      this.setSelection(selectRows(this.selection, target.row, target.row, this.bounds), false);
+      // Same rule as the cells above: a right-click *inside* the selection keeps
+      // it. Replacing it would mean the menu of a reader who picked six rows
+      // deleting one of them — the row that happened to be under the pointer.
+      if (!hasRow(this.selection, target.row, this.bounds)) {
+        this.setSelection(selectRows(this.selection, target.row, target.row, this.bounds), false);
+      }
     } else if (target.kind === 'column') {
-      this.setSelection(
-        selectColumns(this.selection, target.column, target.column, this.bounds),
-        false,
-      );
+      if (!hasColumn(this.selection, target.column, this.bounds)) {
+        this.setSelection(
+          selectColumns(this.selection, target.column, target.column, this.bounds),
+          false,
+        );
+      }
     }
 
     const rect = this.getBoundingClientRect();
@@ -1433,6 +1464,19 @@ export class CsvGrid extends FASTElement implements SheetView {
   }
 
   private menuFor(target: PickTarget): MenuItem[] {
+    // Named for what they will actually do, which after a right-click inside a
+    // band of selected columns is all of them.
+    const fitWidth = (column: number): MenuItem => ({
+      label: this.columnGroup(column).length > 1 ? 'Fit widths' : 'Fit width',
+      run: () => this.fitColumns(this.columnGroup(column)),
+    });
+    const fitHeight = (row: number): MenuItem => ({
+      label:
+        hasRow(this.selection, row, this.bounds) && this.wholeRows() > 1
+          ? 'Fit heights'
+          : 'Fit height',
+      run: () => this.fitRows(this.rowGroup(row)),
+    });
     const items: MenuItem[] = [{ label: 'Copy', run: () => this.copy() }];
     // A read-only menu is the short one. Offering Delete rows and answering
     // "no" would be a menu that lies about what the table will do.
@@ -1441,10 +1485,10 @@ export class CsvGrid extends FASTElement implements SheetView {
         items.push(
           { label: 'Sort ascending', run: () => this.setSort({ column: target.column, direction: 'asc' }) },
           { label: 'Sort descending', run: () => this.setSort({ column: target.column, direction: 'desc' }) },
-          { label: 'Fit width', run: () => this.fitColumns([target.column]) },
+          fitWidth(target.column),
         );
       }
-      if (target.kind === 'row') items.push({ label: 'Fit height', run: () => this.fitRows([target.row]) });
+      if (target.kind === 'row') items.push(fitHeight(target.row));
       return items;
     }
     items.push(
@@ -1469,11 +1513,11 @@ export class CsvGrid extends FASTElement implements SheetView {
       items.push(
         { label: 'Sort ascending', run: () => this.setSort({ column: target.column, direction: 'asc' }) },
         { label: 'Sort descending', run: () => this.setSort({ column: target.column, direction: 'desc' }) },
-        { label: 'Fit width', run: () => this.fitColumns([target.column]) },
+        fitWidth(target.column),
       );
     }
     if (target.kind === 'row') {
-      items.push({ label: 'Fit height', run: () => this.fitRows([target.row]) });
+      items.push(fitHeight(target.row));
     }
     return items;
   }
