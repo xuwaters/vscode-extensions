@@ -1,0 +1,26 @@
+{
+  // The webview is a browser bundle, not a Node one, and it is the only place
+  // in this extension that uses decorators: `@microsoft/fast-element` ships the
+  // *legacy* decorator signatures, which need `experimentalDecorators`, and its
+  // `@observable` installs prototype accessors that a `[[Define]]`-semantics
+  // class field would shadow — hence `useDefineForClassFields: false`.
+  //
+  // `rootDir` is the package root rather than this folder because the webview
+  // imports the two layers it shares with the extension host: `../csv` for the
+  // parser and writer, and `../src/messages.js` for the protocol.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../dist/webview",
+    "rootDir": "..",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["."]
+}

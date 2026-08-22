@@ -1,0 +1,671 @@
+/*
+ * The table, in its shadow root.
+ *
+ * Colours come from VSCode's own theme variables, which pierce the shadow
+ * boundary because custom properties inherit — so the table is themed by the
+ * editor it lives in without the host having to send a palette across. That
+ * includes this extension's *own* registered colours: `--vscode-csvUltra-column1`
+ * through `column10` are the same values the text editor paints its columns
+ * with, which is what makes a column the same colour in both views of a file.
+ *
+ * The geometry here is load-bearing. `sheet.ts` positions every cell absolutely
+ * from `metrics.ts`, and the four regions below — corner, column heads, row
+ * numbers, viewport — have to line up to the pixel or the headers drift away
+ * from the cells they name.
+ */
+
+:host {
+  display: block;
+  width: 100%;
+  height: 100%;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+  color: var(--vscode-foreground);
+
+  --chrome-height: 32px;
+  --footer-height: 22px;
+  --head-height: 24px;
+  --rowhead-width: 52px;
+  --cell-font: var(--vscode-editor-font-family, monospace);
+  --cell-size: var(--vscode-editor-font-size, 13px);
+  --line: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.28));
+  --line-strong: var(--vscode-panel-border, rgba(128, 128, 128, 0.5));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.shell {
+  /* Positioned so the right-click menu, which is placed from a pointer offset
+     into this box, has this box as its containing block. */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+
+.chrome {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: var(--chrome-height);
+  padding: 0 8px;
+  background: var(--vscode-editorWidget-background);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-contrastBorder, transparent);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A toggle that is on reads as pressed, not merely hovered. */
+.btn.on,
+.mini.on {
+  background: var(--vscode-inputOption-activeBackground, rgba(0, 122, 204, 0.35));
+  border-color: var(--vscode-inputOption-activeBorder, transparent);
+  color: var(--vscode-inputOption-activeForeground, inherit);
+}
+
+.btn:focus-visible,
+.mini:focus-visible,
+.chip:focus-visible,
+.find-input:focus,
+.row-input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* Sized to sit level with the glyph buttons beside them rather than tower over them. */
+.icon {
+  width: 13px;
+  height: 13px;
+}
+
+.separator {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--line-strong);
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.count {
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.row-input,
+.find-input {
+  height: 22px;
+  padding: 0 4px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  /*
+   * The border falls back to a drawn one rather than to `transparent`: most
+   * themes leave `--vscode-input-border` unset, and against the toolbar's own
+   * widget background an unbordered field reads as a label rather than as
+   * somewhere to type.
+   */
+  border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.45));
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.row-input {
+  width: 56px;
+  text-align: center;
+}
+
+.find {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.find-input {
+  width: 180px;
+}
+
+.find-count {
+  min-width: 62px;
+  padding: 0 2px;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.mini {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 3px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mini:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  color: inherit;
+  background: var(--vscode-badge-background, rgba(128, 128, 128, 0.25));
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip.sorted {
+  cursor: default;
+  background: var(--vscode-inputOption-activeBackground, rgba(0, 122, 204, 0.3));
+}
+
+.chip-btn {
+  padding: 0 4px;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.15));
+}
+
+/* ── The table ───────────────────────────────────────────────────────────── */
+
+.table {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+  font-family: var(--cell-font);
+  font-size: var(--cell-size);
+  outline: none;
+}
+
+.corner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  width: var(--rowhead-width);
+  height: var(--head-height);
+  background: var(--vscode-editorWidget-background);
+  border-right: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  cursor: pointer;
+}
+
+.corner::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  border: 5px solid transparent;
+  border-right-color: var(--vscode-descriptionForeground);
+  border-bottom-color: var(--vscode-descriptionForeground);
+  opacity: 0.5;
+}
+
+/*
+ * The header strips sit *beside* the scroller, not inside it, and are moved by
+ * a transform on every scroll frame. Sticky positioning inside a two-axis
+ * scroller with absolutely-positioned children does not work, and the transform
+ * has the side benefit of keeping the scrollbars around the cells where they
+ * belong rather than under the headers.
+ */
+.colhead {
+  position: absolute;
+  top: 0;
+  left: var(--rowhead-width);
+  right: 0;
+  z-index: 2;
+  height: var(--head-height);
+  overflow: hidden;
+  background: var(--vscode-editorWidget-background);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.rowhead {
+  position: absolute;
+  top: var(--head-height);
+  left: 0;
+  bottom: 0;
+  z-index: 2;
+  width: var(--rowhead-width);
+  overflow: hidden;
+  background: var(--vscode-editorWidget-background);
+  border-right: 1px solid var(--line-strong);
+}
+
+.colhead-inner,
+.rowhead-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+
+.colhead-inner {
+  height: 100%;
+}
+
+.rowhead-inner {
+  width: 100%;
+}
+
+.viewport {
+  position: absolute;
+  top: var(--head-height);
+  left: var(--rowhead-width);
+  right: 0;
+  bottom: 0;
+  overflow: auto;
+}
+
+.canvas {
+  position: relative;
+}
+
+/* ── Column heads ────────────────────────────────────────────────────────── */
+
+/*
+ * Not `overflow: hidden`, even though the name has to be clipped: the drag
+ * handle straddles the column's right edge, and a clipping head would cut the
+ * half of it that hangs over — leaving the `col-resize` cursor showing on three
+ * pixels of a six-pixel target. The name clips itself instead, and `.colhead`
+ * stops the last head spilling out of the strip.
+ */
+.chead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chead:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* Touched by a selection, versus selected outright. */
+.chead.touched {
+  background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.chead.picked {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+/*
+ * The letter carries the column's rainbow colour — the same one the text editor
+ * paints that column with, so switching between the two views is not relearning
+ * which column is which.
+ */
+.chead-letter {
+  flex: none;
+  font-size: 0.85em;
+  font-weight: 600;
+  opacity: 0.95;
+}
+
+.chead-name {
+  /* Without `min-width: 0` a flex item refuses to shrink below its content, and
+     a long column name would push the sort arrow out of the head. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.chead.asc::after,
+.chead.desc::after {
+  content: '↑';
+  margin-left: auto;
+  padding-left: 4px;
+  flex: none;
+  opacity: 0.8;
+}
+
+.chead.desc::after {
+  content: '↓';
+}
+
+.chandle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.chandle:hover {
+  background: var(--vscode-sash-hoverBorder, rgba(0, 122, 204, 0.6));
+}
+
+/* ── Row numbers ─────────────────────────────────────────────────────────── */
+
+.rhead {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--vscode-editorLineNumber-foreground, var(--vscode-descriptionForeground));
+  font-size: 0.9em;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rhead:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.rhead.touched {
+  background: var(--vscode-list-inactiveSelectionBackground);
+  color: var(--vscode-editorLineNumber-activeForeground, var(--vscode-foreground));
+}
+
+.rhead.picked {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.rhandle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 6px;
+  cursor: row-resize;
+}
+
+.rhandle:hover {
+  background: var(--vscode-sash-hoverBorder, rgba(0, 122, 204, 0.6));
+}
+
+/* ── Cells ───────────────────────────────────────────────────────────────── */
+
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.row.odd {
+  background: var(--vscode-list-hoverBackground);
+  opacity: 1;
+}
+
+/*
+ * A block rather than a flex box, centred by a line height the sheet sets on the
+ * row to match its height. `text-overflow` only applies to a block container, so
+ * flex centring would have meant every over-long value cut off mid-glyph with no
+ * sign that anything was missing.
+ */
+.cell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: block;
+  padding: 0 6px;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  line-height: inherit;
+  white-space: pre;
+  text-overflow: ellipsis;
+}
+
+.cell.wrap {
+  padding-top: 3px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cell.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell.sel {
+  background: var(--vscode-editor-selectionBackground);
+  color: var(--vscode-editor-selectionForeground, inherit);
+}
+
+/*
+ * A find match has to survive being selected as well, so it is a tint over the
+ * top rather than a background of its own.
+ */
+.cell.match {
+  background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+}
+
+.cell.match-active {
+  background: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.6));
+}
+
+/*
+ * Above the cells, which are positioned and come later in the DOM — so both
+ * layers need a z-index of their own or the outline is painted behind the
+ * values it is supposed to be around.
+ */
+.ranges,
+.focus-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.range {
+  position: absolute;
+  border: 1px solid var(--vscode-focusBorder);
+}
+
+.focus-ring {
+  z-index: 2;
+  border: 2px solid var(--vscode-focusBorder);
+}
+
+.cell-editor {
+  position: absolute;
+  z-index: 4;
+  margin: 0;
+  padding: 0 5px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 2px solid var(--vscode-focusBorder);
+  border-radius: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.35;
+}
+
+/* The invisible ruler auto-fit measures against. */
+.measure {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  white-space: pre;
+  visibility: hidden;
+  font-family: var(--cell-font);
+  font-size: var(--cell-size);
+}
+
+.measure-head {
+  font-weight: 600;
+}
+
+.measure-wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: var(--footer-height);
+  padding: 0 10px;
+  background: var(--vscode-editorWidget-background);
+  border-top: 1px solid var(--line);
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.footer-cell {
+  font-family: var(--cell-font);
+}
+
+.footer-stats {
+  font-variant-numeric: tabular-nums;
+}
+
+.notice {
+  color: var(--vscode-foreground);
+}
+
+/* ── The card, for a tab with no table in it ─────────────────────────────── */
+
+.shell.blank .chrome,
+.shell.blank .table,
+.shell.blank .footer {
+  display: none;
+}
+
+.card {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.card-name {
+  font-weight: 600;
+}
+
+.card-body {
+  max-width: 46ch;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+}
+
+.card-action {
+  padding: 4px 12px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border: 1px solid var(--vscode-contrastBorder, transparent);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.card-action:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+/* ── The right-click menu ────────────────────────────────────────────────── */
+
+.menu {
+  position: absolute;
+  z-index: 20;
+  min-width: 190px;
+  padding: 4px 0;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-menu-border, var(--line-strong));
+  border-radius: 4px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 4px 12px;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: transparent;
+  border: none;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+}

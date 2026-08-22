@@ -1,0 +1,630 @@
+{
+  "name": "wx-vsce-csv-ultra",
+  "displayName": "CSV Ultra",
+  "description": "CSV and TSV as a spreadsheet: an Excel-style custom editor with in-place editing, sorting, column and row selection, resizable columns and rows — plus rainbow column colours in the text editor and CSV ⇄ TSV conversion",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Visualization",
+    "Data Science",
+    "Other"
+  ],
+  "activationEvents": [
+    "onCustomEditor:csvUltra.editor",
+    "onLanguage:csv",
+    "onLanguage:tsv",
+    "onLanguage:psv"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "csvUltra.editor",
+        "displayName": "CSV Ultra",
+        "priority": "default",
+        "selector": [
+          { "filenamePattern": "*.csv" },
+          { "filenamePattern": "*.CSV" },
+          { "filenamePattern": "*.tsv" },
+          { "filenamePattern": "*.TSV" },
+          { "filenamePattern": "*.tab" },
+          { "filenamePattern": "*.psv" }
+        ]
+      }
+    ],
+    "languages": [
+      {
+        "id": "csv",
+        "aliases": ["CSV", "csv"],
+        "extensions": [".csv"],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "tsv",
+        "aliases": ["TSV", "tsv"],
+        "extensions": [".tsv", ".tab"],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "psv",
+        "aliases": ["PSV", "psv"],
+        "extensions": [".psv"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "colors": [
+      {
+        "id": "csvUltra.column1",
+        "description": "Rainbow colour for the 1st column, and every 10th after it.",
+        "defaults": { "dark": "#E06C75", "light": "#C0392B", "highContrast": "#FF8A80", "highContrastLight": "#A50E0E" }
+      },
+      {
+        "id": "csvUltra.column2",
+        "description": "Rainbow colour for the 2nd column, and every 10th after it.",
+        "defaults": { "dark": "#D19A66", "light": "#B35C00", "highContrast": "#FFB86C", "highContrastLight": "#8A4300" }
+      },
+      {
+        "id": "csvUltra.column3",
+        "description": "Rainbow colour for the 3rd column, and every 10th after it.",
+        "defaults": { "dark": "#E5C07B", "light": "#8A6D00", "highContrast": "#F1D700", "highContrastLight": "#6B5300" }
+      },
+      {
+        "id": "csvUltra.column4",
+        "description": "Rainbow colour for the 4th column, and every 10th after it.",
+        "defaults": { "dark": "#98C379", "light": "#2E7D32", "highContrast": "#7CFC7C", "highContrastLight": "#1B5E20" }
+      },
+      {
+        "id": "csvUltra.column5",
+        "description": "Rainbow colour for the 5th column, and every 10th after it.",
+        "defaults": { "dark": "#56B6C2", "light": "#00796B", "highContrast": "#5AF0F0", "highContrastLight": "#005B50" }
+      },
+      {
+        "id": "csvUltra.column6",
+        "description": "Rainbow colour for the 6th column, and every 10th after it.",
+        "defaults": { "dark": "#61AFEF", "light": "#1565C0", "highContrast": "#7FC7FF", "highContrastLight": "#0B4A8F" }
+      },
+      {
+        "id": "csvUltra.column7",
+        "description": "Rainbow colour for the 7th column, and every 10th after it.",
+        "defaults": { "dark": "#8E9BFF", "light": "#4527A0", "highContrast": "#A9B4FF", "highContrastLight": "#311B92" }
+      },
+      {
+        "id": "csvUltra.column8",
+        "description": "Rainbow colour for the 8th column, and every 10th after it.",
+        "defaults": { "dark": "#C678DD", "light": "#7B1FA2", "highContrast": "#E39BF7", "highContrastLight": "#5C1580" }
+      },
+      {
+        "id": "csvUltra.column9",
+        "description": "Rainbow colour for the 9th column, and every 10th after it.",
+        "defaults": { "dark": "#EE9BC8", "light": "#AD1457", "highContrast": "#FFB3D9", "highContrastLight": "#880E4F" }
+      },
+      {
+        "id": "csvUltra.column10",
+        "description": "Rainbow colour for the 10th column, and every 10th after it.",
+        "defaults": { "dark": "#C4A484", "light": "#6D4C41", "highContrast": "#D9BC9C", "highContrastLight": "#4E342E" }
+      }
+    ],
+    "commands": [
+      {
+        "command": "csvUltra.open",
+        "title": "Open in CSV Ultra",
+        "category": "CSV Ultra",
+        "icon": "$(table)"
+      },
+      {
+        "command": "csvUltra.openToSide",
+        "title": "Open in CSV Ultra to the Side",
+        "category": "CSV Ultra",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "csvUltra.openInTextEditor",
+        "title": "Open in Text Editor",
+        "category": "CSV Ultra",
+        "icon": "$(code)"
+      },
+      {
+        "command": "csvUltra.find",
+        "title": "Find in Table",
+        "category": "CSV Ultra",
+        "icon": "$(search)"
+      },
+      {
+        "command": "csvUltra.findNext",
+        "title": "Find Next",
+        "category": "CSV Ultra",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "csvUltra.findPrevious",
+        "title": "Find Previous",
+        "category": "CSV Ultra",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "csvUltra.goToRow",
+        "title": "Go to Row…",
+        "category": "CSV Ultra",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "csvUltra.toggleHeaderRow",
+        "title": "Toggle Header Row",
+        "category": "CSV Ultra",
+        "icon": "$(symbol-string)"
+      },
+      {
+        "command": "csvUltra.setDelimiter",
+        "title": "Read With Delimiter…",
+        "category": "CSV Ultra",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "csvUltra.convertDelimiter",
+        "title": "Convert Delimiter…",
+        "category": "CSV Ultra",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "csvUltra.convertToTsv",
+        "title": "Convert to TSV (Tab-Separated)",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.convertToCsv",
+        "title": "Convert to CSV (Comma-Separated)",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.saveAsTsv",
+        "title": "Save a Copy as TSV…",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.saveAsCsv",
+        "title": "Save a Copy as CSV…",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.sortAscending",
+        "title": "Sort Ascending by the Selected Column",
+        "category": "CSV Ultra",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "csvUltra.sortDescending",
+        "title": "Sort Descending by the Selected Column",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.clearSort",
+        "title": "Clear Sort",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.applySort",
+        "title": "Write the Sorted Order to the File",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.insertRowAbove",
+        "title": "Insert Row Above",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.insertRowBelow",
+        "title": "Insert Row Below",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.deleteRows",
+        "title": "Delete Selected Rows",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.insertColumnLeft",
+        "title": "Insert Column Left",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.insertColumnRight",
+        "title": "Insert Column Right",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.deleteColumns",
+        "title": "Delete Selected Columns",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.toggleWrap",
+        "title": "Toggle Cell Wrapping",
+        "category": "CSV Ultra",
+        "icon": "$(word-wrap)"
+      },
+      {
+        "command": "csvUltra.autoFitColumns",
+        "title": "Auto-Fit Column Widths",
+        "category": "CSV Ultra",
+        "icon": "$(arrow-both)"
+      },
+      {
+        "command": "csvUltra.resetLayout",
+        "title": "Reset Column Widths and Row Heights",
+        "category": "CSV Ultra",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "csvUltra.rowHeightIncrease",
+        "title": "Increase Row Height",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.rowHeightDecrease",
+        "title": "Decrease Row Height",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.fontSizeIncrease",
+        "title": "Increase Font Size",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.fontSizeDecrease",
+        "title": "Decrease Font Size",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.fontSizeReset",
+        "title": "Reset Font Size",
+        "category": "CSV Ultra"
+      },
+      {
+        "command": "csvUltra.toggleRainbow",
+        "title": "Toggle Rainbow Columns in the Text Editor",
+        "category": "CSV Ultra",
+        "icon": "$(symbol-color)"
+      },
+      {
+        "command": "csvUltra.showLog",
+        "title": "Show Log",
+        "category": "CSV Ultra"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "csvUltra.open", "when": "resourceExtname =~ /\\.(csv|tsv|tab|psv)$/i" },
+        { "command": "csvUltra.openToSide", "when": "resourceExtname =~ /\\.(csv|tsv|tab|psv)$/i" },
+        { "command": "csvUltra.openInTextEditor", "when": "activeCustomEditorId == 'csvUltra.editor'" },
+        { "command": "csvUltra.find", "when": "csvUltra.active" },
+        { "command": "csvUltra.findNext", "when": "csvUltra.active" },
+        { "command": "csvUltra.findPrevious", "when": "csvUltra.active" },
+        { "command": "csvUltra.goToRow", "when": "csvUltra.active" },
+        { "command": "csvUltra.toggleHeaderRow", "when": "csvUltra.active" },
+        { "command": "csvUltra.setDelimiter", "when": "csvUltra.active" },
+        { "command": "csvUltra.convertDelimiter", "when": "csvUltra.active || editorLangId =~ /^(csv|tsv|psv)$/" },
+        { "command": "csvUltra.convertToTsv", "when": "csvUltra.active || editorLangId =~ /^(csv|tsv|psv)$/" },
+        { "command": "csvUltra.convertToCsv", "when": "csvUltra.active || editorLangId =~ /^(csv|tsv|psv)$/" },
+        { "command": "csvUltra.saveAsTsv", "when": "csvUltra.active || editorLangId =~ /^(csv|tsv|psv)$/" },
+        { "command": "csvUltra.saveAsCsv", "when": "csvUltra.active || editorLangId =~ /^(csv|tsv|psv)$/" },
+        { "command": "csvUltra.sortAscending", "when": "csvUltra.active" },
+        { "command": "csvUltra.sortDescending", "when": "csvUltra.active" },
+        { "command": "csvUltra.clearSort", "when": "csvUltra.active" },
+        { "command": "csvUltra.applySort", "when": "csvUltra.active" },
+        { "command": "csvUltra.insertRowAbove", "when": "csvUltra.active" },
+        { "command": "csvUltra.insertRowBelow", "when": "csvUltra.active" },
+        { "command": "csvUltra.deleteRows", "when": "csvUltra.active" },
+        { "command": "csvUltra.insertColumnLeft", "when": "csvUltra.active" },
+        { "command": "csvUltra.insertColumnRight", "when": "csvUltra.active" },
+        { "command": "csvUltra.deleteColumns", "when": "csvUltra.active" },
+        { "command": "csvUltra.toggleWrap", "when": "csvUltra.active" },
+        { "command": "csvUltra.autoFitColumns", "when": "csvUltra.active" },
+        { "command": "csvUltra.resetLayout", "when": "csvUltra.active" },
+        { "command": "csvUltra.rowHeightIncrease", "when": "csvUltra.active" },
+        { "command": "csvUltra.rowHeightDecrease", "when": "csvUltra.active" },
+        { "command": "csvUltra.fontSizeIncrease", "when": "csvUltra.active" },
+        { "command": "csvUltra.fontSizeDecrease", "when": "csvUltra.active" },
+        { "command": "csvUltra.fontSizeReset", "when": "csvUltra.active" },
+        { "command": "csvUltra.toggleRainbow", "when": "editorLangId =~ /^(csv|tsv|psv)$/" }
+      ],
+      "editor/title": [
+        {
+          "command": "csvUltra.openInTextEditor",
+          "when": "activeCustomEditorId == 'csvUltra.editor'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "csvUltra.toggleHeaderRow",
+          "when": "activeCustomEditorId == 'csvUltra.editor'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "csvUltra.toggleWrap",
+          "when": "activeCustomEditorId == 'csvUltra.editor'",
+          "group": "navigation@3"
+        },
+        {
+          "command": "csvUltra.autoFitColumns",
+          "when": "activeCustomEditorId == 'csvUltra.editor'",
+          "group": "navigation@4"
+        },
+        {
+          "command": "csvUltra.open",
+          "when": "editorLangId =~ /^(csv|tsv|psv)$/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "csvUltra.setDelimiter",
+          "when": "activeCustomEditorId == 'csvUltra.editor'",
+          "group": "1_csv@1"
+        },
+        {
+          "command": "csvUltra.convertDelimiter",
+          "when": "activeCustomEditorId == 'csvUltra.editor' || editorLangId =~ /^(csv|tsv|psv)$/",
+          "group": "1_csv@2"
+        },
+        {
+          "command": "csvUltra.saveAsTsv",
+          "when": "activeCustomEditorId == 'csvUltra.editor' || editorLangId =~ /^(csv|tsv|psv)$/",
+          "group": "1_csv@3"
+        },
+        {
+          "command": "csvUltra.saveAsCsv",
+          "when": "activeCustomEditorId == 'csvUltra.editor' || editorLangId =~ /^(csv|tsv|psv)$/",
+          "group": "1_csv@4"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "csvUltra.openToSide",
+          "when": "resourceExtname =~ /\\.(csv|tsv|tab|psv)$/i",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "csvUltra.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.findNext",
+        "key": "f3",
+        "mac": "cmd+shift+g",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.findPrevious",
+        "key": "shift+f3",
+        "mac": "cmd+shift+f3",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.goToRow",
+        "key": "ctrl+g",
+        "mac": "cmd+g",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus && !csvUltra.editing"
+      },
+      {
+        "command": "csvUltra.toggleHeaderRow",
+        "key": "ctrl+k ctrl+h",
+        "mac": "cmd+k cmd+h",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.toggleWrap",
+        "key": "ctrl+k ctrl+w",
+        "mac": "cmd+k cmd+w",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.autoFitColumns",
+        "key": "ctrl+k ctrl+a",
+        "mac": "cmd+k cmd+a",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.fontSizeIncrease",
+        "key": "ctrl+=",
+        "mac": "cmd+=",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.fontSizeDecrease",
+        "key": "ctrl+-",
+        "mac": "cmd+-",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.fontSizeReset",
+        "key": "ctrl+0",
+        "mac": "cmd+0",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.rowHeightIncrease",
+        "key": "ctrl+shift+=",
+        "mac": "cmd+shift+=",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "csvUltra.rowHeightDecrease",
+        "key": "ctrl+shift+-",
+        "mac": "cmd+shift+-",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus && !csvUltra.editing"
+      },
+      {
+        "command": "redo",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus && !csvUltra.editing"
+      },
+      {
+        "command": "redo",
+        "key": "ctrl+y",
+        "mac": "cmd+y",
+        "when": "activeCustomEditorId == 'csvUltra.editor' && !terminalFocus && !inputFocus && !csvUltra.editing"
+      }
+    ],
+    "configuration": {
+      "title": "CSV Ultra",
+      "properties": {
+        "csvUltra.delimiter": {
+          "type": "string",
+          "enum": ["auto", ",", ";", "\t", "|", ":"],
+          "enumDescriptions": [
+            "Detect the delimiter from the file's own content and name.",
+            "Comma.",
+            "Semicolon.",
+            "Tab.",
+            "Pipe.",
+            "Colon."
+          ],
+          "default": "auto",
+          "description": "Character between fields. `auto` reads `.tsv`/`.tab` as tab-separated and `.psv` as pipe-separated, and scores the candidates against the first few dozen records of anything else."
+        },
+        "csvUltra.quoteStyle": {
+          "type": "string",
+          "enum": ["preserve", "minimal", "always"],
+          "enumDescriptions": [
+            "Quote a field the file already quoted, plus anything that has to be quoted.",
+            "Quote only what has to be quoted.",
+            "Quote every field."
+          ],
+          "default": "preserve",
+          "description": "How a cell is written back. `preserve` keeps a file's own habits — a value quoted on the way in stays quoted on the way out — so an edited row differs from its neighbours only where you edited it."
+        },
+        "csvUltra.headerRow": {
+          "type": "string",
+          "enum": ["auto", "always", "never"],
+          "enumDescriptions": [
+            "Treat the first record as a header when it reads like one.",
+            "Always treat the first record as a header.",
+            "Never; the first record is data."
+          ],
+          "default": "auto",
+          "description": "Whether the first record names the columns. A header row is frozen at the top, is not sorted with the data, and titles the columns."
+        },
+        "csvUltra.rowHeight": {
+          "type": "number",
+          "default": 24,
+          "minimum": 16,
+          "maximum": 400,
+          "description": "Height of a row in pixels. Drag the bottom edge of a row's number to change one row; double-click that edge to fit the row to its content."
+        },
+        "csvUltra.columnWidth": {
+          "type": "number",
+          "default": 140,
+          "minimum": 40,
+          "maximum": 1200,
+          "description": "Width a column opens at, in pixels, before it is auto-fitted or dragged."
+        },
+        "csvUltra.maxColumnWidth": {
+          "type": "number",
+          "default": 480,
+          "minimum": 60,
+          "maximum": 2000,
+          "description": "Ceiling on an auto-fitted column. A column of long free text stops here instead of pushing every other column off the screen."
+        },
+        "csvUltra.autoFitOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Fit the columns to their content when a file opens, up to `#csvUltra.maxColumnWidth#`. Widths you have set yourself are kept."
+        },
+        "csvUltra.fontSize": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 48,
+          "description": "Font size in px for the table. 0 follows the editor's font size."
+        },
+        "csvUltra.fontFamily": {
+          "type": "string",
+          "enum": ["editor", "ui"],
+          "enumDescriptions": [
+            "The editor's font — monospace, so digits line up in a column.",
+            "The workbench UI font."
+          ],
+          "default": "editor",
+          "description": "Font the table's cells are drawn in."
+        },
+        "csvUltra.wrap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Wrap a cell's text instead of clipping it. Rows keep their height — double-click a row's bottom edge to fit one to its wrapped content."
+        },
+        "csvUltra.zebraStripes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Tint every other row, so a wide table is readable straight across."
+        },
+        "csvUltra.alignNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Right-align cells that hold a number, the way a spreadsheet does."
+        },
+        "csvUltra.rememberLayout": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reopen a file with the column widths, row heights and sort you left it with."
+        },
+        "csvUltra.maxFileSizeBytes": {
+          "type": "number",
+          "default": 33554432,
+          "minimum": 65536,
+          "description": "Largest file the table will open (default 32 MB). Anything larger offers the text editor instead of spending a minute laying out a grid nobody asked for."
+        },
+        "csvUltra.rainbow.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Colour each column differently in the *text* editor. The colours are theme colours — `csvUltra.column1` … `csvUltra.column10` — so `workbench.colorCustomizations` overrides them."
+        },
+        "csvUltra.rainbow.maxFileSizeBytes": {
+          "type": "number",
+          "default": 8388608,
+          "minimum": 4096,
+          "description": "Largest file the text editor colours by column (default 8 MB)."
+        },
+        "csvUltra.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the cell under the cursor — and the column it belongs to — in the status bar."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit && tsc -p webview --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@microsoft/fast-element": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "happy-dom": "^15.11.7",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}
