@@ -88,13 +88,15 @@ All under `fastElementUltra.*`:
   panel.
 - **FAST Element Ultra: Clear Workspace Analysis Results.**
 
-## Moving from `fast-plugin` (the lit-analyzer fork)
+## Coming from lit-analyzer
 
-Settings live under `fastElementUltra.*` instead of `fast-plugin.*` and are
-not migrated — three rules no longer exist, three were renamed, and the
-deprecated aliases are gone:
+The rule set began as lit-analyzer's and diverged wherever FAST's semantics
+differ. If you already know lit-plugin's rule ids, this is what changed —
+three rules no longer exist, three were renamed, and lit-analyzer's
+deprecated aliases are gone. Settings live under `fastElementUltra.*`;
+`lit-plugin.*` settings are not read.
 
-| fast-plugin | here |
+| lit-analyzer | here |
 | --- | --- |
 | `no-nullable-attribute-binding` | **removed** — FAST removes an attribute on null/undefined; the rule was a false positive by construction |
 | `no-legacy-attribute` | **removed** — Polymer's `foo$=` syntax |
@@ -105,7 +107,7 @@ deprecated aliases are gone:
 | `no-unknown-event` | now **on by default** (`warning`) — FAST's `$emit` gives a definite event list |
 | `securitySystem`, `skip*` aliases, `externalHtmlTag*` | removed |
 
-New rules with no fast-plugin equivalent: `no-non-reactive-binding`,
+New rules with no lit-analyzer equivalent: `no-non-reactive-binding`,
 `no-invalid-directive-target`, `no-slot-without-shadow-root`,
 `no-duplicate-tag-name`, `no-untyped-template`, `no-implicit-prevent-default`.
 
