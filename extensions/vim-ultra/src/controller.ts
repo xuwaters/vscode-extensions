@@ -2,16 +2,54 @@ import * as vscode from 'vscode';
 import type {
   Effects,
   EngineCommand,
+  EngineEasyUi,
   EngineMode,
   EngineSearchUi,
   EngineSelection,
   EngineSession,
   SessionFactory,
 } from './engine';
-import { modeLabel, replaceEol, serializeSelections, typedKeys } from './util';
+import {
+  expandLeader,
+  modeLabel,
+  replaceEol,
+  serializeSelections,
+  typedKeys,
+} from './util';
 
 /** How far off-screen a search match must be before peeking centers it. */
 const CENTER_PEEK_LINES = 15;
+
+/**
+ * EasyMotion label colours, following the plugin's own: the targets a single
+ * key reaches are the loud ones, the two-key ones step back. Fixed rather
+ * than themed, because a label has to be legible over whatever the token
+ * under it was coloured.
+ */
+const LABEL_COLOR = '#ff0000';
+const LABEL_COLOR_TWO_KEY = '#ffb400';
+
+/** EasyMotion settings, as the workspace configuration spells them. */
+interface EasyMotionSettings {
+  enabled: boolean;
+  /** The key sequence that opens a jump, `<leader>` already expanded. */
+  trigger: string;
+  /** The characters labels are spelled with. */
+  keys: string;
+  /** Fade the rest of the screen while the labels are up. */
+  dim: boolean;
+}
+
+function readEasyMotion(): EasyMotionSettings {
+  const cfg = vscode.workspace.getConfiguration('vimUltra');
+  const leader = cfg.get<string>('leader', '<space>');
+  return {
+    enabled: cfg.get<boolean>('easyMotion.enabled', true),
+    trigger: expandLeader(cfg.get<string>('easyMotion.trigger', '<leader><leader>'), leader),
+    keys: cfg.get<string>('easyMotion.markerKeys', 'asdghklqwertyuiopzxcvbnmfj;'),
+    dim: cfg.get<boolean>('easyMotion.dimBackground', true),
+  };
+}
 
 type IndentCommand = Extract<EngineCommand, { kind: 'indentLines' }>;
 
@@ -21,6 +59,42 @@ function byHand(kind: vscode.TextEditorSelectionChangeKind | undefined): boolean
     kind === vscode.TextEditorSelectionChangeKind.Mouse ||
     kind === vscode.TextEditorSelectionChangeKind.Keyboard
   );
+}
+
+/**
+ * Everything between `firstLine` and `lastLine` that no label covers. The
+ * fade goes around the labels rather than over them: one decoration spanning
+ * both would dim the labels along with the text they stand on.
+ */
+function dimRanges(
+  doc: vscode.TextDocument,
+  firstLine: number,
+  lastLine: number,
+  covered: readonly vscode.Range[],
+): vscode.Range[] {
+  const perLine = new Map<number, vscode.Range[]>();
+  for (const range of covered) {
+    const found = perLine.get(range.start.line);
+    if (found) found.push(range);
+    else perLine.set(range.start.line, [range]);
+  }
+  const out: vscode.Range[] = [];
+  const last = Math.min(lastLine, doc.lineCount - 1);
+  for (let line = Math.max(0, firstLine); line <= last; line++) {
+    const width = doc.lineAt(line).text.length;
+    const labels = (perLine.get(line) ?? []).sort(
+      (a, b) => a.start.character - b.start.character,
+    );
+    let at = 0;
+    for (const label of labels) {
+      if (label.start.character > at) {
+        out.push(new vscode.Range(line, at, line, label.start.character));
+      }
+      at = Math.max(at, label.end.character);
+    }
+    if (at < width) out.push(new vscode.Range(line, at, line, width));
+  }
+  return out;
 }
 
 /** Editor selections as the engine takes them; both count UTF-16 columns. */
@@ -51,6 +125,15 @@ export class VimController implements vscode.Disposable {
   private readonly searchMatch: vscode.TextEditorDecorationType;
   /** Top visible line when the search prompt opened; restored on cancel. */
   private searchViewTop: number | null = null;
+  /** Everything outside an EasyMotion label while the labels are up. */
+  private readonly easyDim: vscode.TextEditorDecorationType;
+  /** One decoration type per label text, made once and reused. */
+  private readonly easyLabels = new Map<string, vscode.TextEditorDecorationType>();
+  /** The label decorations currently painted, so the next key can clear them. */
+  private easyPainted: vscode.TextEditorDecorationType[] = [];
+  /** The editor holding the labels, so ending a jump clears the right one. */
+  private easyEditor: vscode.TextEditor | null = null;
+  private easy = readEasyMotion();
   /** The editor holding search decorations, so ending clears the right one. */
   private decoratedEditor: vscode.TextEditor | null = null;
   private applyingEdits = false;
@@ -85,6 +168,7 @@ export class VimController implements vscode.Disposable {
       border: '1px solid',
       borderColor: new vscode.ThemeColor('editor.findMatchHighlightBorder'),
     });
+    this.easyDim = vscode.window.createTextEditorDecorationType({ opacity: '0.4' });
     this.searchMatch = vscode.window.createTextEditorDecorationType({
       backgroundColor: new vscode.ThemeColor('editor.findMatchBackground'),
       overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.findMatchForeground'),
@@ -111,6 +195,7 @@ export class VimController implements vscode.Disposable {
     const editor = vscode.window.activeTextEditor;
     if (!enabled) {
       this.status.hide();
+      this.clearEasy();
       if (editor) {
         this.applySearchUi(editor, { kind: 'cancelled' }, true);
         this.setCursorStyle(editor, 'insert');
@@ -157,6 +242,13 @@ export class VimController implements vscode.Disposable {
     // The selection-change event syncs the engine's cursor.
   }
 
+  /** Re-read the settings the engine holds a copy of (EasyMotion's). */
+  reloadSettings(): void {
+    this.clearEasy();
+    this.easy = readEasyMotion();
+    for (const session of this.sessions.values()) this.configureEasy(session);
+  }
+
   dispose(): void {
     for (const d of this.disposables) d.dispose();
     for (const s of this.sessions.values()) s.dispose();
@@ -164,6 +256,9 @@ export class VimController implements vscode.Disposable {
     this.status.dispose();
     this.searchHighlight.dispose();
     this.searchMatch.dispose();
+    this.easyDim.dispose();
+    for (const d of this.easyLabels.values()) d.dispose();
+    this.easyLabels.clear();
   }
 
   // ---- key -> effects ------------------------------------------------------
@@ -178,6 +273,7 @@ export class VimController implements vscode.Disposable {
     // position VSCode restored after handing us the editor — is caught here,
     // before the key runs from a stale place.
     this.syncCursors(editor, session);
+    this.reportView(editor, session);
     const fx = session.key(key);
     if (!fx) return;
     // Only keys refresh the message, so an incidental cursor sync (or the
@@ -246,7 +342,86 @@ export class VimController implements vscode.Disposable {
       if (cmd.kind !== 'indentLines') await this.runCommand(editor, cmd);
     }
     this.applySearchUi(editor, fx.search, external);
+    this.applyEasyUi(editor, fx.easy);
     this.updateUi(editor, fx.mode, fx.pending, editor.selections.length);
+  }
+
+  /** The lines the editor has on screen, which is all a jump may label. */
+  private reportView(editor: vscode.TextEditor, session: EngineSession): void {
+    const ranges = editor.visibleRanges;
+    if (ranges.length === 0) return;
+    let first = ranges[0].start.line;
+    let last = ranges[0].end.line;
+    for (const range of ranges) {
+      first = Math.min(first, range.start.line);
+      last = Math.max(last, range.end.line);
+    }
+    session.setView(first, last);
+  }
+
+  /**
+   * The EasyMotion overlay: paint a label over the first characters of every
+   * target and fade what is left, or take both down when the jump ends.
+   *
+   * A label hides the characters it covers by colouring them transparent and
+   * rides over them in the `before` slot, pulled back by its own width — so
+   * nothing on the line moves while the labels are up, and nothing but the
+   * labels is readable.
+   */
+  private applyEasyUi(editor: vscode.TextEditor, ui: EngineEasyUi | undefined): void {
+    if (!ui) return;
+    // Whatever is up comes down first, on whichever editor is holding it.
+    this.clearEasy();
+    if (ui.kind !== 'labels') return;
+    const doc = editor.document;
+    const ranges = new Map<vscode.TextEditorDecorationType, vscode.Range[]>();
+    const covered: vscode.Range[] = [];
+    for (const label of ui.labels) {
+      if (label.line >= doc.lineCount) continue;
+      const width = doc.lineAt(label.line).text.length - label.col;
+      const end = label.col + Math.max(0, Math.min(label.text.length, width));
+      const range = new vscode.Range(label.line, label.col, label.line, end);
+      const type = this.easyLabel(label.text);
+      const found = ranges.get(type);
+      if (found) found.push(range);
+      else ranges.set(type, [range]);
+      covered.push(range);
+    }
+    for (const [type, list] of ranges) editor.setDecorations(type, list);
+    this.easyPainted = [...ranges.keys()];
+    this.easyEditor = editor;
+    editor.setDecorations(
+      this.easyDim,
+      this.easy.dim ? dimRanges(doc, ui.firstLine, ui.lastLine, covered) : [],
+    );
+  }
+
+  /** Take the labels and the fade down, wherever they were painted. */
+  private clearEasy(): void {
+    const editor = this.easyEditor;
+    if (!editor) return;
+    for (const type of this.easyPainted) editor.setDecorations(type, []);
+    editor.setDecorations(this.easyDim, []);
+    this.easyPainted = [];
+    this.easyEditor = null;
+  }
+
+  /** The decoration that draws one label; made once per label text. */
+  private easyLabel(text: string): vscode.TextEditorDecorationType {
+    const found = this.easyLabels.get(text);
+    if (found) return found;
+    const created = vscode.window.createTextEditorDecorationType({
+      color: 'transparent',
+      before: {
+        contentText: text,
+        color: text.length > 1 ? LABEL_COLOR_TWO_KEY : LABEL_COLOR,
+        backgroundColor: new vscode.ThemeColor('editor.background'),
+        fontWeight: 'bold',
+        margin: `0 -${text.length}ch 0 0`,
+      },
+    });
+    this.easyLabels.set(text, created);
+    return created;
   }
 
   /**
@@ -465,15 +640,21 @@ export class VimController implements vscode.Disposable {
         editor.selection.active.character,
       );
       if (!created) return null;
+      this.configureEasy(created);
       this.sessions.set(key, created);
       session = created;
     }
     return session;
   }
 
+  private configureEasy(session: EngineSession): void {
+    session.setEasyMotion(this.easy.enabled, this.easy.trigger, this.easy.keys);
+  }
+
   private resync(editor: vscode.TextEditor, session: EngineSession): void {
     this.message = ''; // the report described edits that never landed
     this.applySearchUi(editor, { kind: 'cancelled' }, true);
+    this.clearEasy();
     this.mirrored = serializeSelections(editor.selections);
     session.reset(
       editor.document.getText(),

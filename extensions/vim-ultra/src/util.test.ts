@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { modeLabel, replaceEol, serializeSelections, typedKeys } from './util';
+import {
+  expandLeader,
+  modeLabel,
+  replaceEol,
+  serializeSelections,
+  typedKeys,
+} from './util';
+
+describe('expandLeader', () => {
+  it('spells a trigger with the leader key', () => {
+    expect(expandLeader('<leader><leader>', '<space>')).toBe('<space><space>');
+    expect(expandLeader('<leader><leader>', ',')).toBe(',,');
+    expect(expandLeader('<leader>w', '\\')).toBe('\\w');
+    expect(expandLeader('gs', '<space>')).toBe('gs');
+  });
+});
 
 describe('typedKeys', () => {
   it('splits per code point', () => {

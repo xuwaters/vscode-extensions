@@ -48,6 +48,20 @@ commands), and mirrors external document changes back into the engine.
   the new line through VSCode's own line-insert — the same thing `enter` in
   insert mode runs — so it arrives indented by the language's rules rather
   than at column 0.
+- **EasyMotion jumps**: `<space><space>` — the leader twice — labels every
+  place the motion after it could land, anywhere on screen, and one or two
+  keystrokes go there. `w W b B` for word starts, `e E ge gE` for word ends,
+  `j k` for lines, `f{char}` `F{char}` `t{char}` `T{char}` the way the
+  motions themselves work, `s{char}` looking both ways at once,
+  `2s{char}{char}` (any count) for that many characters, and `/{chars}⏎` for
+  as many as you care to type. The nearest targets get one-key labels and the
+  rest two, the screen behind them dims, and the label you have typed narrows
+  what is left. It is a motion like any other, so `d<space><space>w` deletes
+  up to the target you pick and a jump in visual mode extends the selection.
+  Escape, or any key that spells no label, calls it off. With the leader on
+  the space bar a lone `<space>` still moves one character right — it runs as
+  soon as the next key turns out not to open a jump, which is what Vim does
+  with an ambiguous mapping.
 - **Editor integration**: `gh` pops the hover for the symbol under the
   cursor — its type and docs — like vscode-vim's binding of the same name.
 - **Registers**: the unnamed register, charwise and linewise, with counted
@@ -79,6 +93,12 @@ commands), and mirrors external document changes back into the engine.
   it dismisses them *and* drops you into normal mode, rather than spending the
   key on the popup and leaving you still typing. Turn it off for VSCode's
   two-press behaviour.
+- `vimUltra.leader` (default `<space>`) — the leader key, written the way a
+  Vim mapping is (`<space>`, `,`, `\`).
+- `vimUltra.easyMotion.enabled` (default `true`), `.trigger` (default
+  `<leader><leader>`), `.markerKeys` (default `asdghklqwertyuiopzxcvbnmfj;` —
+  vim-easymotion's own, home row first; more keys means fewer two-key labels)
+  and `.dimBackground` (default `true`).
 
 ## Not yet implemented
 
@@ -87,6 +107,13 @@ Marks, macros, dot-repeat, named registers, replace mode (`R`), block visual
 and the jumplist. `:s` is the only ex command: no `:w`, `:g`, `:sort`, … —
 an unknown one says so in the status bar rather than doing something
 surprising.
+
+EasyMotion labels only the lines on screen, matches the characters of a
+`f`/`s`/`/` jump literally and case-sensitively (no regexp, no smartcase),
+and stays out of the way while several cursors are up — a jump is one
+cursor's choice of one landing place. Targets past what two label keys can
+spell are dropped rather than left unreachable; with the default 27 keys that
+is 729 of them, well past a screenful.
 
 Multiple cursors edit one document, so two of them reaching for the same
 text (`dd` on adjoining lines, `d/foo⏎` across a neighbour) is a conflict:

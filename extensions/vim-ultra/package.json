@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-vim-ultra",
   "displayName": "Vim Ultra",
-  "description": "Modal Vim editing on a Rust/WASM engine — motions, operators, text objects, counts, registers, visual modes, multiple cursors, regex search (/ ? n N * #) and search-and-replace (:s). Partial Vim: no other ex commands, macros, marks, dot-repeat, named registers, replace mode, or block visual.",
-  "version": "0.7.0",
+  "description": "Modal Vim editing on a Rust/WASM engine — motions, operators, text objects, counts, registers, visual modes, multiple cursors, EasyMotion jumps, regex search (/ ? n N * #) and search-and-replace (:s). Partial Vim: no other ex commands, macros, marks, dot-repeat, named registers, replace mode, or block visual.",
+  "version": "0.8.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -169,6 +169,31 @@
           "type": "boolean",
           "default": true,
           "description": "Escape leaves insert mode even when a popup would otherwise consume it: the suggestion widget, the parameter hints tooltip and inline suggestions (Copilot ghost text) are dismissed and you land in normal mode in one press. Turn this off for VSCode's behaviour, where the first Escape only dismisses the popup and a second one leaves insert mode."
+        },
+        "vimUltra.leader": {
+          "type": "string",
+          "default": "<space>",
+          "description": "The leader key, written as a Vim mapping is (`<space>`, `,`, `\\`). EasyMotion's trigger is spelled with it."
+        },
+        "vimUltra.easyMotion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "EasyMotion jumps: the trigger labels every place a motion could land on screen, and one or two keys go there."
+        },
+        "vimUltra.easyMotion.trigger": {
+          "type": "string",
+          "default": "<leader><leader>",
+          "description": "The key sequence that opens a jump, `<leader>` standing for `vimUltra.leader` — `<space><space>` by default. With the leader on the space bar, a lone space still moves one character right whenever the next key does not open a jump."
+        },
+        "vimUltra.easyMotion.markerKeys": {
+          "type": "string",
+          "default": "asdghklqwertyuiopzxcvbnmfj;",
+          "description": "The characters labels are spelled with, in the order they are handed out: the nearest targets get the first of them. More keys means fewer two-key labels."
+        },
+        "vimUltra.easyMotion.dimBackground": {
+          "type": "boolean",
+          "default": true,
+          "description": "Fade the visible text while the labels are up, so only the labels stand out."
         }
       }
     }

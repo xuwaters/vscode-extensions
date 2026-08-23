@@ -5,7 +5,7 @@
 
 use pretty_assertions::assert_eq;
 use vim_engine::buffer::Pos;
-use vim_engine::state::{Command, Effects, SearchUi, Session};
+use vim_engine::state::{Command, EasyUi, Effects, SearchUi, Session};
 use vim_engine::Key;
 
 fn session(text: &str) -> Session {
@@ -1444,4 +1444,284 @@ fn multi_cursor_r_with_enter_splits_every_line() {
     let fx = feed(&mut s, "r<cr>");
     assert_eq!(s.text(), "a\nb\na\nb");
     assert_eq!(actives(&fx), [(1, 0), (3, 0)]);
+}
+
+// ---- easymotion ------------------------------------------------------------
+
+/// The labels an effects painted: line, column and the keys left to press.
+fn marks(fx: &Effects) -> Vec<(usize, usize, String)> {
+    match fx.easy.as_ref() {
+        Some(EasyUi::Labels { labels, .. }) => labels
+            .iter()
+            .map(|l| (l.line, l.col, l.text.clone()))
+            .collect(),
+        other => panic!("expected labels, got {other:?}"),
+    }
+}
+
+#[test]
+fn easymotion_labels_word_starts_and_jumps() {
+    let mut s = session("foo bar baz\nqux quux");
+    let fx = feed(&mut s, "<space><space>w");
+    assert_eq!(
+        marks(&fx),
+        [
+            (0, 4, "a".to_string()),
+            (0, 8, "s".to_string()),
+            (1, 0, "d".to_string()),
+            (1, 4, "g".to_string()),
+        ]
+    );
+    assert_eq!(s.cursor(), Pos::new(0, 0), "the cursor waits for the label");
+    let fx = feed(&mut s, "d");
+    assert_eq!(s.cursor(), Pos::new(1, 0));
+    assert_eq!(fx.easy, Some(EasyUi::Done));
+    assert_eq!(fx.pending, "");
+}
+
+#[test]
+fn easymotion_backward_and_line_jumps_are_nearest_first() {
+    let mut s = at("one two\nthree four\nfive six", 2, 0);
+    // `b` labels the word starts behind the cursor, closest first.
+    let fx = feed(&mut s, "<space><space>b");
+    assert_eq!(
+        marks(&fx),
+        [
+            (1, 6, "a".to_string()),
+            (1, 0, "s".to_string()),
+            (0, 4, "d".to_string()),
+            (0, 0, "g".to_string()),
+        ]
+    );
+    feed(&mut s, "d");
+    assert_eq!(s.cursor(), Pos::new(0, 4));
+    // `j` / `k` label whole lines, landing on the first non-blank.
+    let mut s = at("  one\ntwo\n    three", 0, 3);
+    let fx = feed(&mut s, "<space><space>j");
+    assert_eq!(marks(&fx), [(1, 0, "a".to_string()), (2, 4, "s".to_string())]);
+    feed(&mut s, "s");
+    assert_eq!(s.cursor(), Pos::new(2, 4));
+}
+
+#[test]
+fn easymotion_word_ends_forward_and_back() {
+    let mut s = at("alpha beta gamma", 0, 7);
+    let fx = feed(&mut s, "<space><space>e");
+    assert_eq!(marks(&fx), [(0, 9, "a".to_string()), (0, 15, "s".to_string())]);
+    feed(&mut s, "s");
+    assert_eq!(s.cursor(), Pos::new(0, 15));
+    // `ge` looks the other way.
+    let mut s = at("alpha beta gamma", 0, 12);
+    let fx = feed(&mut s, "<space><space>ge");
+    assert_eq!(marks(&fx), [(0, 9, "a".to_string()), (0, 4, "s".to_string())]);
+    feed(&mut s, "s");
+    assert_eq!(s.cursor(), Pos::new(0, 4));
+}
+
+#[test]
+fn easymotion_char_jumps_take_the_char_they_search_for() {
+    let mut s = session("a.b.c.d");
+    let fx = feed(&mut s, "<space><space>f.");
+    assert_eq!(
+        marks(&fx),
+        [
+            (0, 1, "a".to_string()),
+            (0, 3, "s".to_string()),
+            (0, 5, "d".to_string()),
+        ]
+    );
+    feed(&mut s, "s");
+    assert_eq!(s.cursor(), Pos::new(0, 3));
+    // `s` looks both ways, nearest first, and `t` stops one char short.
+    let mut s = at("a.b.c.d", 0, 3);
+    let fx = feed(&mut s, "<space><space>s.");
+    assert_eq!(marks(&fx), [(0, 1, "a".to_string()), (0, 5, "s".to_string())]);
+    feed(&mut s, "a");
+    assert_eq!(s.cursor(), Pos::new(0, 1));
+    let mut s = session("a.b.c.d");
+    let fx = feed(&mut s, "<space><space>t.");
+    assert_eq!(s.cursor(), Pos::new(0, 0), "labels are up, nothing moved yet");
+    assert_eq!(marks(&fx), [(0, 2, "a".to_string()), (0, 4, "s".to_string())]);
+    feed(&mut s, "a");
+    assert_eq!(s.cursor(), Pos::new(0, 2));
+}
+
+#[test]
+fn easymotion_counted_char_jump_takes_that_many_chars() {
+    let mut s = session("foo bar\nfoo baz\nfoz qux");
+    // `2s` is easymotion's two-character search.
+    let fx = feed(&mut s, "<space><space>2sfo");
+    assert_eq!(marks(&fx), [(1, 0, "a".to_string()), (2, 0, "s".to_string())]);
+    feed(&mut s, "s");
+    assert_eq!(s.cursor(), Pos::new(2, 0));
+}
+
+#[test]
+fn easymotion_slash_jump_takes_as_many_chars_as_you_type() {
+    let mut s = session("foo\nfoo\nfoo");
+    let fx = feed(&mut s, "<space><space>/foo");
+    assert_eq!(fx.pending, "<space><space>/foo");
+    assert!(fx.easy.is_none(), "nothing is labelled until <cr>");
+    let fx = feed(&mut s, "<cr>");
+    assert_eq!(marks(&fx), [(1, 0, "a".to_string()), (2, 0, "s".to_string())]);
+    feed(&mut s, "s");
+    assert_eq!(s.cursor(), Pos::new(2, 0));
+}
+
+#[test]
+fn easymotion_with_one_target_jumps_without_asking() {
+    let mut s = session("foo bar");
+    let fx = feed(&mut s, "<space><space>w");
+    assert_eq!(s.cursor(), Pos::new(0, 4));
+    assert_eq!(fx.easy, Some(EasyUi::Done));
+}
+
+#[test]
+fn easymotion_reports_when_there_is_nowhere_to_go() {
+    let mut s = at("foo bar", 0, 4);
+    let fx = feed(&mut s, "<space><space>w");
+    assert_eq!(s.cursor(), Pos::new(0, 4));
+    assert_eq!(fx.message.as_deref(), Some("no targets on screen"));
+    assert_eq!(fx.easy, Some(EasyUi::Done));
+}
+
+#[test]
+fn easymotion_labels_only_the_lines_on_screen() {
+    let mut s = session("one two\nthree four\nfive six");
+    s.set_view(0, 1);
+    let fx = feed(&mut s, "<space><space>w");
+    assert_eq!(
+        marks(&fx),
+        [
+            (0, 4, "a".to_string()),
+            (1, 0, "s".to_string()),
+            (1, 6, "d".to_string()),
+        ]
+    );
+    match fx.easy.as_ref() {
+        Some(EasyUi::Labels { first_line, last_line, .. }) => {
+            assert_eq!((*first_line, *last_line), (0, 1));
+        }
+        other => panic!("expected labels, got {other:?}"),
+    }
+}
+
+#[test]
+fn easymotion_two_key_labels_narrow_as_you_type() {
+    let mut s = session("a b c d");
+    // Two marker keys: the nearest target keeps a one-key label, the rest
+    // share the other key as a prefix.
+    s.set_easy_motion(true, "<space><space>", "ab");
+    let fx = feed(&mut s, "<space><space>w");
+    assert_eq!(
+        marks(&fx),
+        [
+            (0, 2, "a".to_string()),
+            (0, 4, "ba".to_string()),
+            (0, 6, "bb".to_string()),
+        ]
+    );
+    // The prefix leaves only its own group up, showing what is still to type.
+    let fx = feed(&mut s, "b");
+    assert_eq!(marks(&fx), [(0, 4, "a".to_string()), (0, 6, "b".to_string())]);
+    assert_eq!(fx.pending, "<space><space>wb");
+    feed(&mut s, "b");
+    assert_eq!(s.cursor(), Pos::new(0, 6));
+}
+
+#[test]
+fn easymotion_feeds_operators_and_visual_mode() {
+    // `d` + a jump deletes up to the target, exclusive like `w` itself.
+    let mut s = session("foo bar baz");
+    feed(&mut s, "d<space><space>ws");
+    assert_eq!(s.text(), "baz");
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+    // A line jump is linewise wherever it lands.
+    let mut s = session("one\ntwo\nthree\nfour");
+    feed(&mut s, "d<space><space>js");
+    assert_eq!(s.text(), "four");
+    // A char jump follows `f`: inclusive going forward.
+    let mut s = session("a.b.c.d");
+    feed(&mut s, "d<space><space>f.s");
+    assert_eq!(s.text(), "c.d");
+    // In visual mode the jump extends the selection.
+    let mut s = session("foo bar baz");
+    let fx = feed(&mut s, "v<space><space>ws");
+    assert_eq!(s.mode_label(), "visual");
+    assert_eq!(actives(&fx), [(0, 9)]);
+}
+
+#[test]
+fn easymotion_cancels_on_escape_and_on_a_stray_key() {
+    let mut s = session("foo bar baz");
+    let fx = feed(&mut s, "<space><space>w<esc>");
+    assert_eq!(fx.easy, Some(EasyUi::Done));
+    assert_eq!(fx.pending, "");
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+    // A key that spells no label ends the jump instead of guessing.
+    let fx = feed(&mut s, "<space><space>wz");
+    assert_eq!(fx.easy, Some(EasyUi::Done));
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+    // So does a motion key that names no jump.
+    let fx = feed(&mut s, "<space><space>q");
+    assert_eq!(fx.easy, Some(EasyUi::Done));
+    assert_eq!(fx.pending, "");
+}
+
+#[test]
+fn a_lone_leader_still_moves_right() {
+    // Vim runs the keys it buffered when the next one completes no mapping;
+    // `<space>l` is two characters right, not a jump.
+    let mut s = session("abcdef");
+    let fx = feed(&mut s, "<space>");
+    assert_eq!(fx.pending, "<space>");
+    assert_eq!(s.cursor(), Pos::new(0, 0));
+    let fx = feed(&mut s, "l");
+    assert_eq!(s.cursor(), Pos::new(0, 2));
+    assert_eq!(fx.pending, "");
+    // And it still feeds an operator: `d<space>` deletes the char the space
+    // moves over, and the `l` that broke the match runs after it.
+    let mut s = session("abcdef");
+    feed(&mut s, "d<space>l");
+    assert_eq!(s.text(), "bcdef");
+    assert_eq!(s.cursor(), Pos::new(0, 1));
+}
+
+#[test]
+fn easymotion_leaves_the_other_prompts_alone() {
+    // A space inside a search or an ex command line is a space.
+    let mut s = session("foo bar\nbaz foo bar");
+    feed(&mut s, "/foo bar<cr>");
+    assert_eq!(s.cursor(), Pos::new(1, 4));
+    let mut s = session("a b\nc d");
+    feed(&mut s, ":s/a b/x y/<cr>");
+    assert_eq!(s.text(), "x y\nc d");
+}
+
+#[test]
+fn easymotion_is_configurable_and_can_be_turned_off() {
+    let mut s = session("foo bar baz");
+    s.set_easy_motion(true, ",,", "jkl");
+    // The old trigger is just a motion again.
+    feed(&mut s, "<space>");
+    assert_eq!(s.cursor(), Pos::new(0, 1));
+    let fx = feed(&mut s, ",,w");
+    assert_eq!(marks(&fx), [(0, 4, "j".to_string()), (0, 8, "k".to_string())]);
+    feed(&mut s, "k");
+    assert_eq!(s.cursor(), Pos::new(0, 8));
+
+    let mut s = session("foo bar baz");
+    s.set_easy_motion(false, "<space><space>", "asd");
+    feed(&mut s, "<space><space>");
+    assert_eq!(s.cursor(), Pos::new(0, 2), "space is a plain motion again");
+}
+
+#[test]
+fn easymotion_stays_out_of_the_way_of_multiple_cursors() {
+    // A jump is one cursor's choice of one landing place; with several of
+    // them the trigger is the motion it otherwise is.
+    let mut s = session("abc\nabc");
+    cursors(&mut s, &[(0, 0), (1, 0)]);
+    let fx = feed(&mut s, "<space><space>");
+    assert_eq!(actives(&fx), [(0, 2), (1, 2)]);
 }

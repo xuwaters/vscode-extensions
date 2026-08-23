@@ -41,6 +41,13 @@ export function activate(context: vscode.ExtensionContext): void {
           .get<boolean>('enabled', true);
         void controller.setEnabled(on);
       }
+      // The engine holds its own copy of the EasyMotion settings.
+      if (
+        e.affectsConfiguration('vimUltra.easyMotion') ||
+        e.affectsConfiguration('vimUltra.leader')
+      ) {
+        controller.reloadSettings();
+      }
     }),
   );
 }

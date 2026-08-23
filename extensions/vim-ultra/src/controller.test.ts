@@ -39,7 +39,12 @@ function sessionFactory(): SessionFactory {
   };
 }
 
-function makeEditor(uri: string, text: string, line: number, col: number): StubEditor {
+/** A stub editor that remembers what was painted on it, newest per type. */
+interface DecoratedEditor extends StubEditor {
+  decorations: Map<unknown, Range[]>;
+}
+
+function makeEditor(uri: string, text: string, line: number, col: number): DecoratedEditor {
   const lines = text.split('\n');
   const document: StubDocument = {
     uri: { scheme: 'file', toString: () => uri },
@@ -51,6 +56,7 @@ function makeEditor(uri: string, text: string, line: number, col: number): StubE
       firstNonWhitespaceCharacterIndex: lines[n].search(/\S|$/),
     }),
   };
+  const decorations = new Map<unknown, Range[]>();
   return {
     document,
     selections: [new Selection(line, col, line, col)],
@@ -58,11 +64,20 @@ function makeEditor(uri: string, text: string, line: number, col: number): StubE
       return this.selections[0];
     },
     options: {},
-    visibleRanges: [],
+    visibleRanges: [new Range(0, 0, lines.length - 1, 0)],
+    decorations,
     edit: () => Promise.resolve(true),
     revealRange: () => {},
-    setDecorations: () => {},
+    setDecorations: (type: unknown, ranges: Range[]) => void decorations.set(type, ranges),
   };
+}
+
+/** Every range painted on the editor, whatever decoration type it came in. */
+function painted(editor: DecoratedEditor): string[] {
+  return [...editor.decorations.values()]
+    .flat()
+    .map((r) => `${r.start.line}:${r.start.character}-${r.end.line}:${r.end.character}`)
+    .sort();
 }
 
 /** Make `editor` the active one, the way VSCode announces the switch. */
@@ -196,6 +211,37 @@ describe.skipIf(!built)('vim controller', () => {
     expect(doc.selections).toHaveLength(1);
     expect(doc.selections[0].anchor).toEqual(doc.selections[0].active);
     expect(doc.selections[0].active.line).toBe(1);
+  });
+
+  it('paints easymotion labels over the visible lines and clears them on the jump', async () => {
+    const doc = makeEditor('file:///a.ts', 'foo bar baz', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    // The default trigger is the leader twice, and the leader is the space.
+    await controller.type(' ');
+    await controller.type(' ');
+    await controller.type('w');
+    // Two word starts ahead of the cursor: one label each, the rest dimmed.
+    expect(painted(doc)).toContain('0:4-0:5');
+    expect(painted(doc)).toContain('0:8-0:9');
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 0 });
+
+    await controller.type('s'); // the second marker key
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 8 });
+    expect(painted(doc)).toEqual([]);
+  });
+
+  it('leaves a lone space as a motion', async () => {
+    const doc = makeEditor('file:///a.ts', 'foo bar', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    await controller.type(' ');
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 0 });
+    await controller.type('l');
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 2 });
+    expect(painted(doc)).toEqual([]);
   });
 
   it('still enters visual when the pointer drags a selection', async () => {

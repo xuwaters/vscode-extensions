@@ -39,6 +39,22 @@ export type EngineSearchUi =
   | { kind: 'committed' }
   | { kind: 'cancelled' };
 
+/** One EasyMotion label: where it sits and what is left to type for it. */
+export interface EngineEasyLabel {
+  line: number;
+  col: number;
+  text: string;
+}
+
+/**
+ * EasyMotion overlay state, on the key that paints the labels and on the one
+ * that takes them down. `labels` also carries the visible line span they were
+ * chosen from, which is what the host dims around them.
+ */
+export type EngineEasyUi =
+  | { kind: 'labels'; labels: EngineEasyLabel[]; firstLine: number; lastLine: number }
+  | { kind: 'done' };
+
 /** One engine response (crates/vim-engine `Effects`). */
 export interface Effects {
   mode: EngineMode;
@@ -50,6 +66,8 @@ export interface Effects {
   message?: string;
   /** Search-typing UI state; absent outside a `/`/`?` prompt's lifetime. */
   search?: EngineSearchUi;
+  /** EasyMotion overlay; absent outside a jump's lifetime. */
+  easy?: EngineEasyUi;
 }
 
 export interface EngineChange {
@@ -74,6 +92,8 @@ interface WasmSession {
     byHand: boolean,
   ): string;
   set_cursors(selectionsJson: string, byHand: boolean): string;
+  set_view(first: number, last: number): void;
+  set_easy_motion(enabled: boolean, trigger: string, keys: string): void;
   take_edits(): Uint8Array;
   mode(): string;
   text(): string;
@@ -190,6 +210,32 @@ export class EngineSession {
       activeCol: s.active.col,
     }));
     return this.parse(() => this.session?.set_cursors(JSON.stringify(wire), byHand));
+  }
+
+  /**
+   * The inclusive line span the editor has on screen. EasyMotion only labels
+   * what the user can see, so this is reported before the keys that could
+   * open a jump.
+   */
+  setView(first: number, last: number): void {
+    try {
+      this.session?.set_view(first, last);
+    } catch (e) {
+      console.error('vim-engine set_view failed:', e);
+    }
+  }
+
+  /**
+   * EasyMotion settings: whether jumps are on, the key sequence that opens
+   * one (written as a Vim mapping — `<space><space>`, `,,`) and the
+   * characters its labels are spelled with, in the order they are handed out.
+   */
+  setEasyMotion(enabled: boolean, trigger: string, keys: string): void {
+    try {
+      this.session?.set_easy_motion(enabled, trigger, keys);
+    } catch (e) {
+      console.error('vim-engine set_easy_motion failed:', e);
+    }
   }
 
   mode(): EngineMode {

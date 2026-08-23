@@ -170,6 +170,20 @@ impl Session {
         self.effects_json(fx)
     }
 
+    /// The inclusive line span the host has on screen. EasyMotion labels
+    /// only what the user can see, so the host reports this before the keys
+    /// that might open a jump.
+    pub fn set_view(&mut self, first: usize, last: usize) {
+        self.inner.set_view(first, last);
+    }
+
+    /// EasyMotion settings: whether jumps are on, the key sequence that opens
+    /// one (`<space><space>`, written as a Vim mapping is) and the characters
+    /// its labels are spelled with.
+    pub fn set_easy_motion(&mut self, enabled: bool, trigger: &str, keys: &str) {
+        self.inner.set_easy_motion(enabled, trigger, keys);
+    }
+
     /// Current mode label ("normal" | "insert" | "visual" | "visualLine").
     pub fn mode(&self) -> String {
         self.inner.mode_label().to_string()

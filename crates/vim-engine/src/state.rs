@@ -9,8 +9,9 @@
 use serde::Serialize;
 
 use crate::buffer::{Buffer, Pos, chars_with_cols, utf16_len};
+use crate::easymotion::{self, Dir};
 use crate::ex;
-use crate::keys::Key;
+use crate::keys::{self, Key};
 use crate::motion::{self, FindKind, char_before};
 use crate::search::{self, Search};
 use crate::textobj::{self, TextObject};
@@ -105,6 +106,32 @@ pub enum SearchUi {
     Cancelled,
 }
 
+/// EasyMotion overlay state, present on the key that paints it and on the
+/// one that takes it down. The engine picks the targets and spells the
+/// labels; the host paints them over the buffer and dims the rest.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum EasyUi {
+    /// Paint these labels, and dim the visible lines they were chosen from.
+    #[serde(rename_all = "camelCase")]
+    Labels {
+        labels: Vec<EasyLabel>,
+        first_line: usize,
+        last_line: usize,
+    },
+    /// The jump ended — taken, abandoned or interrupted: clear the paint.
+    Done,
+}
+
+/// One label: where it sits and what is left to type for it.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct EasyLabel {
+    pub line: usize,
+    /// UTF-16 column, like every other position that crosses the boundary.
+    pub col: usize,
+    pub text: String,
+}
+
 /// Result of one engine call. `selections` is what the editor selection
 /// should become (empty = leave it alone); `edits` are applied first.
 #[derive(Serialize, Debug)]
@@ -125,6 +152,9 @@ pub struct Effects {
     /// Search-typing UI state; `None` outside a `/`/`?` prompt's lifetime.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search: Option<SearchUi>,
+    /// EasyMotion overlay; `None` outside a jump's lifetime.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub easy: Option<EasyUi>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -170,6 +200,77 @@ enum Awaiting {
     },
     /// Typing an ex command line after `:`, terminated by `<cr>`.
     Ex,
+    /// Somewhere inside an EasyMotion jump (see `EasyStage`).
+    Easy(EasyStage),
+}
+
+/// The three steps of a jump: name the motion, say what it looks for, pick a
+/// label.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum EasyStage {
+    /// The trigger has been typed; waiting for the motion key — `w`, `ge`,
+    /// `f`, `2s`, `/` — with `count` collected so far and `after_g` set once
+    /// `g` opened a two-key name.
+    Motion { count: usize, after_g: bool },
+    /// Collecting what a char jump looks for: `want` characters, or as many
+    /// as are typed before `<cr>` when it is 0 (the `/` jump).
+    Chars { dir: Dir, before: bool, want: usize },
+    /// The labels are up; the keys pick one.
+    Pick,
+}
+
+/// How a jump feeds a pending operator. `Char` is `f`/`F`'s rule — inclusive
+/// going forward, exclusive going back — which a two-way jump can only settle
+/// once a target is picked.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum JumpKind {
+    Fixed(MotionKind),
+    Char,
+}
+
+impl JumpKind {
+    fn motion(self, from: Pos, to: Pos) -> MotionKind {
+        match self {
+            JumpKind::Fixed(kind) => kind,
+            JumpKind::Char if to > from => MotionKind::Inclusive,
+            JumpKind::Char => MotionKind::Exclusive,
+        }
+    }
+}
+
+/// A jump waiting to be picked: every labelled landing place, the label keys
+/// typed so far, and the lines the labels were chosen from (repainting after
+/// a keystroke must not follow the viewport around).
+#[derive(Clone, Debug)]
+struct Jump {
+    targets: Vec<(Pos, String)>,
+    typed: String,
+    kind: JumpKind,
+    view: (usize, usize),
+}
+
+/// EasyMotion settings, as the host configures them.
+#[derive(Clone, Debug)]
+struct EasyConfig {
+    enabled: bool,
+    /// The keys that open a jump — `<space><space>` by default, Vim's
+    /// `<Leader><Leader>` with `<Leader>` on the space bar.
+    trigger: Vec<Key>,
+    /// The keys labels are spelled with, nearest target first.
+    keys: Vec<char>,
+}
+
+/// vim-easymotion's own `g:EasyMotion_keys`, home-row first.
+const DEFAULT_MARKER_KEYS: &str = "asdghklqwertyuiopzxcvbnmfj;";
+
+impl Default for EasyConfig {
+    fn default() -> Self {
+        EasyConfig {
+            enabled: true,
+            trigger: vec![Key::Char(' '), Key::Char(' ')],
+            keys: DEFAULT_MARKER_KEYS.chars().collect(),
+        }
+    }
 }
 
 #[derive(Clone, Default, Debug)]
@@ -270,6 +371,24 @@ pub struct Session {
     /// preview, the `match N of M` count) is skipped rather than repeated
     /// once per cursor.
     quiet: bool,
+    /// EasyMotion settings (see `set_easy_motion`).
+    easy: EasyConfig,
+    /// Trigger keys matched so far — a jump has not started until they all
+    /// are.
+    lead: usize,
+    /// The jump whose labels are on screen, waiting to be picked.
+    jump: Option<Jump>,
+    /// EasyMotion overlay for the next `Effects`, taken when one is built.
+    easy_ui: Option<EasyUi>,
+    /// The lines the host says are on screen; jumps only label those. `None`
+    /// until the host reports one, which stands for the whole buffer.
+    view: Option<(usize, usize)>,
+    /// Set while a buffered trigger key is being replayed as an ordinary one,
+    /// so it cannot start matching the trigger all over again.
+    replay: bool,
+    /// Set while `key_multi` runs. A jump is one cursor's choice of one
+    /// landing place, so the trigger stays inert with several of them.
+    multi: bool,
 }
 
 impl Session {
@@ -290,7 +409,42 @@ impl Session {
             message: None,
             search_ui: None,
             quiet: false,
+            easy: EasyConfig::default(),
+            lead: 0,
+            jump: None,
+            easy_ui: None,
+            view: None,
+            replay: false,
+            multi: false,
         }
+    }
+
+    /// The lines the host has on screen, as a jump's labels are limited to
+    /// what the user can see. Both ends are inclusive line numbers.
+    pub fn set_view(&mut self, first: usize, last: usize) {
+        self.view = Some((first.min(last), last.max(first)));
+    }
+
+    /// EasyMotion settings. `trigger` is a key sequence written the way a Vim
+    /// mapping is (`<space><space>`, `,,`); `keys` are the characters labels
+    /// are spelled with, in the order they are handed out. A trigger with no
+    /// keys in it, or fewer than two marker keys, leaves the feature off
+    /// rather than half-working.
+    pub fn set_easy_motion(&mut self, enabled: bool, trigger: &str, keys: &str) {
+        let trigger = keys::parse_sequence(trigger);
+        let mut marker: Vec<char> = Vec::new();
+        for ch in keys.chars() {
+            if !ch.is_whitespace() && !marker.contains(&ch) {
+                marker.push(ch);
+            }
+        }
+        let usable = !trigger.is_empty() && marker.len() >= 2;
+        self.cancel_easy();
+        self.easy = EasyConfig {
+            enabled: enabled && usable,
+            trigger,
+            keys: marker,
+        };
     }
 
     pub fn mode_label(&self) -> &'static str {
@@ -313,6 +467,10 @@ impl Session {
         self.pending = Pending::default();
         self.secondaries.clear();
         self.search_ui = None;
+        // The host rebuilds its own paint after a resync; nothing to report.
+        self.easy_ui = None;
+        self.jump = None;
+        self.lead = 0;
         self.cursor = self.clamp_normal(Pos::new(line, col));
         self.desired_col = self.cursor.col;
     }
@@ -333,6 +491,7 @@ impl Session {
     /// click, undo, host-side scrolling commands, insert-mode typing).
     pub fn set_position(&mut self, line: usize, col: usize) -> Effects {
         let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
+        self.cancel_easy();
         self.pending = Pending::default();
         self.secondaries.clear();
         if matches!(self.mode, Mode::Visual { .. }) {
@@ -354,6 +513,7 @@ impl Session {
             pending: String::new(),
             message: None,
             search: aborted_search.then_some(SearchUi::Cancelled),
+            easy: self.easy_ui.take(),
         }
     }
 
@@ -377,6 +537,7 @@ impl Session {
     /// where a line dragged end-to-start keeps its last character.
     pub fn set_selection(&mut self, anchor: Pos, active: Pos, by_hand: bool) -> Effects {
         let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
+        self.cancel_easy();
         self.pending = Pending::default();
         self.secondaries.clear();
         // A drag anchored on the last character of a line covers it, so the
@@ -416,6 +577,7 @@ impl Session {
             pending: String::new(),
             message: None,
             search: aborted_search.then_some(SearchUi::Cancelled),
+            easy: self.easy_ui.take(),
         }
     }
 
@@ -437,6 +599,7 @@ impl Session {
 
     fn set_multi_cursors(&mut self, sels: &[(Pos, Pos)]) -> Effects {
         let aborted_search = matches!(self.pending.awaiting, Awaiting::Search { .. });
+        self.cancel_easy();
         self.pending = Pending::default();
         // Several selections with a body (`cmd+d` on a word, a multi-cursor
         // drag) are visual mode at every cursor; bare cursors are not. Insert
@@ -500,12 +663,16 @@ impl Session {
             pending: String::new(),
             message: None,
             search: aborted_search.then_some(SearchUi::Cancelled),
+            easy: self.easy_ui.take(),
         }
     }
 
     pub fn key(&mut self, key: Key) -> Effects {
         if !self.secondaries.is_empty() {
-            return self.key_multi(key);
+            self.multi = true;
+            let fx = self.key_multi(key);
+            self.multi = false;
+            return fx;
         }
         let mut edits = Vec::new();
         let mut commands = Vec::new();
@@ -521,6 +688,7 @@ impl Session {
             pending: self.pending.display(),
             message: self.message.take(),
             search: self.search_ui.take(),
+            easy: self.easy_ui.take(),
         }
     }
 
@@ -549,6 +717,7 @@ impl Session {
                 pending: String::new(),
                 message: None,
                 search: None,
+                easy: self.easy_ui.take(),
             };
         }
 
@@ -643,6 +812,7 @@ impl Session {
             pending: self.pending.display(),
             message,
             search,
+            easy: self.easy_ui.take(),
         }
     }
 
@@ -810,7 +980,14 @@ impl Session {
             Awaiting::Object { around } => return self.resolve_object(around, key, edits, commands),
             Awaiting::Search { backward } => return self.resolve_search(backward, key, edits, commands),
             Awaiting::Ex => return self.resolve_ex(key, edits),
+            Awaiting::Easy(stage) => return self.resolve_easy(stage, key, edits, commands),
             Awaiting::None => {}
+        }
+
+        // The EasyMotion trigger sits in front of every other normal-mode key,
+        // the way a `<Leader>` mapping does.
+        if self.easy.enabled && !self.replay && !self.multi && self.easy_lead(key, edits, commands) {
+            return;
         }
 
         let visual = matches!(self.mode, Mode::Visual { .. });
@@ -1360,6 +1537,266 @@ impl Session {
                 self.clear_pending();
             }
         }
+    }
+
+    // ---- easymotion ----------------------------------------------------------
+
+    /// Match the keys that open a jump. Returns whether the key was spent on
+    /// the trigger.
+    ///
+    /// Vim resolves an ambiguous mapping by holding the keys it has and
+    /// running them when the next one doesn't complete it; so does this. With
+    /// the default `<space><space>`, `<space>l` still moves two characters
+    /// right — the first space is replayed as the motion it otherwise is, and
+    /// the key that broke the match runs after it.
+    fn easy_lead(&mut self, key: Key, edits: &mut Vec<Edit>, commands: &mut Vec<Command>) -> bool {
+        if self.easy.trigger.get(self.lead) == Some(&key) {
+            self.lead += 1;
+            self.pending.keys.push_str(&key.label());
+            if self.lead == self.easy.trigger.len() {
+                self.lead = 0;
+                self.pending.awaiting = Awaiting::Easy(EasyStage::Motion {
+                    count: 0,
+                    after_g: false,
+                });
+            }
+            return true;
+        }
+        if self.lead == 0 {
+            return false;
+        }
+        let buffered: Vec<Key> = self.easy.trigger[..self.lead].to_vec();
+        let shown: usize = buffered.iter().map(|k| k.label().len()).sum();
+        let keep = self.pending.keys.len().saturating_sub(shown);
+        self.pending.keys.truncate(keep);
+        self.lead = 0;
+        self.replay = true;
+        for buffered_key in buffered {
+            self.key_normal(buffered_key, edits, commands);
+        }
+        self.replay = false;
+        // A replayed key may have opened a wait of its own (`f`, `:`); the key
+        // that ended the trigger belongs to that, not to the general dispatch.
+        if self.pending.awaiting != Awaiting::None {
+            self.key_normal(key, edits, commands);
+            return true;
+        }
+        false
+    }
+
+    fn resolve_easy(
+        &mut self,
+        stage: EasyStage,
+        key: Key,
+        edits: &mut Vec<Edit>,
+        commands: &mut Vec<Command>,
+    ) {
+        match stage {
+            EasyStage::Motion { count, after_g } => {
+                self.easy_motion_key(count, after_g, key, edits, commands)
+            }
+            EasyStage::Chars { dir, before, want } => {
+                self.easy_chars_key(dir, before, want, key, edits, commands)
+            }
+            EasyStage::Pick => self.easy_pick_key(key, edits, commands),
+        }
+    }
+
+    /// The key naming the jump: `w W b B e E ge gE j k`, or one of the char
+    /// jumps `f F t T s /`. A count in front of a char jump is how many
+    /// characters it asks for, which is easymotion's `2s`.
+    fn easy_motion_key(
+        &mut self,
+        count: usize,
+        after_g: bool,
+        key: Key,
+        edits: &mut Vec<Edit>,
+        commands: &mut Vec<Command>,
+    ) {
+        let Key::Char(ch) = key else {
+            return self.cancel_easy();
+        };
+        if !after_g && ch.is_ascii_digit() && !(ch == '0' && count == 0) {
+            self.pending.keys.push(ch);
+            self.pending.awaiting = Awaiting::Easy(EasyStage::Motion {
+                count: count.saturating_mul(10) + (ch as usize - '0' as usize),
+                after_g,
+            });
+            return;
+        }
+        self.pending.keys.push(ch);
+        let big = ch.is_uppercase();
+        let want = count.max(1);
+        let exclusive = JumpKind::Fixed(MotionKind::Exclusive);
+        let inclusive = JumpKind::Fixed(MotionKind::Inclusive);
+        let linewise = JumpKind::Fixed(MotionKind::Linewise);
+        match (after_g, ch) {
+            // `ge` / `gE`: word ends behind the cursor.
+            (false, 'g') => {
+                self.pending.awaiting = Awaiting::Easy(EasyStage::Motion { count, after_g: true });
+            }
+            (true, 'e' | 'E') => {
+                let kind = easymotion::Kind::WordEnd { big };
+                self.start_jump(kind, Dir::Backward, inclusive, edits, commands);
+            }
+            (true, _) => self.cancel_easy(),
+            (false, 'w' | 'W') => {
+                let kind = easymotion::Kind::WordStart { big };
+                self.start_jump(kind, Dir::Forward, exclusive, edits, commands);
+            }
+            (false, 'b' | 'B') => {
+                let kind = easymotion::Kind::WordStart { big };
+                self.start_jump(kind, Dir::Backward, exclusive, edits, commands);
+            }
+            (false, 'e' | 'E') => {
+                let kind = easymotion::Kind::WordEnd { big };
+                self.start_jump(kind, Dir::Forward, inclusive, edits, commands);
+            }
+            (false, 'j') => self.start_jump(easymotion::Kind::Line, Dir::Forward, linewise, edits, commands),
+            (false, 'k') => self.start_jump(easymotion::Kind::Line, Dir::Backward, linewise, edits, commands),
+            (false, 'f') => self.easy_await_chars(Dir::Forward, false, want),
+            (false, 'F') => self.easy_await_chars(Dir::Backward, false, want),
+            (false, 't') => self.easy_await_chars(Dir::Forward, true, want),
+            (false, 'T') => self.easy_await_chars(Dir::Backward, true, want),
+            (false, 's') => self.easy_await_chars(Dir::Both, false, want),
+            // `/`: as many characters as you care to type, `<cr>` to label.
+            (false, '/') => self.easy_await_chars(Dir::Both, false, 0),
+            _ => self.cancel_easy(),
+        }
+    }
+
+    fn easy_await_chars(&mut self, dir: Dir, before: bool, want: usize) {
+        self.pending.awaiting = Awaiting::Easy(EasyStage::Chars { dir, before, want });
+    }
+
+    /// Collect what a char jump looks for. A fixed-length one labels as soon
+    /// as it has its characters; the `/` jump waits for `<cr>`.
+    fn easy_chars_key(
+        &mut self,
+        dir: Dir,
+        before: bool,
+        want: usize,
+        key: Key,
+        edits: &mut Vec<Edit>,
+        commands: &mut Vec<Command>,
+    ) {
+        match key {
+            Key::Char(ch) => {
+                self.pending.prompt.push(ch);
+                if want > 0 && self.pending.prompt.chars().count() >= want {
+                    self.start_char_jump(dir, before, edits, commands);
+                }
+            }
+            Key::Enter if want == 0 => {
+                if self.pending.prompt.is_empty() {
+                    return self.cancel_easy();
+                }
+                self.start_char_jump(dir, before, edits, commands);
+            }
+            Key::Backspace => {
+                if self.pending.prompt.pop().is_none() {
+                    self.cancel_easy();
+                }
+            }
+            _ => self.cancel_easy(),
+        }
+    }
+
+    fn start_char_jump(
+        &mut self,
+        dir: Dir,
+        before: bool,
+        edits: &mut Vec<Edit>,
+        commands: &mut Vec<Command>,
+    ) {
+        let needle = std::mem::take(&mut self.pending.prompt);
+        let kind = easymotion::Kind::Chars { needle: &needle, before };
+        self.start_jump(kind, dir, JumpKind::Char, edits, commands);
+    }
+
+    /// Collect the targets and label them. One target needs no label — the
+    /// jump is already decided, so it runs; none at all says so and stops.
+    fn start_jump(
+        &mut self,
+        kind: easymotion::Kind,
+        dir: Dir,
+        jump_kind: JumpKind,
+        edits: &mut Vec<Edit>,
+        commands: &mut Vec<Command>,
+    ) {
+        let view = self.view.unwrap_or((0, self.buf.last_line()));
+        let targets = easymotion::collect(&self.buf, view, self.cursor, kind, dir);
+        if targets.is_empty() {
+            self.message = Some("no targets on screen".to_string());
+            return self.cancel_easy();
+        }
+        if targets.len() == 1 {
+            let target = targets[0];
+            self.take_jump(target, jump_kind, edits, commands);
+            return;
+        }
+        let labels = easymotion::labels(targets.len(), &self.easy.keys);
+        if labels.is_empty() {
+            return self.cancel_easy();
+        }
+        let jump = Jump {
+            targets: targets.into_iter().zip(labels).collect(),
+            typed: String::new(),
+            kind: jump_kind,
+            view,
+        };
+        self.easy_ui = Some(labels_ui(&jump));
+        self.jump = Some(jump);
+        self.pending.awaiting = Awaiting::Easy(EasyStage::Pick);
+    }
+
+    /// A label key: it either names a target, narrows the labels still on
+    /// screen, or belongs to no label at all and ends the jump.
+    fn easy_pick_key(&mut self, key: Key, edits: &mut Vec<Edit>, commands: &mut Vec<Command>) {
+        let (Some(mut jump), Key::Char(ch)) = (self.jump.take(), key) else {
+            return self.cancel_easy();
+        };
+        jump.typed.push(ch);
+        if let Some(&(target, _)) = jump.targets.iter().find(|(_, label)| *label == jump.typed) {
+            return self.take_jump(target, jump.kind, edits, commands);
+        }
+        if !jump.targets.iter().any(|(_, l)| l.starts_with(&jump.typed)) {
+            return self.cancel_easy();
+        }
+        self.pending.keys.push(ch);
+        self.easy_ui = Some(labels_ui(&jump));
+        self.jump = Some(jump);
+    }
+
+    /// Land on a chosen target: an ordinary motion from here on, so it moves
+    /// the cursor, extends a visual selection or feeds a pending operator.
+    fn take_jump(
+        &mut self,
+        target: Pos,
+        kind: JumpKind,
+        edits: &mut Vec<Edit>,
+        commands: &mut Vec<Command>,
+    ) {
+        let motion_kind = kind.motion(self.cursor, target);
+        self.jump = None;
+        self.lead = 0;
+        self.easy_ui = Some(EasyUi::Done);
+        self.pending.awaiting = Awaiting::None;
+        self.pending.prompt.clear();
+        self.do_motion(target, motion_kind, edits, commands);
+    }
+
+    /// Drop a jump in progress and tell the host to take its paint down.
+    fn cancel_easy(&mut self) {
+        let painted = self.jump.is_some()
+            || self.lead > 0
+            || matches!(self.pending.awaiting, Awaiting::Easy(_));
+        self.jump = None;
+        self.lead = 0;
+        if painted {
+            self.easy_ui = Some(EasyUi::Done);
+        }
+        self.clear_pending();
     }
 
     // ---- ex command line -----------------------------------------------------
@@ -2075,6 +2512,26 @@ impl Session {
         };
         self.cursor = self.clamp_normal(char_before(&self.buf, Pos::new(end_line, end_col)));
         self.desired_col = self.cursor.col;
+    }
+}
+
+/// The overlay for a jump: every label still in the running, showing only
+/// what is left to type for it.
+fn labels_ui(jump: &Jump) -> EasyUi {
+    let typed = jump.typed.len();
+    EasyUi::Labels {
+        labels: jump
+            .targets
+            .iter()
+            .filter(|(_, label)| label.starts_with(&jump.typed))
+            .map(|(pos, label)| EasyLabel {
+                line: pos.line,
+                col: pos.col,
+                text: label[typed..].to_string(),
+            })
+            .collect(),
+        first_line: jump.view.0,
+        last_line: jump.view.1,
     }
 }
 

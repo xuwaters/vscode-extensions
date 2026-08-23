@@ -13,6 +13,14 @@ export function replaceEol(text: string, eol: string): string {
   return eol === '\n' ? text : text.split('\n').join(eol);
 }
 
+/**
+ * Expand `<leader>` in a key sequence, the way a Vim mapping is written:
+ * `<leader><leader>` with the leader on the space bar is `<space><space>`.
+ */
+export function expandLeader(trigger: string, leader: string): string {
+  return trigger.split('<leader>').join(leader);
+}
+
 interface PosLike {
   line: number;
   character: number;
