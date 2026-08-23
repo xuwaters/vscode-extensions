@@ -124,7 +124,22 @@ class Oracle {
       }
     }
     if (fact.targetBuiltin && fact.memberName) {
-      return this.builtinMemberType(fact.tagName, fact.memberName);
+      const type = this.builtinMemberType(fact.tagName, fact.memberName);
+      // A builtin's attribute is only *reflected* by the IDL property of the
+      // same name, and the reflection is a string: an attribute binding calls
+      // setAttribute, never the property setter. Where the property holds
+      // something else — `style` is a CSSStyleDeclaration, `form` and `list`
+      // are elements — it says nothing about what the attribute accepts, so
+      // there is no target to check against. A `:style` property binding does
+      // go through the setter, and keeps the property's own type.
+      if (
+        type &&
+        fact.kind !== 'property' &&
+        !this.isPrimitiveLike(this.stripNullish(type))
+      ) {
+        return undefined;
+      }
+      return type;
     }
     return undefined;
   }

@@ -368,6 +368,32 @@ describe.skipIf(!wasmBuilt)('the type oracle', () => {
     ]);
   });
 
+  it('a builtin attribute whose IDL property is an object has no target type', () => {
+    // `style` reflects a CSSStyleDeclaration and `form`/`list` reflect
+    // elements, but all three are set through setAttribute — a string is
+    // exactly right, and the property's type is not the attribute's.
+    const styled = diagnose(
+      componentPrelude(`export const t = html<MyGrid>\`<div style="\${(x) => x.query}">y</div>\`;`),
+    );
+    expect(messages(styled.diagnostics)).toEqual([]);
+
+    const associated = diagnose(
+      componentPrelude(
+        `export const t = html<MyGrid>\`<input form="\${(x) => x.query}" list="\${(x) => x.query}" />\`;`,
+      ),
+    );
+    expect(messages(associated.diagnostics)).toEqual([]);
+  });
+
+  it('a builtin property binding still checks against the property type', () => {
+    const { diagnostics } = diagnose(
+      componentPrelude(`export const t = html<MyGrid>\`<input :value="\${(x) => x.menu}" />\`;`),
+    );
+    expect(messages(diagnostics)).toEqual([
+      expect.stringContaining('not assignable'),
+    ]);
+  });
+
   it('no-implicit-prevent-default when opted in', () => {
     const { diagnostics } = diagnose(
       componentPrelude(`
