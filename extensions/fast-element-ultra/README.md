@@ -1,13 +1,14 @@
 # FAST Element Ultra
 
-FAST Element template analysis inside TypeScript. The `html``` and `css```
-tagged templates of [`@microsoft/fast-element`](https://github.com/microsoft/fast)
-are strings as far as TypeScript is concerned; this extension makes them a
-language surface — diagnostics, completion, hover, go-to-definition,
-find-all-references, rename, quick fixes, closing tags and folding — with the
-template engine written in Rust and compiled to WebAssembly, running inside
-tsserver as a TypeScript server plugin, and the type checker answering the
-questions only it can (RFC 011).
+FAST Element templates, checked. The `html``` and `css``` tagged templates of
+[`@microsoft/fast-element`](https://github.com/microsoft/fast) are strings as far
+as TypeScript is concerned; this extension makes them a language surface —
+diagnostics, completion, hover, go-to-definition, find-all-references, rename,
+quick fixes, closing tags and folding — with your project's own types answering
+the questions only they can answer.
+
+Nothing to configure and nothing to start: open a TypeScript file with a FAST
+template in it and the templates are checked alongside the code around them.
 
 ## What it does
 
@@ -57,8 +58,10 @@ line silences a template diagnostic.
   binding forms mean different things in the two libraries, and guessing
   produces confident, wrong diagnostics. Install lit-plugin for lit code —
   both can run at once, each analyzing only its own templates.
-- **No second compiler.** Templates are analyzed inside tsserver, against the
-  program you already have, in the same pass as TypeScript's own diagnostics.
+- **No second compiler.** Templates are analyzed by TypeScript's own language
+  server, against the program you already have — your `tsconfig.json`, your
+  path aliases, your `node_modules` — in the same pass as TypeScript's own
+  diagnostics. There is no second process to start, watch or wait for.
 - **`html.partial(…)`** defeats analysis by construction; a template using it
   is marked as not analyzed rather than half-checked.
 
@@ -81,7 +84,8 @@ All under `fastElementUltra.*`:
 ## Commands
 
 - **FAST Element Ultra: Analyze Workspace FAST Templates** — run the full rule
-  set over every FAST file tsserver knows and report into the Problems panel.
+  set over every FAST file TypeScript knows about and report into the Problems
+  panel.
 - **FAST Element Ultra: Clear Workspace Analysis Results.**
 
 ## Moving from `fast-plugin` (the lit-analyzer fork)
@@ -107,19 +111,21 @@ New rules with no fast-plugin equivalent: `no-non-reactive-binding`,
 
 ## Supported TypeScript
 
-The plugin runs against the workspace's TypeScript
-(`enableForWorkspaceTypeScriptVersions`), versions **5.5 up to (not
-including) 8**. Outside that range it logs why and leaves TypeScript
-untouched.
+Analysis runs against the TypeScript your workspace uses — including a
+workspace-local version in `node_modules` — versions **5.5 up to (not
+including) 8**. Outside that range the analyzer stands down: it logs why and
+leaves TypeScript untouched.
 
-## How it is put together
+The same goes for anything it cannot answer. If the analyzer fails, what you
+are left with is TypeScript exactly as it behaves without this extension,
+never a broken editor.
 
-Four Rust crates (`crates/fast/`) compile to one 570 KB WASM artifact: a
-tolerant template parser whose tree is differentially tested against parse5,
-generated HTML/SVG/MathML data tables, the rule engine and every position
-query, and a thin wasm-bindgen adapter. The TypeScript server plugin
-(`node_modules/wx-fast-element-tsplugin/`, inside this extension) feeds it
-component facts and virtual documents, and answers its binding facts with the
-type checker. A Rust panic surfaces as a caught error, is counted, and on
-repetition the engine is poisoned — the end state of any engine failure is
-TypeScript, unmodified, never a broken editor.
+## Privacy and safety
+
+Nothing reaches the network: no CDN, no remote data, no telemetry of any kind.
+Your code is analyzed on your machine and stays there, and everything works the
+same offline as online.
+
+The extension writes nothing on its own. The only changes to your files are the
+quick fixes and renames you accept, applied as ordinary editor edits you can
+undo.
