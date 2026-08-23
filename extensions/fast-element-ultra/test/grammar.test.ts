@@ -207,6 +207,86 @@ describeWithCode('html`` templates', () => {
   });
 });
 
+describeWithCode('templates nested in an interpolation', () => {
+  // `when(…, html`…`)` and `repeat(…, html`…`)` put a whole template inside a
+  // ${…} of another one. Nothing about that is exotic, but it is the one shape
+  // the opening grammar's `-string` selector shuts out, and by the time the
+  // inner `html` is reached the stack is inside whatever anonymous rule
+  // source.ts pushed for the enclosing argument list — so no pattern of ours
+  // is on the stack to catch it either.
+  const nested = [
+    'export const template = html<Row>`',
+    '  <ul>',
+    '    ${when(',
+    '      x => x.ready,',
+    '      html<Row>`',
+    '        <li class="row" @click="${x => x.pick()}">',
+    '          <span>${x => x.name}</span>',
+    '        </li>',
+    '      `,',
+    '    )}',
+    '  </ul>',
+    '`;',
+    'const after: number = 1;',
+  ].join('\n');
+
+  it('hands the nested body to the HTML grammar', async () => {
+    expect(await scopesAt(nested, 'li class')).toContain('entity.name.tag.html');
+    expect(await scopesAt(nested, '"row"')).toContain('string.quoted.double.html');
+    expect(await scopesAt(nested, 'span>')).toContain('entity.name.tag.html');
+  });
+
+  it('keeps bindings and ${…} alive inside the nested body', async () => {
+    expect(await scopesAt(nested, '@click')).toContain('keyword.operator.binding.fast-element');
+    expect(await scopesAt(nested, 'x.pick()')).toContain('meta.embedded.line.ts');
+    expect(await scopesAt(nested, 'x.name')).toContain('meta.embedded.line.ts');
+  });
+
+  it('closes the nested template without closing the outer one', async () => {
+    expect(await scopesAt(nested, '</ul>')).toContain('meta.embedded.block.html');
+    expect(await scopesAt(nested, 'const after')).not.toContain('string.template.fast-element.ts');
+  });
+
+  it('nests a second time', async () => {
+    const source = [
+      'const t = html<A>`',
+      '  ${repeat(',
+      '    x => x.rows,',
+      '    html<B>`',
+      '      ${when(',
+      '        x => x.open,',
+      '        html<C>`<x-panel ?busy="${x => x.busy}">deep</x-panel>`,',
+      '      )}',
+      '    `,',
+      '  )}',
+      '`;',
+    ].join('\n');
+    expect(await scopesAt(source, 'x-panel')).toContain('entity.name.tag.html');
+    expect(await scopesAt(source, '?busy')).toContain('keyword.operator.binding.fast-element');
+    expect(await scopesAt(source, 'x.busy')).toContain('meta.embedded.line.ts');
+  });
+
+  it('nests inside a binding value', async () => {
+    const source = 'const t = html`<x-y :template="${html`<b>deep</b>`}"></x-y>`;';
+    expect(await scopesAt(source, 'b>deep')).toContain('entity.name.tag.html');
+  });
+
+  it('leaves a plain template literal in an interpolation to TypeScript', async () => {
+    const source = 'const t = html`<div>${x => `plain ${x.n}`}</div>`;';
+    const scopes = await scopesAt(source, 'plain ');
+    expect(scopes).toContain('string.template.ts');
+    // The outer template's own scope is on the stack throughout; what must not
+    // be there is a second one, opened for a literal that is not ours.
+    expect(scopes.filter(s => s === 'string.template.fast-element.ts')).toHaveLength(1);
+  });
+
+  it('leaves html`` inside a string in an interpolation alone', async () => {
+    const source = 'const t = html`<div>${x => x.f("html`<i>no</i>`")}</div>`;';
+    expect(await scopesAt(source, 'html`<i>')).toContain('string.quoted.double.ts');
+    expect(await scopesAt(source, 'html`<i>')).not.toContain('entity.name.tag.html');
+  });
+});
+
 describeWithCode('css`` templates', () => {
   it('hands the body to the CSS grammar', async () => {
     const scopes = await scopesAt('const s = css`:host { display: block; }`;', 'display');
