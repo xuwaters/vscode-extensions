@@ -232,6 +232,61 @@ describe.skipIf(!built)('vim controller', () => {
     expect(painted(doc)).toEqual([]);
   });
 
+  it('paints the labels of a char search and jumps to the one picked', async () => {
+    const doc = makeEditor('file:///a.ts', 'a.b.c.d', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    await controller.type(' ');
+    await controller.type(' ');
+    await controller.type('s'); // both ways at once
+    expect(painted(doc)).toEqual([]); // nothing yet: the char is still to come
+    await controller.type('.');
+    expect(painted(doc)).toContain('0:1-0:2');
+
+    await controller.type('s'); // the second marker key
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 3 });
+    expect(painted(doc)).toEqual([]);
+  });
+
+  it('paints the labels of a slash search once <cr> closes it', async () => {
+    const doc = makeEditor('file:///a.ts', 'foo\nfoo\nfoo', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    await controller.type(' ');
+    await controller.type(' ');
+    await controller.type('/');
+    await controller.type('f');
+    await controller.type('o');
+    expect(painted(doc)).toEqual([]); // still typing
+    await controller.key('<cr>');
+    expect(painted(doc)).toContain('1:0-1:1');
+
+    await controller.type('s');
+    expect(doc.selections[0].active).toEqual({ line: 2, character: 0 });
+  });
+
+  it('narrows a two-key label as the keys are typed', async () => {
+    // 30 targets against 27 marker keys: the last four need two keystrokes,
+    // which is every real search on a screenful of code.
+    const doc = makeEditor('file:///a.ts', 'x.'.repeat(30), 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    await controller.type(' ');
+    await controller.type(' ');
+    await controller.type('f');
+    await controller.type('.');
+    expect(painted(doc).length).toBeGreaterThan(27);
+
+    await controller.type(';'); // the group prefix
+    expect(painted(doc).length).toBeGreaterThan(0);
+    await controller.type('a'); // ...and the key inside it
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 53 });
+    expect(painted(doc)).toEqual([]);
+  });
+
   it('leaves a lone space as a motion', async () => {
     const doc = makeEditor('file:///a.ts', 'foo bar', 0, 0);
     window.activeTextEditor = doc;
