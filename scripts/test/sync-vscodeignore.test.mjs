@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 import { TEMPLATE_PATH, syncVscodeignoreCommand } from '../commands/sync-vscodeignore.mjs';
@@ -65,6 +65,23 @@ describe('sync-vscodeignore', () => {
   it('passes --check when everything matches', () => {
     const repo = makeRepo({ a: { vscodeignore: TEMPLATE } });
     assert.equal(sync(repo, { check: true }).code, 0);
+  });
+
+  it('appends a .vscodeignore-extra when the extension has one', () => {
+    const repo = makeRepo({ a: { vscodeignore: TEMPLATE } });
+    const extra = '!node_modules/wx-fast-element-tsplugin/**\ntsplugin/\n';
+    writeFileSync(repo.path('a', '.vscodeignore-extra'), extra);
+
+    const { out } = sync(repo, {});
+    const written = readExtensionFile(repo, 'a', '.vscodeignore');
+    assert.ok(written.startsWith(TEMPLATE), 'template comes first');
+    assert.ok(written.endsWith(extra), 'extra comes last');
+    assert.match(written, /from \.vscodeignore-extra/);
+    assert.match(out, /a\s+updated/);
+
+    // And it is stable: a second sync changes nothing.
+    const again = sync(repo, {});
+    assert.match(again.out, /a\s+up to date/);
   });
 });
 

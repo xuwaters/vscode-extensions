@@ -1,5 +1,11 @@
 // Every extension packages the same way, so every extension wants the same
 // .vscodeignore. This copies one template over all of them.
+//
+// An extension with packaging needs of its own — fast-element-ultra must ship
+// its TypeScript server plugin inside node_modules/, which the template's
+// defaults would drop — declares them in a `.vscodeignore-extra` file next to
+// its package.json. The sync appends that file to the template, so the
+// exception survives every future sync instead of being erased by it.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -48,6 +54,9 @@ export const syncVscodeignoreCommand = {
   details: [
     'The template lives in scripts/templates/.vscodeignore. Edit it there — a copy',
     'edited in place is overwritten the next time this runs.',
+    '',
+    'A per-extension .vscodeignore-extra file, when present, is appended to the',
+    'template for that extension — the mechanism for packaging exceptions.',
   ],
 
   run({ values, repo, write }) {
@@ -60,9 +69,14 @@ export const syncVscodeignoreCommand = {
     const rows = targets.map((name) => {
       const path = repo.path(name, '.vscodeignore');
       const current = readFileIfExists(path);
+      const extra = readFileIfExists(repo.path(name, '.vscodeignore-extra'));
+      const expected =
+        extra === undefined
+          ? template
+          : `${template}\n# --- from .vscodeignore-extra (synced; edit that file) ---\n${extra}`;
 
-      if (current === template) return { name, detail: 'up to date' };
-      if (!dryRun) writeFileSync(path, template);
+      if (current === expected) return { name, detail: 'up to date' };
+      if (!dryRun) writeFileSync(path, expected);
 
       const verb = current === undefined ? 'created' : 'updated';
       return { name, detail: dryRun ? `would be ${verb}` : verb, changed: true };

@@ -1,6 +1,18 @@
 # Rust crates
 
-**Status**: design, nothing built.
+**Status**: living — implemented as specified: four crates, the dependency
+rule holds (`grep wasm_bindgen crates/fast/fast-analyzer-core` finds
+nothing), and `cargo test` runs the real engine on the host (89 tests).
+Small deltas: `fast-html-data` generates **three** phf maps (HTML/SVG/MathML
+namespaces — `title` exists in two with different meanings) plus a sorted
+events slice, from `@vscode/web-custom-data` and a curated SVG/MathML dataset
+the crate carries (`generator/svg-data.json` — VS Code ships no SVG data and
+the corpus is full of inline SVG); the generator is `generator/generate.mjs`,
+invoked as `pnpm run generate:htmldata` from the extension. The wasm adapter
+returns `bool`/`Option<String>` with `lastError()`, and its panic story is
+[0011](../decisions/0011-containment-is-the-plugins-try-catch.md). The engine
+also answers a `parseTree` debug query — the parse5 differential harness's
+window — and exposes no colour API (the extension host owns colours).
 
 Four crates under `crates/fast/`, following the grouping-directory pattern `crates/typst/`
 established. The root `Cargo.toml` needs explicit members for them, since `crates/*` cannot express a

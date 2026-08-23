@@ -1,6 +1,8 @@
 # RFC 011: FAST Element Ultra — a Rust analysis engine for FAST Element templates
 
-**Status**: Proposed
+**Status**: Implemented — 2026-08-23 (Phases 1–4 complete, Phase 5 remainders in
+[tasks/](tasks/README.md); amendments live in [decisions/](decisions/README.md) 0010–0011, and
+every §9 criterion is a passing test except the manual desktop install check)
 **Date**: 2026-08-22
 **Extension name**: `wx-vsce-fast-element-ultra` (`extensions/fast-element-ultra`, new)
 **TS server plugin**: `wx-fast-element-tsplugin` (shipped inside the extension, new)
@@ -362,15 +364,21 @@ never comes back. Template analysis is neither. Kept as the documented escape ha
 
 The design is validated when, on this repository's own extensions:
 
-1. All 5 FAST elements are discovered with their full member sets, from `@customElement({ name: CONST })`
-   — the case fast-analyzer misses entirely.
-2. All 26 templates parse with zero false diagnostics.
-3. Renaming `CsvGrid.hasHeader` updates the `:prop` bindings and the `${ref('…')}` strings that name it.
-4. `${x.foo}` written for `${x => x.foo}` is reported.
+1. All FAST elements (3 — the RFC's original "5" was a grep artifact, corrected in
+   [research/corpus.md](research/corpus.md)) are discovered with their full member sets, from
+   `@customElement({ name: CONST })` — the case fast-analyzer misses entirely.
+   **Met**: `test/corpus.test.ts`.
+2. All 26 templates parse with zero false diagnostics. **Met**: the strict-mode silence gate.
+3. Renaming a member updates the `:prop` bindings and the `${ref('…')}` strings that name it.
+   **Met**: `test/features.test.ts`, both directions, on csv-ultra's real files (the corpus's live
+   case is `findInput`; `hasHeader` has no template binding to rename, so the `:prop` half is pinned
+   by fixture).
+4. `${x.foo}` written for `${x => x.foo}` is reported. **Met** — with the rule narrowed to
+   value-reads so the corpus's deliberate one-time interpolations stay silent
+   ([design/rules.md](design/rules.md#no-non-reactive-binding)).
 5. A cold `getSemanticDiagnostics` on the largest template file completes without hitting any
-   wall-clock bail-out, and a warm one is fast enough to run per keystroke. The budget and how it is
-   measured: [research/spikes.md](research/spikes.md) — **no performance number in this RFC is
-   measured yet**, and none should be quoted until Phase 5 measures it.
+   wall-clock bail-out, and a warm one is fast enough to run per keystroke. **Met**: no bail-out
+   exists, warm is 0.73 ms — [research/measurements.md](research/measurements.md).
 
 ## 10. Deliberately deferred
 

@@ -1,7 +1,7 @@
 # RFC 011: FAST Element Ultra — a Rust analysis engine for FAST Element templates
 
-**Status**: Proposed · **Implementation**: not started
-**Date**: 2026-08-22 · **Last updated**: 2026-08-22
+**Status**: Implemented (Phases 1–4 complete; Phase 5 has named remainders) · **Implementation**: `extensions/fast-element-ultra` + `crates/fast/*`
+**Date**: 2026-08-22 · **Last updated**: 2026-08-23
 **Extension**: `wx-vsce-fast-element-ultra` (`extensions/fast-element-ultra`, new)
 **Rust crates**: `crates/fast/{fast-template-syntax,fast-html-data,fast-analyzer-core,fast-analyzer-wasm}` (new)
 **References**: [fast-analyzer](../../../temp/fast-analyzer) (MIT, a fork of lit-analyzer 2.0.3) ·
@@ -25,11 +25,11 @@ written in Rust and compiled to one WASM artifact. Type checking stays in TypeSc
 
 | | |
 | --- | --- |
-| Status | Proposed. Nothing built |
-| Tasks | 0 / 63 across 5 phases ([tasks/](tasks/README.md)) |
-| Decisions | 9 recorded, 5 open questions ([decisions/](decisions/README.md)) |
-| Measurements taken | Corpus and parity inventories only. **No performance number anywhere in this RFC is measured** ([research/spikes.md](research/spikes.md)) |
-| Blocking unknown | Whether a tsserver plugin under `node_modules/` survives `vsce package --no-dependencies` (P1-09) |
+| Status | Implemented and tested. 107 vitest tests (corpus gates, seeded rule fixtures, parse5 differential, feature round-trips, panic containment) + 89 Rust tests, all green; VSIX built and probe-verified |
+| Tasks | 55 / 63 done, 7 in progress with named remainders, 1 not started ([tasks/](tasks/README.md)) |
+| Decisions | 11 recorded; **all 5 open questions closed** ([decisions/](decisions/README.md)) |
+| Measurements taken | [research/measurements.md](research/measurements.md): warm diagnostics **0.73 ms** full-pipeline, artifact 588 KB, no heap growth over 1,000 edits. Still open: the fast-analyzer side-by-side (`temp/` absent) |
+| The blocking unknown, answered | vsce's collector excludes node_modules before `.vscodeignore` is read, so the negation **cannot** work; the plugin is injected into the VSIX post-package and verified against tsserver's probe algorithm (`scripts/inject-tsplugin.mjs`, `scripts/verify-vsix.mjs`) |
 
 ## What is already established, and what is not
 
@@ -37,14 +37,16 @@ Two things in this RFC are facts, gathered from the source:
 
 - **The parity inventory** — what fast-analyzer actually does, feature by feature and rule by rule,
   counted from its tree. [research/parity.md](research/parity.md).
-- **The corpus** — 26 typed templates, 74 event bindings, 55 `@observable` members and 5 elements
-  across csv-ultra, pdf-ultra and typst-ultra, and the specific reasons fast-analyzer sees none of
-  them. [research/corpus.md](research/corpus.md).
+- **The corpus** — 26 typed templates, 74 event bindings, and (as corrected while implementing —
+  the original count was a grep artifact) **3 elements** and 58 `@observable` members across
+  csv-ultra, pdf-ultra and typst-ultra, and the specific reasons fast-analyzer sees none of them.
+  [research/corpus.md](research/corpus.md).
 
-Everything about *speed* is a hypothesis. The RFC argues Rust is the right engine from the shape of
-the workload and from lit-analyzer's own 150 ms bail-out constant — not from a benchmark, because
-none has been run. [research/spikes.md](research/spikes.md) lists what has to be measured, in what
-order, and what result would send us back to §8's TypeScript fallback.
+Speed is no longer a hypothesis: [research/measurements.md](research/measurements.md) has the
+numbers (a warm diagnostic pass through the whole pipeline is 0.73 ms — no wall-clock budget exists
+or is needed). What remains unmeasured is the *relative* claim against fast-analyzer itself, whose
+tree (`temp/`) is not in this checkout; [research/spikes.md](research/spikes.md) records what closed
+and what that one comparison still needs.
 
 ## Layout
 
@@ -108,6 +110,7 @@ Three habits carried over, plus one specific to this RFC:
 - **A decision without a "revisit if" is a preference.** Every record names the observable condition
   that would make it wrong.
 - **Superseded numbers get a visible marker, not a silent edit.**
-- **Do not quote a performance figure this RFC has not measured.** Today that is all of them. When
-  Phase 1 and Phase 5 produce real numbers, they go in `research/`, and the claims in `proposal.md`
-  §1.3 and §9 get checked against them — including the possibility that they do not hold.
+- **Do not quote a performance figure this RFC has not measured.** As of 2026-08-23 the measured
+  set is [research/measurements.md](research/measurements.md), §1.3 and §9 have been checked against
+  it (the absolute claims hold; the relative one awaits `temp/`), and the rule still applies to
+  anything not on that page.

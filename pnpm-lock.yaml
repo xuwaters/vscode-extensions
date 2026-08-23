@@ -226,6 +226,43 @@ importers:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
 
+  extensions/fast-element-ultra:
+    dependencies:
+      vscode-css-languageservice:
+        specifier: ^6.3.7
+        version: 6.3.10
+      vscode-languageserver-textdocument:
+        specifier: ^1.0.12
+        version: 1.0.12
+    devDependencies:
+      '@microsoft/fast-element':
+        specifier: ^3.0.2
+        version: 3.0.2
+      '@types/node':
+        specifier: catalog:build
+        version: 25.5.0
+      '@types/vscode':
+        specifier: ^1.96.0
+        version: 1.110.0
+      '@vscode/vsce':
+        specifier: catalog:build
+        version: 3.7.1(supports-color@7.2.0)
+      '@vscode/web-custom-data':
+        specifier: ^0.6.0
+        version: 0.6.3
+      parse5:
+        specifier: ^8.0.0
+        version: 8.0.1
+      tsdown:
+        specifier: catalog:build
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
+      typescript:
+        specifier: catalog:build
+        version: 6.0.3
+      vitest:
+        specifier: catalog:build
+        version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
+
   extensions/git-compare:
     devDependencies:
       '@types/node':
@@ -1417,6 +1454,9 @@ packages:
   '@vitest/utils@4.1.0':
     resolution: {integrity: sha512-XfPXT6a8TZY3dcGY8EdwsBulFCIw+BeeX0RZn2x/BtiY/75YGh8FeWGG8QISN/WhaqSrE2OrlDgtF8q5uhOTmw==}
 
+  '@vscode/l10n@0.0.18':
+    resolution: {integrity: sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ==}
+
   '@vscode/vsce-sign-alpine-arm64@2.0.6':
     resolution: {integrity: sha512-wKkJBsvKF+f0GfsUuGT0tSW0kZL87QggEiqNqK6/8hvqsXvpx8OsTEc3mnE1kejkh5r+qUyQ7PtF8jZYN0mo8Q==}
     cpu: [arm64]
@@ -1469,6 +1509,9 @@ packages:
     resolution: {integrity: sha512-OTm2XdMt2YkpSn2Nx7z2EJtSuhRHsTPYsSK59hr3v8jRArK+2UEoju4Jumn1CmpgoBLGI6ReHLJ/czYltNUW3g==}
     engines: {node: '>= 20'}
     hasBin: true
+
+  '@vscode/web-custom-data@0.6.3':
+    resolution: {integrity: sha512-3pDUAPGVkra1KjR2L5m3b7BgzLTlWdep4ijsRoqeLcrp+e7cJcyjnae8IkAdF/xS6Zo3B1YZSmIBIhRAEYBIog==}
 
   acorn@8.16.0:
     resolution: {integrity: sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw==}
@@ -1934,6 +1977,10 @@ packages:
   entities@7.0.1:
     resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
     engines: {node: '>=0.12'}
+
+  entities@8.0.0:
+    resolution: {integrity: sha512-zwfzJecQ/Uej6tusMqwAqU/6KL2XaB2VZ2Jg54Je6ahNBGNH6Ek6g3jjNCF0fG9EWQKGZNddNjU5F1ZQn/sBnA==}
+    engines: {node: '>=20.19.0'}
 
   environment@1.1.0:
     resolution: {integrity: sha512-xUtoPkMggbz0MPyPiIWr1Kp4aeWJjDZ6SMvURhimjdZgsRuDplF5/s9hcgGhyXMhs+6vpnuoiZ2kFiu3FMnS8Q==}
@@ -2512,6 +2559,9 @@ packages:
   parse5@7.3.0:
     resolution: {integrity: sha512-IInvU7fabl34qmi9gY8XOVxhYyMyuH2xUNpb2q8/Y+7552KlejkRvqvD19nMoUW/uQGGbqNpA6Tufu5FL5BZgw==}
 
+  parse5@8.0.1:
+    resolution: {integrity: sha512-z1e/HMG90obSGeidlli3hj7cbocou0/wa5HacvI3ASx34PecNjNQeaHNo5WIZpWofN9kgkqV1q5YvXe3F0FoPw==}
+
   path-data-parser@0.1.0:
     resolution: {integrity: sha512-NOnmBpt5Y2RWbuv0LMzsayp3lVylAHLPUTut412ZA3l+C4uw4ZVkQbjShYCQ8TCpUMdPapr4YjUqLYD6v68j+w==}
 
@@ -3051,6 +3101,9 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  vscode-css-languageservice@6.3.10:
+    resolution: {integrity: sha512-eq5N9Er3fC4vA9zd9EFhyBG90wtCCuXgRSpAndaOgXMh1Wgep5lBgRIeDgjZBW9pa+332yC9+49cZMW8jcL3MA==}
 
   vscode-jsonrpc@8.2.0:
     resolution: {integrity: sha512-C+r0eKJUIfiDIfwJhria30+TYWPtuHJXHtI7J0YlOmKAo7ogxP20T0zxB7HZQIFhIyvoBPwWskjxrvAtfjyZfA==}
@@ -3925,6 +3978,8 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
+  '@vscode/l10n@0.0.18': {}
+
   '@vscode/vsce-sign-alpine-arm64@2.0.6':
     optional: true
 
@@ -3999,6 +4054,8 @@ snapshots:
       keytar: 7.9.0
     transitivePeerDependencies:
       - supports-color
+
+  '@vscode/web-custom-data@0.6.3': {}
 
   acorn@8.16.0: {}
 
@@ -4483,6 +4540,8 @@ snapshots:
   entities@6.0.1: {}
 
   entities@7.0.1: {}
+
+  entities@8.0.0: {}
 
   environment@1.1.0: {}
 
@@ -5078,6 +5137,10 @@ snapshots:
     dependencies:
       entities: 6.0.1
 
+  parse5@8.0.1:
+    dependencies:
+      entities: 8.0.0
+
   path-data-parser@0.1.0: {}
 
   path-key@3.1.1: {}
@@ -5614,6 +5677,13 @@ snapshots:
       happy-dom: 15.11.7
     transitivePeerDependencies:
       - msw
+
+  vscode-css-languageservice@6.3.10:
+    dependencies:
+      '@vscode/l10n': 0.0.18
+      vscode-languageserver-textdocument: 1.0.12
+      vscode-languageserver-types: 3.17.5
+      vscode-uri: 3.1.0
 
   vscode-jsonrpc@8.2.0: {}
 

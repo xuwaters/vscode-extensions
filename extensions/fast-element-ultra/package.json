@@ -1,0 +1,486 @@
+{
+  "name": "wx-vsce-fast-element-ultra",
+  "displayName": "FAST Element Ultra",
+  "description": "FAST Element template analysis inside TypeScript: diagnostics, completion, hover, go-to-definition, find-all-references, rename, quick fixes, closing tags, folding and colours for html`` and css`` tagged templates — a Rust engine running inside tsserver, with the type checker answering what only it can",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascript",
+    "onLanguage:javascriptreact"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "typescriptServerPlugins": [
+      {
+        "name": "wx-fast-element-tsplugin",
+        "enableForWorkspaceTypeScriptVersions": true
+      }
+    ],
+    "commands": [
+      {
+        "command": "fastElementUltra.analyze",
+        "title": "Analyze Workspace FAST Templates",
+        "category": "FAST Element Ultra"
+      },
+      {
+        "command": "fastElementUltra.clearAnalysis",
+        "title": "Clear Workspace Analysis Results",
+        "category": "FAST Element Ultra"
+      }
+    ],
+    "grammars": [
+      {
+        "injectTo": [
+          "source.ts",
+          "source.tsx",
+          "source.js",
+          "source.jsx"
+        ],
+        "scopeName": "inline.fast-element-html",
+        "path": "./syntaxes/fast-element-html.injection.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.html": "html",
+          "meta.embedded.block.css": "css",
+          "source.ts": "typescript"
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "typescript",
+        "path": "./snippets/fast-element.json"
+      },
+      {
+        "language": "typescriptreact",
+        "path": "./snippets/fast-element.json"
+      }
+    ],
+    "configuration": {
+      "title": "FAST Element Ultra",
+      "properties": {
+        "fastElementUltra.disable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Turn the analyzer off entirely. TypeScript's own behaviour is unchanged."
+        },
+        "fastElementUltra.strict": {
+          "type": "boolean",
+          "default": false,
+          "description": "Strict mode: every rule moves to the stricter of its two default severities. Individual `#fastElementUltra.rules#` entries still win."
+        },
+        "fastElementUltra.logging": {
+          "type": "string",
+          "enum": [
+            "off",
+            "error",
+            "warn",
+            "debug",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "How much the TypeScript server plugin writes into the TS Server log."
+        },
+        "fastElementUltra.dontShowSuggestions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Strip the “did you mean …?” tails from diagnostic messages."
+        },
+        "fastElementUltra.htmlTemplateTags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "html"
+          ],
+          "description": "Tag-function names treated as FAST HTML templates. A template is only analyzed when its tag also resolves to @microsoft/fast-element, so adding a name here never captures another library's templates."
+        },
+        "fastElementUltra.cssTemplateTags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "css"
+          ],
+          "description": "Tag-function names treated as FAST CSS templates."
+        },
+        "fastElementUltra.maxProjectImportDepth": {
+          "type": "integer",
+          "default": -1,
+          "description": "How many imports deep a component may live and still count as reachable for `no-missing-import`. -1 is unlimited."
+        },
+        "fastElementUltra.maxNodeModuleImportDepth": {
+          "type": "integer",
+          "default": 1,
+          "description": "The same limit inside node_modules."
+        },
+        "fastElementUltra.globalTags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Tag names assumed to exist. Nothing about them is checked."
+        },
+        "fastElementUltra.globalAttributes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Attribute names assumed to exist on every element."
+        },
+        "fastElementUltra.globalEvents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Event names assumed to be emitted by every element."
+        },
+        "fastElementUltra.customHtmlData": {
+          "type": [
+            "string",
+            "object",
+            "array"
+          ],
+          "description": "VS Code custom-data for additional tags, attributes and events: a path, an inline object, or an array of either. Merged with `html.experimental.customData`."
+        },
+        "fastElementUltra.rules": {
+          "type": "object",
+          "description": "Per-rule severity overrides. `default` follows the rule's own default (and `#fastElementUltra.strict#`).",
+          "properties": {
+            "no-unknown-tag-name": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "The tag is a known built-in or a registered component."
+            },
+            "no-missing-import": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "A component used here is reachable from this module's imports."
+            },
+            "no-unclosed-tag": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "Every element is closed; custom elements are not self-closed."
+            },
+            "no-unknown-attribute": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "attr=\"…\" names a declared attribute or a global one."
+            },
+            "no-unknown-property": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": ":prop=\"…\" names a declared property."
+            },
+            "no-unknown-event": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "@event=\"…\" names an event the component emits or a DOM event."
+            },
+            "no-unknown-slot": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "slot=\"…\" names a slot declared with JSDoc @slot."
+            },
+            "no-unintended-mixed-binding": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "A stray /, \", ' or } swept into a binding's value."
+            },
+            "no-expressionless-property-binding": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": ":prop=\"literal\" — a property binding needs an expression."
+            },
+            "no-invalid-attribute-name": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "@attr({ attribute: \"…\" }) is a legal attribute name."
+            },
+            "no-invalid-tag-name": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "A registered tag name is a legal custom-element name."
+            },
+            "no-missing-element-type-definition": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "The component is on HTMLElementTagNameMap."
+            },
+            "no-invalid-css": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "css`` contents, via the CSS language service."
+            },
+            "no-noncallable-event-binding": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "@event=\"${…}\" binds something callable."
+            },
+            "no-boolean-in-attribute-binding": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "attr=\"${bool}\" sets the string \"false\", which is truthy."
+            },
+            "no-complex-attribute-binding": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "attr=\"${obj}\" sets \"[object Object]\". :prop was meant."
+            },
+            "no-incompatible-type-binding": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "The bound expression's type fits the target member's."
+            },
+            "no-invalid-directive-binding": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "when/repeat/render in content position; ref/slotted/children as element expressions."
+            },
+            "no-incompatible-attr-config": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "@attr({ mode, converter }) agrees with the declared property type."
+            },
+            "no-attr-visibility-mismatch": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "An attribute is part of the public DOM contract; a private member cannot be one."
+            },
+            "no-non-reactive-binding": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "${x.foo} written where ${x => x.foo} was meant — bound once, forever."
+            },
+            "no-invalid-directive-target": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "ref('…')/slotted('…')/children('…') names a member of the template's source type."
+            },
+            "no-slot-without-shadow-root": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "<slot>, ::part and slotted('…') do nothing on a shadowOptions: null component."
+            },
+            "no-duplicate-tag-name": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "Two components registering the same tag name — a runtime error in FAST."
+            },
+            "no-untyped-template": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "A component template without html<T> is checked by nothing."
+            },
+            "no-implicit-prevent-default": {
+              "type": "string",
+              "enum": [
+                "default",
+                "off",
+                "warning",
+                "error"
+              ],
+              "default": "default",
+              "description": "A handler on a key or input event that does not return true eats the default action."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:wasm": "cd ../../crates/fast/fast-analyzer-wasm && wasm-pack build --target nodejs --out-dir ../../../extensions/fast-element-ultra/wasm --out-name fast_analyzer_wasm",
+    "generate:htmldata": "node ../../crates/fast/fast-html-data/generator/generate.mjs",
+    "licenses": "cd ../../crates/fast/fast-analyzer-wasm && cargo about generate about.hbs -o ../../../extensions/fast-element-ultra/THIRD-PARTY-NOTICES.md",
+    "build": "tsdown && node scripts/assemble-tsplugin.mjs",
+    "clean": "rm -rf dist wasm node_modules/wx-fast-element-tsplugin",
+    "typecheck": "tsc --noEmit && tsc -p test --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository && node scripts/inject-tsplugin.mjs",
+    "vscode:prepublish": "pnpm run build:wasm && tsdown --minify && node scripts/assemble-tsplugin.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify:vsix": "node scripts/verify-vsix.mjs"
+  },
+  "dependencies": {
+    "vscode-css-languageservice": "^6.3.7",
+    "vscode-languageserver-textdocument": "^1.0.12"
+  },
+  "devDependencies": {
+    "@microsoft/fast-element": "^3.0.2",
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "@vscode/web-custom-data": "^0.6.0",
+    "parse5": "^8.0.0",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build"
+  }
+}

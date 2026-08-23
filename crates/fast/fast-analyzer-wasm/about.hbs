@@ -1,0 +1,64 @@
+{{!--
+  Markdown output for cargo-about.
+
+  Two sections, because they answer different questions. The index answers
+  "which crates are in the artifact and under what terms", which is what a
+  reviewer wants and what a dependency-change diff should show. The texts that
+  follow are the notices themselves, which are long and rarely read but legally
+  necessary.
+
+  cargo-about groups by (licence, exact text), so a licence whose text differs
+  by a copyright line appears more than once below. That is intentional on its
+  part: those really are different notices.
+--}}
+<!--
+  GENERATED FILE — do not edit.
+
+  Regenerate with `pnpm run licenses` in extensions/fast-element-ultra after
+  any dependency change. Configuration: crates/fast/fast-analyzer-wasm/about.toml.
+-->
+
+# Third-Party Rust Notices
+
+`wasm/fast_analyzer_wasm_bg.wasm` statically links the crates listed here. Each
+copyright holder retains their rights; nothing in this file grants any license
+to this extension itself.
+
+Fonts, the typst compiler's own notice, and the acknowledgement of prior art are
+in [LICENSE.md](LICENSE.md); this file covers the Rust dependency graph only.
+
+## Summary
+
+| License | Crates |
+| --- | --- |
+{{#each overview}}| {{name}} | {{count}} |
+{{/each}}
+
+## Crates by license
+
+{{#each overview}}
+### {{name}}
+
+{{#each indices}}
+{{#with (lookup @root.licenses this)}}
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}
+{{/each}}
+{{/with}}
+{{/each}}
+
+{{/each}}
+
+## License texts
+
+{{#each licenses}}
+### {{name}}
+
+Applies to:{{#each used_by}} `{{crate.name}}`{{/each}}
+
+
+```
+{{text}}
+```
+
+{{/each}}

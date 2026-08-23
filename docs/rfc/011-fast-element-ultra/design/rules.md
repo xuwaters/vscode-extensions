@@ -1,6 +1,16 @@
 # The rule catalogue
 
-**Status**: design, nothing built.
+**Status**: living — all 26 rules implemented; a seeded fixture per rule in
+`extensions/fast-element-ultra/test/diagnostics.test.ts` and silence over the
+corpus in `test/corpus.test.ts` pin the behaviour. Where things run:
+19 rules in Rust (`crates/fast/fast-analyzer-core/src/rules.rs`); the type
+rules in the oracle (`tsplugin/oracle.ts`,
+[0010](../decisions/0010-checker-not-ts-simple-type.md)); the class-file
+rules R10/R12/R19/R20 at discovery (`tsplugin/extract.ts`); R11 and F4 at the
+engine's registry level; R13 and F3's `::part` half through the CSS service
+(`tsplugin/css.ts`). One engine-decidable special case: `@event="literal"` is
+reported as `no-noncallable-event-binding` without the oracle — a string is
+never callable.
 
 26 rules: 17 carried from fast-analyzer unchanged in intent, 3 rewritten because the lit version
 asks the wrong question of FAST, 6 new because they describe traps that only exist in FAST. Three of
@@ -125,14 +135,23 @@ html<MyEl>`<button ?disabled="${x.locked}">`  // ✗ same, and looks even more l
 Both compile, both are legal FAST, and there is no equivalent in lit — `${this.count}` inside a lit
 `render()` is re-evaluated by definition, which is why no inherited rule covers this.
 
-Reported when an interpolated expression is **not** a function, not a `Binding`, not a directive, and
-**not a compile-time constant**. That last exclusion carries the rule: `${SOME_CONST}`,
-`${'literal'}` and `${someEnum.Value}` are legitimate one-time bindings and firing on them would make
-the rule unusable. The test is the expression's type — a literal type or a `const`-declared symbol is
-exempt; a property access on a mutable object is not. Needs the oracle for the constness test.
+Reported when an interpolated expression is an **identifier or property
+access** whose type has no call signatures, whose symbol is not a `const`,
+and which is not a directive, template or `Binding` value. The restriction to
+value-*reads* was forced by the corpus (the rule's first shape would have
+fired on it): `${SOME_CONST}`, `${'literal'}` and `${someEnum.Value}` are
+exempt as constants, and a **call** like `${shortcut('Ctrl+F', '⌘F')}` — six
+occurrences in csv-ultra's titles — is a deliberate one-time interpolation of
+a computed value and is exempt by shape. The mistake this rule exists for is
+*reading* something that looks reactive; computing something is not that
+mistake. The constness and callability tests are computed at extraction and
+travel with the placeholder (architecture.md §3.1), so the rule decides in
+Rust with no oracle round trip. When either half is unknown, the rule stays
+silent rather than guessing.
 
-Its default is [open question 4](../decisions/README.md#open-questions): `warning` is safe, `error`
-matches how bad the bug is.
+Its default is resolved (open question 4, closed): **`warning` normal /
+`error` strict** — safe because of the shape restriction above, which is what
+kept the corpus gate silent.
 
 ### no-invalid-directive-target
 

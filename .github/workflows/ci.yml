@@ -40,17 +40,21 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-      # Scoped to the typst crates rather than the workspace. Several older
-      # crates carry pre-existing clippy warnings, and turning them into build
-      # failures here would mean editing code this RFC has no business touching.
-      # Widen the scope when those are cleaned up.
+      # Scoped to the typst and fast crates rather than the workspace. Several
+      # older crates carry pre-existing clippy warnings, and turning them into
+      # build failures here would mean editing code the RFCs have no business
+      # touching. Widen the scope when those are cleaned up.
       - name: Lint
         run: |
           cargo clippy --all-targets -- -D warnings \
             -p typst-session \
             -p typst-lsp-core \
             -p typst-preview-core \
-            -p typst-lsp-wasm
+            -p typst-lsp-wasm \
+            -p fast-template-syntax \
+            -p fast-html-data \
+            -p fast-analyzer-core \
+            -p fast-analyzer-wasm
 
   wasm:
     name: build wasm32-unknown-unknown
@@ -74,7 +78,8 @@ jobs:
           cargo build --release --target wasm32-unknown-unknown \
             -p typst-lsp-wasm \
             -p markdown-engine \
-            -p log-parser
+            -p log-parser \
+            -p fast-analyzer-wasm
 
       - name: Report the typst artifact size
         run: |

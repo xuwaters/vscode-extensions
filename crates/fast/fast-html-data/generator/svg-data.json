@@ -1,0 +1,463 @@
+{
+  "_comment": "Curated from MDN's SVG and MathML references. Element entries carry only their element-specific attributes; the shared presentation attributes live in svgPresentationAttributes and apply to every SVG-namespace element at lookup time.",
+  "svgPresentationAttributes": [
+    { "name": "fill", "description": "The paint used to fill the shape." },
+    { "name": "fill-opacity", "description": "Opacity of the fill paint." },
+    { "name": "fill-rule", "description": "Algorithm deciding what is inside the shape.", "values": [{ "name": "nonzero" }, { "name": "evenodd" }] },
+    { "name": "stroke", "description": "The paint used to draw the outline." },
+    { "name": "stroke-width", "description": "Width of the outline." },
+    { "name": "stroke-linecap", "description": "Shape of open path ends.", "values": [{ "name": "butt" }, { "name": "round" }, { "name": "square" }] },
+    { "name": "stroke-linejoin", "description": "Shape of path corners.", "values": [{ "name": "miter" }, { "name": "round" }, { "name": "bevel" }, { "name": "arcs" }, { "name": "miter-clip" }] },
+    { "name": "stroke-miterlimit", "description": "Limit on the miter join length." },
+    { "name": "stroke-dasharray", "description": "Dash pattern for the outline." },
+    { "name": "stroke-dashoffset", "description": "Offset into the dash pattern." },
+    { "name": "stroke-opacity", "description": "Opacity of the stroke paint." },
+    { "name": "opacity", "description": "Opacity of the whole element." },
+    { "name": "transform", "description": "Transform applied to the element and its children." },
+    { "name": "transform-origin", "description": "Origin for the transform." },
+    { "name": "color", "description": "Value of the currentColor keyword for this subtree." },
+    { "name": "display", "description": "Whether the element is rendered." },
+    { "name": "visibility", "description": "Whether the element is visible.", "values": [{ "name": "visible" }, { "name": "hidden" }, { "name": "collapse" }] },
+    { "name": "clip-path", "description": "Clip path applied to the element." },
+    { "name": "clip-rule", "description": "Fill rule used inside a clipPath.", "values": [{ "name": "nonzero" }, { "name": "evenodd" }] },
+    { "name": "mask", "description": "Mask applied to the element." },
+    { "name": "filter", "description": "Filter applied to the element." },
+    { "name": "vector-effect", "description": "Whether the stroke scales with the transform.", "values": [{ "name": "none" }, { "name": "non-scaling-stroke" }] },
+    { "name": "pointer-events", "description": "How the element responds to pointer hits." },
+    { "name": "shape-rendering", "description": "Rendering-quality hint for shapes.", "values": [{ "name": "auto" }, { "name": "optimizeSpeed" }, { "name": "crispEdges" }, { "name": "geometricPrecision" }] },
+    { "name": "text-rendering", "description": "Rendering-quality hint for text." },
+    { "name": "color-interpolation", "description": "Colour space for compositing." },
+    { "name": "color-interpolation-filters", "description": "Colour space for filter primitives." },
+    { "name": "paint-order", "description": "Order fill, stroke and markers are painted in." },
+    { "name": "marker-start", "description": "Marker drawn at the first vertex." },
+    { "name": "marker-mid", "description": "Marker drawn at interior vertices." },
+    { "name": "marker-end", "description": "Marker drawn at the last vertex." },
+    { "name": "font-family", "description": "Font family for text content." },
+    { "name": "font-size", "description": "Font size for text content." },
+    { "name": "font-weight", "description": "Font weight for text content." },
+    { "name": "font-style", "description": "Font style for text content." },
+    { "name": "text-anchor", "description": "Alignment of text relative to its position.", "values": [{ "name": "start" }, { "name": "middle" }, { "name": "end" }] },
+    { "name": "dominant-baseline", "description": "Baseline used to align the text." },
+    { "name": "alignment-baseline", "description": "How the element aligns to its parent's baseline." },
+    { "name": "baseline-shift", "description": "Shift from the dominant baseline." },
+    { "name": "letter-spacing", "description": "Extra space between letters." },
+    { "name": "word-spacing", "description": "Extra space between words." },
+    { "name": "direction", "description": "Text direction.", "values": [{ "name": "ltr" }, { "name": "rtl" }] },
+    { "name": "cursor", "description": "Cursor shown over the element." },
+    { "name": "overflow", "description": "Overflow behaviour for elements that establish a viewport." },
+    { "name": "focusable", "description": "Legacy IE/Edge attribute; false keeps inline SVG out of the tab order.", "values": [{ "name": "true" }, { "name": "false" }] },
+    { "name": "systemLanguage", "description": "Conditional processing: match against the user's language." },
+    { "name": "requiredExtensions", "description": "Conditional processing: required language extensions." }
+  ],
+  "extraEvents": {
+    "focusin": "An element is about to receive focus. Bubbles, unlike focus.",
+    "focusout": "An element is about to lose focus. Bubbles, unlike blur.",
+    "beforeinput": "The value of an editable element is about to change.",
+    "compositionstart": "An IME composition session begins.",
+    "compositionupdate": "An IME composition session's text changed.",
+    "compositionend": "An IME composition session ends.",
+    "pointerdown": "A pointer becomes active on the element.",
+    "pointerup": "A pointer is released over the element.",
+    "pointermove": "A pointer moves over the element.",
+    "pointerenter": "A pointer enters the element. Does not bubble.",
+    "pointerleave": "A pointer leaves the element. Does not bubble.",
+    "pointerover": "A pointer moves onto the element.",
+    "pointerout": "A pointer moves off the element.",
+    "pointercancel": "The browser cancelled a pointer interaction.",
+    "gotpointercapture": "The element received pointer capture.",
+    "lostpointercapture": "The element lost pointer capture.",
+    "touchstart": "A touch point is placed on the element.",
+    "touchend": "A touch point is removed from the element.",
+    "touchmove": "A touch point moves along the element.",
+    "touchcancel": "The browser cancelled a touch interaction.",
+    "transitionstart": "A CSS transition started.",
+    "transitionrun": "A CSS transition was created.",
+    "transitioncancel": "A CSS transition was cancelled.",
+    "transitionend": "A CSS transition finished.",
+    "animationstart": "A CSS animation started.",
+    "animationiteration": "A CSS animation completed an iteration.",
+    "animationcancel": "A CSS animation was cancelled.",
+    "animationend": "A CSS animation finished.",
+    "wheel": "A wheel or trackpad scrolled over the element.",
+    "selectionchange": "The document's selection changed.",
+    "fullscreenchange": "The element entered or left fullscreen.",
+    "fullscreenerror": "A fullscreen request failed.",
+    "slotchange": "The nodes assigned to a slot changed.",
+    "toggle": "A details or popover element was opened or closed.",
+    "invalid": "A form control failed validation.",
+    "search": "The user initiated a search in a search input.",
+    "visibilitychange": "The document became visible or hidden."
+  },
+  "svgElements": [
+    { "name": "svg", "description": "An SVG document fragment: the root of inline SVG.", "attributes": [
+      { "name": "viewBox", "description": "The coordinate system mapped onto the viewport: min-x min-y width height." },
+      { "name": "width", "description": "Rendered width." },
+      { "name": "height", "description": "Rendered height." },
+      { "name": "x", "description": "x position when nested in another SVG." },
+      { "name": "y", "description": "y position when nested in another SVG." },
+      { "name": "xmlns", "description": "The SVG namespace. Optional on inline SVG in HTML." },
+      { "name": "preserveAspectRatio", "description": "How the viewBox fits a viewport of a different aspect ratio." },
+      { "name": "version", "description": "Legacy SVG language version." }
+    ] },
+    { "name": "g", "description": "A group of SVG elements sharing attributes and transforms.", "attributes": [] },
+    { "name": "defs", "description": "Definitions referenced elsewhere; never rendered directly.", "attributes": [] },
+    { "name": "symbol", "description": "A reusable graphic, instantiated with use.", "attributes": [
+      { "name": "viewBox", "description": "The symbol's own coordinate system." },
+      { "name": "preserveAspectRatio", "description": "How the viewBox fits the use viewport." },
+      { "name": "x", "description": "x position." },
+      { "name": "y", "description": "y position." },
+      { "name": "width", "description": "Width." },
+      { "name": "height", "description": "Height." },
+      { "name": "refX", "description": "x of the symbol's reference point." },
+      { "name": "refY", "description": "y of the symbol's reference point." }
+    ] },
+    { "name": "use", "description": "An instance of a symbol or any referenced element.", "attributes": [
+      { "name": "href", "description": "Reference to the element to instantiate." },
+      { "name": "xlink:href", "description": "Legacy form of href." },
+      { "name": "x", "description": "x offset of the instance." },
+      { "name": "y", "description": "y offset of the instance." },
+      { "name": "width", "description": "Width for symbol/svg references." },
+      { "name": "height", "description": "Height for symbol/svg references." }
+    ] },
+    { "name": "path", "description": "A shape drawn from a path-data string.", "attributes": [
+      { "name": "d", "description": "The path data: move, line, curve and arc commands." },
+      { "name": "pathLength", "description": "Author-declared total length, for dash calculations." }
+    ] },
+    { "name": "rect", "description": "A rectangle, optionally with rounded corners.", "attributes": [
+      { "name": "x", "description": "x of the left edge." },
+      { "name": "y", "description": "y of the top edge." },
+      { "name": "width", "description": "Width." },
+      { "name": "height", "description": "Height." },
+      { "name": "rx", "description": "Horizontal corner radius." },
+      { "name": "ry", "description": "Vertical corner radius." },
+      { "name": "pathLength", "description": "Author-declared total length." }
+    ] },
+    { "name": "circle", "description": "A circle.", "attributes": [
+      { "name": "cx", "description": "x of the centre." },
+      { "name": "cy", "description": "y of the centre." },
+      { "name": "r", "description": "Radius." },
+      { "name": "pathLength", "description": "Author-declared total length." }
+    ] },
+    { "name": "ellipse", "description": "An ellipse.", "attributes": [
+      { "name": "cx", "description": "x of the centre." },
+      { "name": "cy", "description": "y of the centre." },
+      { "name": "rx", "description": "Horizontal radius." },
+      { "name": "ry", "description": "Vertical radius." },
+      { "name": "pathLength", "description": "Author-declared total length." }
+    ] },
+    { "name": "line", "description": "A straight line between two points.", "attributes": [
+      { "name": "x1", "description": "x of the start point." },
+      { "name": "y1", "description": "y of the start point." },
+      { "name": "x2", "description": "x of the end point." },
+      { "name": "y2", "description": "y of the end point." },
+      { "name": "pathLength", "description": "Author-declared total length." }
+    ] },
+    { "name": "polyline", "description": "Connected straight lines, open.", "attributes": [
+      { "name": "points", "description": "The vertex list: x,y pairs." },
+      { "name": "pathLength", "description": "Author-declared total length." }
+    ] },
+    { "name": "polygon", "description": "Connected straight lines, closed.", "attributes": [
+      { "name": "points", "description": "The vertex list: x,y pairs." },
+      { "name": "pathLength", "description": "Author-declared total length." }
+    ] },
+    { "name": "text", "description": "Text rendered as SVG.", "attributes": [
+      { "name": "x", "description": "x of the anchor point." },
+      { "name": "y", "description": "y of the anchor point." },
+      { "name": "dx", "description": "Horizontal shift from the previous glyph." },
+      { "name": "dy", "description": "Vertical shift from the previous glyph." },
+      { "name": "rotate", "description": "Per-glyph rotation." },
+      { "name": "textLength", "description": "Length the text is fitted to." },
+      { "name": "lengthAdjust", "description": "What is adjusted to fit textLength.", "values": [{ "name": "spacing" }, { "name": "spacingAndGlyphs" }] }
+    ] },
+    { "name": "tspan", "description": "A span within SVG text.", "attributes": [
+      { "name": "x", "description": "x of the anchor point." },
+      { "name": "y", "description": "y of the anchor point." },
+      { "name": "dx", "description": "Horizontal shift from the previous glyph." },
+      { "name": "dy", "description": "Vertical shift from the previous glyph." },
+      { "name": "rotate", "description": "Per-glyph rotation." },
+      { "name": "textLength", "description": "Length the text is fitted to." },
+      { "name": "lengthAdjust", "description": "What is adjusted to fit textLength." }
+    ] },
+    { "name": "textPath", "description": "Text laid out along a path.", "attributes": [
+      { "name": "href", "description": "The path to follow." },
+      { "name": "startOffset", "description": "Where on the path the text starts." },
+      { "name": "method", "description": "How glyphs are fitted to the path.", "values": [{ "name": "align" }, { "name": "stretch" }] },
+      { "name": "spacing", "description": "Glyph spacing rule.", "values": [{ "name": "auto" }, { "name": "exact" }] }
+    ] },
+    { "name": "image", "description": "A raster or SVG image embedded in the graphic.", "attributes": [
+      { "name": "href", "description": "The image to embed." },
+      { "name": "xlink:href", "description": "Legacy form of href." },
+      { "name": "x", "description": "x of the left edge." },
+      { "name": "y", "description": "y of the top edge." },
+      { "name": "width", "description": "Width." },
+      { "name": "height", "description": "Height." },
+      { "name": "preserveAspectRatio", "description": "How the image fits its box." },
+      { "name": "crossorigin", "description": "CORS mode for the fetch." },
+      { "name": "decoding", "description": "Decoding hint." }
+    ] },
+    { "name": "marker", "description": "A graphic drawn at path vertices — arrowheads.", "attributes": [
+      { "name": "markerWidth", "description": "Width of the marker viewport." },
+      { "name": "markerHeight", "description": "Height of the marker viewport." },
+      { "name": "refX", "description": "x of the point that sits on the vertex." },
+      { "name": "refY", "description": "y of the point that sits on the vertex." },
+      { "name": "orient", "description": "Rotation of the marker at the vertex." },
+      { "name": "markerUnits", "description": "Units the marker scales in.", "values": [{ "name": "userSpaceOnUse" }, { "name": "strokeWidth" }] },
+      { "name": "viewBox", "description": "The marker's own coordinate system." },
+      { "name": "preserveAspectRatio", "description": "How the viewBox fits the marker viewport." }
+    ] },
+    { "name": "clipPath", "description": "A clipping region referenced by clip-path.", "attributes": [
+      { "name": "clipPathUnits", "description": "Coordinate system of the clip contents.", "values": [{ "name": "userSpaceOnUse" }, { "name": "objectBoundingBox" }] }
+    ] },
+    { "name": "mask", "description": "A luminance or alpha mask referenced by mask.", "attributes": [
+      { "name": "maskUnits", "description": "Coordinate system of x/y/width/height.", "values": [{ "name": "userSpaceOnUse" }, { "name": "objectBoundingBox" }] },
+      { "name": "maskContentUnits", "description": "Coordinate system of the mask contents.", "values": [{ "name": "userSpaceOnUse" }, { "name": "objectBoundingBox" }] },
+      { "name": "x", "description": "x of the mask region." },
+      { "name": "y", "description": "y of the mask region." },
+      { "name": "width", "description": "Width of the mask region." },
+      { "name": "height", "description": "Height of the mask region." }
+    ] },
+    { "name": "pattern", "description": "A tiled fill pattern.", "attributes": [
+      { "name": "patternUnits", "description": "Coordinate system of x/y/width/height." },
+      { "name": "patternContentUnits", "description": "Coordinate system of the tile contents." },
+      { "name": "patternTransform", "description": "Transform applied to the tiling." },
+      { "name": "x", "description": "x of the tile." },
+      { "name": "y", "description": "y of the tile." },
+      { "name": "width", "description": "Width of the tile." },
+      { "name": "height", "description": "Height of the tile." },
+      { "name": "viewBox", "description": "The tile's own coordinate system." },
+      { "name": "preserveAspectRatio", "description": "How the viewBox fits the tile." },
+      { "name": "href", "description": "A pattern to inherit from." }
+    ] },
+    { "name": "linearGradient", "description": "A linear colour gradient.", "attributes": [
+      { "name": "x1", "description": "x of the gradient start." },
+      { "name": "y1", "description": "y of the gradient start." },
+      { "name": "x2", "description": "x of the gradient end." },
+      { "name": "y2", "description": "y of the gradient end." },
+      { "name": "gradientUnits", "description": "Coordinate system of the endpoints.", "values": [{ "name": "userSpaceOnUse" }, { "name": "objectBoundingBox" }] },
+      { "name": "gradientTransform", "description": "Transform applied to the gradient." },
+      { "name": "spreadMethod", "description": "Behaviour outside the endpoints.", "values": [{ "name": "pad" }, { "name": "reflect" }, { "name": "repeat" }] },
+      { "name": "href", "description": "A gradient to inherit stops from." }
+    ] },
+    { "name": "radialGradient", "description": "A radial colour gradient.", "attributes": [
+      { "name": "cx", "description": "x of the end circle's centre." },
+      { "name": "cy", "description": "y of the end circle's centre." },
+      { "name": "r", "description": "Radius of the end circle." },
+      { "name": "fx", "description": "x of the start circle's centre." },
+      { "name": "fy", "description": "y of the start circle's centre." },
+      { "name": "fr", "description": "Radius of the start circle." },
+      { "name": "gradientUnits", "description": "Coordinate system of the geometry." },
+      { "name": "gradientTransform", "description": "Transform applied to the gradient." },
+      { "name": "spreadMethod", "description": "Behaviour outside the circles." },
+      { "name": "href", "description": "A gradient to inherit stops from." }
+    ] },
+    { "name": "stop", "description": "One colour stop in a gradient.", "attributes": [
+      { "name": "offset", "description": "Position of the stop along the gradient." },
+      { "name": "stop-color", "description": "Colour at the stop." },
+      { "name": "stop-opacity", "description": "Opacity at the stop." }
+    ] },
+    { "name": "filter", "description": "A filter-effect pipeline referenced by filter.", "attributes": [
+      { "name": "x", "description": "x of the filter region." },
+      { "name": "y", "description": "y of the filter region." },
+      { "name": "width", "description": "Width of the filter region." },
+      { "name": "height", "description": "Height of the filter region." },
+      { "name": "filterUnits", "description": "Coordinate system of the region." },
+      { "name": "primitiveUnits", "description": "Coordinate system inside the primitives." }
+    ] },
+    { "name": "feGaussianBlur", "description": "Filter primitive: Gaussian blur.", "attributes": [
+      { "name": "in", "description": "Input image." },
+      { "name": "stdDeviation", "description": "Blur radius." },
+      { "name": "edgeMode", "description": "How edges are handled." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feOffset", "description": "Filter primitive: offset the input.", "attributes": [
+      { "name": "in", "description": "Input image." },
+      { "name": "dx", "description": "Horizontal offset." },
+      { "name": "dy", "description": "Vertical offset." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feBlend", "description": "Filter primitive: blend two inputs.", "attributes": [
+      { "name": "in", "description": "First input." },
+      { "name": "in2", "description": "Second input." },
+      { "name": "mode", "description": "Blend mode." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feColorMatrix", "description": "Filter primitive: colour matrix transform.", "attributes": [
+      { "name": "in", "description": "Input image." },
+      { "name": "type", "description": "Matrix kind.", "values": [{ "name": "matrix" }, { "name": "saturate" }, { "name": "hueRotate" }, { "name": "luminanceToAlpha" }] },
+      { "name": "values", "description": "The matrix or single value." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feComposite", "description": "Filter primitive: Porter-Duff compositing.", "attributes": [
+      { "name": "in", "description": "First input." },
+      { "name": "in2", "description": "Second input." },
+      { "name": "operator", "description": "Compositing operator.", "values": [{ "name": "over" }, { "name": "in" }, { "name": "out" }, { "name": "atop" }, { "name": "xor" }, { "name": "arithmetic" }] },
+      { "name": "k1", "description": "Arithmetic coefficient." },
+      { "name": "k2", "description": "Arithmetic coefficient." },
+      { "name": "k3", "description": "Arithmetic coefficient." },
+      { "name": "k4", "description": "Arithmetic coefficient." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feFlood", "description": "Filter primitive: fill with a colour.", "attributes": [
+      { "name": "flood-color", "description": "The fill colour." },
+      { "name": "flood-opacity", "description": "The fill opacity." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feImage", "description": "Filter primitive: an external image.", "attributes": [
+      { "name": "href", "description": "The image to load." },
+      { "name": "preserveAspectRatio", "description": "How the image fits the region." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feMerge", "description": "Filter primitive: stack inputs.", "attributes": [
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feMergeNode", "description": "One input to feMerge.", "attributes": [
+      { "name": "in", "description": "Input image." }
+    ] },
+    { "name": "feMorphology", "description": "Filter primitive: erode or dilate.", "attributes": [
+      { "name": "in", "description": "Input image." },
+      { "name": "operator", "description": "erode or dilate.", "values": [{ "name": "erode" }, { "name": "dilate" }] },
+      { "name": "radius", "description": "Morphology radius." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feTurbulence", "description": "Filter primitive: Perlin noise.", "attributes": [
+      { "name": "baseFrequency", "description": "Noise frequency." },
+      { "name": "numOctaves", "description": "Number of octaves." },
+      { "name": "seed", "description": "Random seed." },
+      { "name": "stitchTiles", "description": "Tile stitching behaviour." },
+      { "name": "type", "description": "fractalNoise or turbulence.", "values": [{ "name": "fractalNoise" }, { "name": "turbulence" }] },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feDisplacementMap", "description": "Filter primitive: displace pixels by a map.", "attributes": [
+      { "name": "in", "description": "First input." },
+      { "name": "in2", "description": "The displacement map." },
+      { "name": "scale", "description": "Displacement scale." },
+      { "name": "xChannelSelector", "description": "Channel used for x displacement." },
+      { "name": "yChannelSelector", "description": "Channel used for y displacement." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "feDropShadow", "description": "Filter primitive: drop shadow.", "attributes": [
+      { "name": "dx", "description": "Horizontal shadow offset." },
+      { "name": "dy", "description": "Vertical shadow offset." },
+      { "name": "stdDeviation", "description": "Shadow blur radius." },
+      { "name": "flood-color", "description": "Shadow colour." },
+      { "name": "flood-opacity", "description": "Shadow opacity." },
+      { "name": "result", "description": "Name for this primitive's output." }
+    ] },
+    { "name": "foreignObject", "description": "A region of a foreign namespace — usually HTML — inside SVG.", "attributes": [
+      { "name": "x", "description": "x of the region." },
+      { "name": "y", "description": "y of the region." },
+      { "name": "width", "description": "Width of the region." },
+      { "name": "height", "description": "Height of the region." }
+    ] },
+    { "name": "switch", "description": "Renders the first child whose conditions match.", "attributes": [] },
+    { "name": "view", "description": "A named view of the document.", "attributes": [
+      { "name": "viewBox", "description": "The view's coordinate system." },
+      { "name": "preserveAspectRatio", "description": "How the viewBox fits the viewport." }
+    ] },
+    { "name": "desc", "description": "A long-text description for accessibility.", "attributes": [] },
+    { "name": "title", "description": "A short title, shown as a tooltip in most browsers.", "attributes": [] },
+    { "name": "metadata", "description": "Machine-readable metadata.", "attributes": [] },
+    { "name": "animate", "description": "SMIL: animate an attribute over time.", "attributes": [
+      { "name": "attributeName", "description": "The attribute being animated." },
+      { "name": "from", "description": "Start value." },
+      { "name": "to", "description": "End value." },
+      { "name": "by", "description": "Relative delta." },
+      { "name": "dur", "description": "Duration." },
+      { "name": "begin", "description": "Start time or trigger." },
+      { "name": "end", "description": "End time or trigger." },
+      { "name": "repeatCount", "description": "Number of repeats or indefinite." },
+      { "name": "repeatDur", "description": "Total repeat duration." },
+      { "name": "calcMode", "description": "Interpolation mode." },
+      { "name": "values", "description": "Value list for keyframed animation." },
+      { "name": "keyTimes", "description": "Timing for each value." },
+      { "name": "keySplines", "description": "Bezier control points per interval." },
+      { "name": "additive", "description": "sum or replace." },
+      { "name": "accumulate", "description": "sum or none." },
+      { "name": "fill", "description": "freeze or remove after the animation." }
+    ] },
+    { "name": "animateMotion", "description": "SMIL: move an element along a path.", "attributes": [
+      { "name": "path", "description": "The motion path." },
+      { "name": "rotate", "description": "Rotation along the path." },
+      { "name": "dur", "description": "Duration." },
+      { "name": "begin", "description": "Start time or trigger." },
+      { "name": "repeatCount", "description": "Number of repeats or indefinite." },
+      { "name": "keyPoints", "description": "Progress along the path per keyTime." },
+      { "name": "fill", "description": "freeze or remove after the animation." }
+    ] },
+    { "name": "animateTransform", "description": "SMIL: animate a transform.", "attributes": [
+      { "name": "attributeName", "description": "Usually transform." },
+      { "name": "type", "description": "translate, scale, rotate, skewX or skewY." },
+      { "name": "from", "description": "Start value." },
+      { "name": "to", "description": "End value." },
+      { "name": "by", "description": "Relative delta." },
+      { "name": "dur", "description": "Duration." },
+      { "name": "repeatCount", "description": "Number of repeats or indefinite." },
+      { "name": "fill", "description": "freeze or remove after the animation." }
+    ] },
+    { "name": "set", "description": "SMIL: set an attribute for a duration.", "attributes": [
+      { "name": "attributeName", "description": "The attribute being set." },
+      { "name": "to", "description": "The value to set." },
+      { "name": "dur", "description": "Duration." },
+      { "name": "begin", "description": "Start time or trigger." }
+    ] },
+    { "name": "mpath", "description": "SMIL: reference a path for animateMotion.", "attributes": [
+      { "name": "href", "description": "The path element to follow." }
+    ] }
+  ],
+  "mathElements": [
+    { "name": "math", "description": "The root of a MathML formula.", "attributes": [
+      { "name": "display", "description": "block or inline layout.", "values": [{ "name": "block" }, { "name": "inline" }] },
+      { "name": "xmlns", "description": "The MathML namespace." }
+    ] },
+    { "name": "mrow", "description": "A horizontal row of subexpressions.", "attributes": [] },
+    { "name": "mi", "description": "An identifier: variable, function name, constant.", "attributes": [
+      { "name": "mathvariant", "description": "Typographic variant, e.g. normal for upright." }
+    ] },
+    { "name": "mn", "description": "A numeric literal.", "attributes": [] },
+    { "name": "mo", "description": "An operator, fence or separator.", "attributes": [
+      { "name": "form", "description": "prefix, infix or postfix." },
+      { "name": "stretchy", "description": "Whether the operator stretches." },
+      { "name": "largeop", "description": "Whether the operator enlarges in display style." }
+    ] },
+    { "name": "mtext", "description": "Ordinary text inside a formula.", "attributes": [] },
+    { "name": "mspace", "description": "Blank space.", "attributes": [
+      { "name": "width", "description": "Width of the space." },
+      { "name": "height", "description": "Height above the baseline." },
+      { "name": "depth", "description": "Depth below the baseline." }
+    ] },
+    { "name": "mfrac", "description": "A fraction.", "attributes": [
+      { "name": "linethickness", "description": "Thickness of the fraction bar." }
+    ] },
+    { "name": "msqrt", "description": "A square root.", "attributes": [] },
+    { "name": "mroot", "description": "A root with an explicit index.", "attributes": [] },
+    { "name": "msub", "description": "A base with a subscript.", "attributes": [] },
+    { "name": "msup", "description": "A base with a superscript.", "attributes": [] },
+    { "name": "msubsup", "description": "A base with both subscript and superscript.", "attributes": [] },
+    { "name": "munder", "description": "A base with an underscript.", "attributes": [] },
+    { "name": "mover", "description": "A base with an overscript.", "attributes": [] },
+    { "name": "munderover", "description": "A base with both under- and overscript.", "attributes": [] },
+    { "name": "mtable", "description": "A table or matrix.", "attributes": [] },
+    { "name": "mtr", "description": "A row of a mtable.", "attributes": [] },
+    { "name": "mtd", "description": "A cell of a mtable row.", "attributes": [
+      { "name": "columnspan", "description": "Number of columns spanned." },
+      { "name": "rowspan", "description": "Number of rows spanned." }
+    ] },
+    { "name": "mstyle", "description": "Style inheritance wrapper.", "attributes": [] },
+    { "name": "merror", "description": "Content rendered as an error.", "attributes": [] },
+    { "name": "mpadded", "description": "Adjusts the bounding box of its content.", "attributes": [
+      { "name": "width", "description": "Override width." },
+      { "name": "height", "description": "Override height." },
+      { "name": "depth", "description": "Override depth." },
+      { "name": "lspace", "description": "Leading space." },
+      { "name": "voffset", "description": "Vertical offset." }
+    ] },
+    { "name": "mphantom", "description": "Content that takes space but is invisible.", "attributes": [] },
+    { "name": "semantics", "description": "Pairs presentation with content markup.", "attributes": [] },
+    { "name": "annotation", "description": "A text annotation inside semantics.", "attributes": [
+      { "name": "encoding", "description": "The annotation's format." }
+    ] },
+    { "name": "annotation-xml", "description": "An XML annotation inside semantics.", "attributes": [
+      { "name": "encoding", "description": "The annotation's format." }
+    ] }
+  ]
+}

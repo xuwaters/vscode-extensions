@@ -1,6 +1,14 @@
 # The corpus: this repository's own FAST code
 
-**Measured**: 2026-08-22, over `extensions/*/` excluding `node_modules/` and `dist/`.
+**Measured**: 2026-08-22, over `extensions/*/` excluding `node_modules/` and
+`dist/`. **Corrected 2026-08-23** while implementing: two counts in the
+original inventory were grep artifacts — `@customElement(…)` matched comments
+as well as code, so the real registration count is **3, not 5** (csv-grid,
+pdf-viewer, typst-preview; the other two hits are prose in `bundle.test.ts`
+files), and `@observable` across the three webview trees is **58, not 55**
+(21 csv + 26 pdf incl. `search.ts`/`outlineState.ts`/`jumpHistory.ts` + 8
+typst, at 2026-08-23 HEAD — the corpus grows with the extensions). Every
+claim of "5 elements" elsewhere in this RFC reads as these 3.
 
 Three extensions in this repo write their webviews in FAST Element. That makes them the natural
 regression corpus for RFC 011 — real templates, written without a linter, by someone who will notice
@@ -31,8 +39,8 @@ Counted across all 16 files:
 | `${when(…)}` | 15 |
 | `${repeat(…)}` | 2 |
 | `${slotted(…)}` / `${children(…)}` / `${render(…)}` | 0 |
-| `@customElement(…)` | 5 |
-| `@observable` members | 55 |
+| `@customElement(…)` | **3** (corrected; the original 5 counted comments) |
+| `@observable` members | **58** (corrected; grows with the extensions) |
 | `@attr` members | **0** |
 | `@volatile` members | 0 |
 | `this.$emit(…)` | 0 |
@@ -135,14 +143,27 @@ Two of these deserve extra weight in the design:
 
 ## 4. How the corpus is used
 
-Not as a benchmark — as a correctness gate. Three checks, run in CI from Phase 2 onward:
+Not as a benchmark — as a correctness gate, implemented in
+`extensions/fast-element-ultra/test/corpus.test.ts`,
+`test/parser-differential.test.ts` and `test/features.test.ts`, run with the
+extension's suite. Three checks:
 
-1. **Discovery**: all 5 elements found, with their `@observable` members, from all three files.
+1. **Discovery**: all 3 elements found, with their `@observable` members, from all three files.
 2. **Zero false positives**: the full rule set over all 26 templates produces no diagnostic. Any
    diagnostic here is either a real bug in our extensions (fix the extension, record it) or a bug in
    a rule (fix the rule). Both outcomes are useful; silence is the expected one.
 3. **Round-trip**: renaming a member updates every `:prop` binding and every `${ref('…')}` that names
-   it, and the file still typechecks.
+   it, and the file still typechecks. (The corpus itself has no `:prop` binding whose member is
+   renameable-by-declaration — its one live case is `${ref('findInput')}`, which the gate renames
+   from both directions; the `:prop` half is pinned by fixtures in `test/features.test.ts`.)
+
+One correction the gate forced on a rule rather than the corpus:
+`no-non-reactive-binding` as first specified would have fired on
+`title="… ${shortcut('Ctrl+F', '⌘F')}"` — a deliberate one-time interpolation
+of a computed constant, six times in csv-ultra alone. The rule now fires only
+on identifier/property-access reads; see
+[design/rules.md](../design/rules.md#no-non-reactive-binding) and
+[decisions/README.md](../decisions/README.md#open-questions--all-closed) question 4.
 
 The corpus is small — 961 lines of template. It is *not* a substitute for a scale test; see
 [spikes.md](spikes.md) for what has to be measured on something larger, and note that no such

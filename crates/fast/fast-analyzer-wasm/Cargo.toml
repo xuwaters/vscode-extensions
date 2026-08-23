@@ -1,0 +1,36 @@
+[package]
+name = "fast-analyzer-wasm"
+version = "0.1.0"
+edition = { workspace = true }
+description = "wasm-bindgen surface for the FAST template analyzer — the only crate in the stack that knows WASM exists. Every entry point contains panics; a poisoned engine degrades to TypeScript, unmodified."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+fast-analyzer-core = { path = "../fast-analyzer-core" }
+wasm-bindgen = "0.2"
+serde_json = "1"
+console_error_panic_hook = "0.1"
+
+[package.metadata.wasm-pack.profile.release]
+# The engine is a parser, tables and rules — small enough that wasm-opt's -Os
+# pass is cheap. The `--enable-*` flags are required: current rustc emits
+# bulk-memory, sign-extension and non-trapping float-to-int instructions for
+# wasm32-unknown-unknown by default, and wasm-opt refuses to validate a module
+# using features it has not been told about.
+wasm-opt = [
+  "-Os",
+  "--strip-debug",
+  "--enable-bulk-memory",
+  "--enable-bulk-memory-opt",
+  "--enable-nontrapping-float-to-int",
+  "--enable-sign-ext",
+  "--enable-mutable-globals",
+  "--enable-reference-types",
+  "--enable-multivalue",
+]

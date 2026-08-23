@@ -1,0 +1,19 @@
+[package]
+name = "fast-analyzer-core"
+version = "0.1.0"
+edition = { workspace = true }
+description = "The FAST template analysis engine: component registry, document store, rule engine, and every position-based IDE query. A pure function of what it is told — no I/O, no host callbacks, no WASM."
+license = "MIT"
+
+[lints]
+workspace = true
+
+[dependencies]
+fast-template-syntax = { path = "../fast-template-syntax" }
+fast-html-data = { path = "../fast-html-data" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+strsim = "0.11"
+
+[dev-dependencies]
+pretty_assertions = "1"

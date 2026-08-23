@@ -800,6 +800,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast-analyzer-core"
+version = "0.1.0"
+dependencies = [
+ "fast-html-data",
+ "fast-template-syntax",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "strsim",
+]
+
+[[package]]
+name = "fast-analyzer-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "fast-analyzer-core",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "fast-html-data"
+version = "0.1.0"
+dependencies = [
+ "phf",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "fast-template-syntax"
+version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

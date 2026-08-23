@@ -1,6 +1,13 @@
 # The component model
 
-**Status**: design, nothing built.
+**Status**: living — implemented in `tsplugin/extract.ts`, exercised by
+`test/discovery.test.ts` (every row of §5's table, including the ❌ rows) and
+the corpus gate. Two facts pinned from source while implementing: the default
+attribute name is the property name **lowercased** (fast-element
+`AttributeDefinition`: `attribute = name.toLowerCase()`), and `{ template }`
+shorthand properties resolve through
+`checker.getShorthandAssignmentValueSymbol` — plain `getSymbolAtLocation`
+returns the property symbol and silently breaks the template link.
 
 How a FAST element is discovered, what is known about it, and where each fact comes from. This is
 the part [proposal.md §1.2](../proposal.md#12-the-bolt-on-does-not-fit) argues is the weakest point
@@ -94,6 +101,11 @@ registered from the type, with no declaration and therefore no go-to-definition.
 better than none, and the `origin` field records which it is.
 
 This is the single largest gap against fast-analyzer, which reads exactly one class body.
+As implemented, the chain walk follows explicit class declarations (capped at
+16 levels) and stops at fast-element; a mixin whose base the checker cannot
+hand back as a class declaration contributes nothing — the accepted half-fact
+is narrower than designed, and `origin: 'inherited'` marks what came from
+above.
 
 ### 3.2 Types
 

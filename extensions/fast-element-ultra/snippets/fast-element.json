@@ -1,0 +1,51 @@
+{
+  "FAST component": {
+    "prefix": "fast-component",
+    "description": "A FAST Element component: class, typed template, styles and registration.",
+    "body": [
+      "import { FASTElement, customElement, observable, css, html } from '@microsoft/fast-element';",
+      "",
+      "export const ${1/(.*)/${1:/upcase}/}_TAG = '${1:my-element}';",
+      "",
+      "const styles = css`",
+      "  :host {",
+      "    display: block;",
+      "  }",
+      "`;",
+      "",
+      "const template = html<${2:MyElement}>`",
+      "  <div>\\${(x) => x.${3:value}}</div>",
+      "`;",
+      "",
+      "@customElement({ name: ${1/(.*)/${1:/upcase}/}_TAG, template, styles })",
+      "export class ${2:MyElement} extends FASTElement {",
+      "  @observable ${3:value} = '';$0",
+      "}"
+    ]
+  },
+  "FAST when": {
+    "prefix": "fast-when",
+    "description": "Render a template while a condition holds.",
+    "body": ["\\${when((x) => ${1:x.condition}, html`$2`)}$0"]
+  },
+  "FAST repeat": {
+    "prefix": "fast-repeat",
+    "description": "Render a template per item; the item becomes the inner template's source type.",
+    "body": ["\\${repeat((x) => ${1:x.items}, html<${2:Item}, ${3:Parent}>`$4`)}$0"]
+  },
+  "FAST ref": {
+    "prefix": "fast-ref",
+    "description": "Capture the element into a property of the component.",
+    "body": ["\\${ref('${1:element}')}$0"]
+  },
+  "FAST attr member": {
+    "prefix": "fast-attr",
+    "description": "An @attr member: attribute + reactive property.",
+    "body": ["@attr${1:({ mode: '${2|reflect,boolean,fromView|}' })} ${3:name} = ${4:''};$0"]
+  },
+  "FAST observable member": {
+    "prefix": "fast-observable",
+    "description": "An @observable member: reactive property, no attribute.",
+    "body": ["@observable ${1:name} = ${2:''};$0"]
+  }
+}

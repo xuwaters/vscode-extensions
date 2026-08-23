@@ -1,6 +1,17 @@
 # IDE features
 
-**Status**: design, nothing built.
+**Status**: living — implemented; `test/features.test.ts` drives each through
+the decorated language service against fixtures and the real corpus. Two
+notes against the original design: **`ref('…')` completion is computed by the
+plugin**, not the engine — the string lives inside a placeholder, where the
+engine sees only the substitution, and the member list already travels with
+the document (`sourceMembers`); the engine's `documentInfoAt` routes the
+position. And **references/rename walk the engine's parsed documents on
+demand** rather than maintaining a separate occurrence index — the documents
+are already parsed and kilobytes each, so the walk is microseconds; what the
+design's "indexed, not re-scanned" was actually rejecting (re-walking every
+tsserver project's source files per query) stays rejected, because the walk
+never touches tsserver.
 
 Per-feature contract: what it does, where it is computed, and what it does beyond
 [fast-analyzer's version](../research/parity.md#2-ide-features). Settings are in §13.
@@ -154,6 +165,14 @@ only looks inside literal parts — ~40 lines of duplication, and correct.
 ## 12. Workspace analysis
 
 `fastElementUltra.analyze` command · extension host + plugin
+
+**As implemented**: the plugin registers a custom tsserver protocol handler
+(`_fast-element-ultra:analyze`) via `session.addProtocolHandler`; the
+extension reaches it with the `typescript.tsserverRequest` command and feeds
+the results into a `DiagnosticCollection` behind a progress notification. The
+analysis genuinely runs in-process against the program tsserver already has.
+A second handler (`_fast-element-ultra:status`) feeds the status item: on /
+disabled / poisoned / TS version out of range.
 
 Analyse every FAST template in the workspace and report into a `DiagnosticCollection` with a progress
 notification.

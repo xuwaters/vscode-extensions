@@ -1,6 +1,9 @@
 # Architecture
 
-**Status**: design, nothing built. Becomes a living document once Phase 1 lands.
+**Status**: living — implemented. Deviations from the original design are
+marked inline; the two that matter are containment
+([0011](../decisions/0011-containment-is-the-plugins-try-catch.md)) and the
+expression metadata that travels with each virtual document (§3.1).
 
 How the three layers fit together, what crosses each boundary, and in what coordinate space.
 
@@ -37,17 +40,26 @@ right granularity is [open question 5](../decisions/README.md#open-questions).
 ### 1.1 Failure containment
 
 A Rust panic inside tsserver is a much worse event than a Rust panic inside an extension: it takes
-TypeScript's own features with it. Three layers guard against it:
+TypeScript's own features with it. Three layers guard against it — **corrected
+by [0011](../decisions/0011-containment-is-the-plugins-try-catch.md)** after
+testing the real artifact showed `catch_unwind` catches nothing under
+`panic = "abort"` on wasm32:
 
-1. Every `#[wasm_bindgen]` entry point wraps its body in `catch_unwind` and returns a null result on
-   panic, with the panic message attached.
-2. The plugin counts panics per instance. On the second, the instance is marked poisoned and dropped.
-3. `decorateLanguageService` already falls through to the undecorated method when a decorated one
-   throws — fast-analyzer's `wrapTryCatch` does exactly this and it is worth keeping. A poisoned
+1. **The plugin wraps every engine call in try/catch** (`SafeEngine.guard`) —
+   a panic surfaces as a JS `RuntimeError` out of the glue, and this is the
+   layer that catches it. Recoverable engine errors (bad JSON, unknown
+   document) never throw at all: the Rust adapter converts them to a null
+   result plus `lastError()`.
+2. The plugin counts throws per engine. On the second, the engine is marked poisoned and dropped —
+   a trapped instance's memory is not trustworthy.
+3. `decorateLanguageService` falls through to the undecorated method when a decorated one
+   throws — fast-analyzer's `wrapTryCatch` shape, kept. A poisoned
    engine therefore degrades to "TypeScript, unmodified", not to a broken editor.
 
 This is [0006](../decisions/0006-wasm-inside-tsserver.md)'s side of the bargain: the WASM gets to
-live in the hot process only because it cannot take the process down.
+live in the hot process only because it cannot take the process down. The
+whole chain is tested against the built artifact by deliberately panicking it
+(`debugPanic`, `test/smoke.test.ts`).
 
 ## 2. Data flow for one diagnostic pass
 
@@ -114,23 +126,42 @@ Nested templates (`when(…, html`…`)`) are separate virtual documents, each w
 
 ```ts
 interface VirtualDocument {
-  id: string;              // fileName + templateStart, stable across edits that do not move it
+  id: string;              // fileName + '#' + templateStart
   fileName: string;
   templateStart: number;   // source-file offset of the first character after the backtick
-  text: string;            // substituted text, length-preserved
+  kind: 'html' | 'css';
+  text: string;            // substituted text, length-preserved, UTF-16 offsets
   placeholders: Array<{
-    index: number;         // the base-36 index written into the text
-    start: number;         // offset within `text`
-    length: number;
+    index: number;
+    start: number;         // covers `${` through `}` within `text`
+    end: number;
+    expr?: ExprInfo;       // see below — compiler knowledge, computed once
   }>;
-  sourceTypeId: number | null;   // interned id of TSource; null when the template is untyped
-  parentTypeId: number | null;   // TParent
+  sourceTypeId: number | null;   // interned id of TSource
+  parentTypeId: number | null;
+  sourceTypeName: string | null;
+  sourceMembers: SourceMember[] | null;  // TSource's properties: names, types, decl spans
+  componentTag: string | null;   // when registration and template share a file
+  typeArgInsertOffset: number | null;    // where the no-untyped-template fix inserts <T>
 }
 ```
 
+**A design addition that implementation forced**: each placeholder carries an
+`ExprInfo` — the expression's syntactic kind, whether its type has call
+signatures, whether it is a constant, whether it is a FAST directive (and
+which, with the string argument's span), whether it is `html.partial`. This
+is compiler knowledge computed once at upsert, in the same crossing — it is
+what lets `no-non-reactive-binding` and the directive rules run in Rust
+without callbacks, and it preserves the one-crossing property. Likewise
+`sourceMembers`: the source type's member list travels with the document, so
+`ref('…')` checking and completion never ask the host anything.
+
 Type identity crosses the boundary as an **interned id**, never as a structure. Rust compares ids
 for equality and hands them back when it needs a question answered; it never inspects a type. The
-intern table lives in the plugin and is cleared with the program.
+intern table lives in the plugin. One offset subtlety the design missed:
+JavaScript speaks UTF-16 and the parser speaks UTF-8 bytes, so the engine
+converts at its edge (`documents.rs`, `OffsetMap`) and every offset in the
+protocol is UTF-16 — the plugin never converts anything.
 
 ## 4. The boundary protocol
 
@@ -171,6 +202,17 @@ engine.colors(documentId): ColorInformation[]
 
 Every offset in, and every span out, is in the virtual document's coordinate space, so the plugin's
 only translation is `+ templateStart`.
+
+Implemented queries beyond the list above: `memberReferences` /
+`tagReferences` / `memberRenameLocations` / `tagRenameLocations` (the
+declaration-side entry points), `documentInfoAt` (position routing for the
+plugin's own features — `ref('…')` completion lives inside a placeholder, so
+the plugin computes it from `sourceMembers`), `severities` (the resolved
+table, so it exists exactly once, in Rust), `fileDiagnostics`
+(registry-level rules: duplicate and invalid tag names, reported at
+registrations), and `parseTree` (the differential harness's window). The
+engine exposes no `colors` — colour decorators are wholly the extension
+host's (§6).
 
 ### 4.3 Rust → TS: binding facts
 

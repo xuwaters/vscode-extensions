@@ -1,0 +1,12 @@
+# fast-element-ultra ships a TypeScript server plugin, and tsserver resolves
+# plugins only from <extension>/node_modules/<name> — so that one directory
+# must survive packaging (RFC 011, gate 1 / task P1-09). vsce's default
+# ignore drops node_modules; the negation below re-includes exactly ours.
+!node_modules/wx-fast-element-tsplugin/**
+# The plugin's sources and its pre-assembly bundle; the assembled copy in
+# node_modules/ is what ships (injected post-package — see
+# scripts/inject-tsplugin.mjs).
+tsplugin/
+dist/tsplugin/
+.vscodeignore-extra
+**/*.vsix

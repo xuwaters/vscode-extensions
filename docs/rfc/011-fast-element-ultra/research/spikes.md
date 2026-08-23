@@ -1,6 +1,8 @@
 # What has to be measured, and in what order
 
-**Status**: nothing measured yet, 2026-08-22.
+**Status**: gates closed and budgets measured 2026-08-23 — results in
+[measurements.md](measurements.md). This page keeps the original method for
+the record; per-item outcomes are marked inline.
 
 This page exists because [proposal.md](../proposal.md) makes exactly one performance argument — that
 template analysis is a per-keystroke workload under enough time pressure that lit-analyzer ships a
@@ -15,6 +17,15 @@ establish, not risks to retire.
 ## Gate 1 — Can the plugin be packaged at all?
 
 **Task**: [P1-09](../tasks/phase-1-foundation.md) · **Blocks**: everything
+
+> **Outcome (2026-08-23): PASSED, via fallback 3.** Fallback 1 is structurally
+> impossible — vsce's collector globs with `ignore: 'node_modules/**'` before
+> `.vscodeignore` is read. `scripts/inject-tsplugin.mjs` rewrites the VSIX
+> after packaging; `scripts/verify-vsix.mjs` extracts the result and resolves
+> the plugin exactly as tsserver's probe does, loads the factory against the
+> real TypeScript, and runs the engine. The clean-VS Code TS-Server-log
+> confirmation remains a manual desktop step. Details:
+> [decisions/README.md](../decisions/README.md#open-questions--all-closed), question 1.
 
 tsserver resolves plugins from `<probeLocation>/node_modules/<pluginName>`, and VS Code passes the
 extension's install directory as a probe location. So the VSIX must contain
@@ -41,6 +52,14 @@ delivery model is re-decided in [0001](../decisions/0001-tsserver-plugin-not-lsp
 
 **Task**: [P1-05](../tasks/phase-1-foundation.md) · **Blocks**: Phase 2
 
+> **Outcome (2026-08-23): PASSED.** `test/parser-differential.test.ts`: 25
+> fixture cases plus every corpus template match parse5's tree; the deliberate
+> divergences (unclosed stays unclosed, self-close flagged, no synthesized
+> `tbody`, placeholders first-class) are asserted as our behaviour rather than
+> allowed silently. [0003](../decisions/0003-own-template-parser.md) stands;
+> `swc_html_parser` was not needed. One caveat: lit-analyzer's own parser
+> fixtures were not replayed — `temp/fast-analyzer` is not in this checkout.
+
 [0003](../decisions/0003-own-template-parser.md) chooses to write a tolerant HTML parser rather than
 bind an existing one, on the grounds that we need spans parse5 does not expose and tolerance
 `html5ever` does not offer. That is a claim about a large, fiddly specification.
@@ -65,6 +84,11 @@ a superseding ADR.
 
 **Task**: [P5-04](../tasks/phase-5-polish.md)
 
+> **Measured**: warm 0.73 ms, cold 383 ms including building the whole
+> program from nothing (which tsserver never re-pays). No bail-out was
+> implemented and none is needed. The fast-analyzer side-by-side is still
+> open (`temp/` absent). [measurements.md](measurements.md).
+
 What to measure, per file, with `logging: verbose` and the plugin's own timing wrapper:
 
 | | Why |
@@ -87,6 +111,11 @@ warm pass fast enough to run per keystroke without the analyzer needing one.
 
 **Task**: [P5-04](../tasks/phase-5-polish.md)
 
+> **Measured**: 588 KB raw / 213 KB gzipped; 1.7 ms fresh-process compile;
+> no RSS growth over 1,000 edit cycles at 0.059 ms per cycle. Instance model
+> resolved: one instance per process, one registry per project.
+> [measurements.md](measurements.md).
+
 The engine lives inside tsserver, a process the user did not choose to spend memory on. Measure:
 
 - Artifact size, raw and gzipped.
@@ -99,6 +128,11 @@ The engine lives inside tsserver, a process the user did not choose to spend mem
 ## Budget 3 — Type-oracle round trip
 
 **Task**: [P3-09](../tasks/phase-3-diagnostics.md)
+
+> **Measured**: 32 facts / 13 documents (csv-ultra), 60 / 11 (pdf-ultra) —
+> the batch is smaller than the binding count, one crossing per document each
+> way, and answering it is inside the 0.73 ms warm pass.
+> [measurements.md](measurements.md).
 
 [0002](../decisions/0002-rust-engine-typescript-oracle.md) claims one boundary crossing per file is
 enough, by batching binding facts. Measure the batch size on real files and the cost of answering

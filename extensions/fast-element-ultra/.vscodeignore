@@ -1,0 +1,48 @@
+# Shared by every extension in this repo.
+# Edit this template and run `pnpm sync-vscodeignore` — do not edit the copies.
+
+# Sources: only the bundle in dist/ ships.
+src/
+test/
+webview/
+examples/
+# Language-server sources, for extensions that run one in a child process
+# (typst-ultra). The bundle lands in dist/server.js like every other entry.
+server/
+**/*.test.ts
+# Build-time scripts and the tables they read — for extensions that generate
+# part of what they ship, such as typst-ultra's embedded-language grammar. The
+# generated file ships; what expands into it does not.
+scripts/
+
+# Build configuration.
+tsconfig.json
+tsconfig.tsbuildinfo
+tsdown.config.mts
+vitest.config.mts
+
+# Build leftovers.
+target/
+temp
+**/*.js.map
+**/*.ts.map
+**/*.d.ts
+
+# Repo bookkeeping. README.md and LICENSE.md ship; developer docs do not.
+.gitignore
+wasm/.gitignore
+CONTRIBUTING.md
+
+# --- from .vscodeignore-extra (synced; edit that file) ---
+# fast-element-ultra ships a TypeScript server plugin, and tsserver resolves
+# plugins only from <extension>/node_modules/<name> — so that one directory
+# must survive packaging (RFC 011, gate 1 / task P1-09). vsce's default
+# ignore drops node_modules; the negation below re-includes exactly ours.
+!node_modules/wx-fast-element-tsplugin/**
+# The plugin's sources and its pre-assembly bundle; the assembled copy in
+# node_modules/ is what ships (injected post-package — see
+# scripts/inject-tsplugin.mjs).
+tsplugin/
+dist/tsplugin/
+.vscodeignore-extra
+**/*.vsix
