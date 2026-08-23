@@ -18,7 +18,7 @@ const config: UserConfig = [
   // `typescript` module to the factory — the bundle must never carry one.
   // vscode-css-languageservice and the textdocument shim are bundled; the
   // WASM glue is loaded at runtime relative to the assembled plugin
-  // directory (scripts/assemble-tsplugin.mjs).
+  // directory (`node scripts/main.mjs assemble-tsplugin`).
   {
     entry: { index: 'tsplugin/index.ts' },
     format: 'cjs',

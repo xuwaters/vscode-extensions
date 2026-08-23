@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { UsageError, formatCommandHelp, formatOverviewHelp, parseCommandArgs, run } from '../lib/cli.mjs';
 import { makeRepo, makeWriter } from './helpers.mjs';
 
-/** @type {import('../lib/cli.mjs').Command} */
+/** @type {import('../lib/cli.mjs').Command<{ repo: import('../lib/repo.mjs').Repo }>} */
 const echo = {
   name: 'echo',
   summary: 'Echo the flags it was given',
@@ -28,7 +28,7 @@ async function invoke(argv) {
     binName: 'repo',
     commands: [echo],
     argv,
-    repo: makeRepo({ a: {} }),
+    context: { repo: makeRepo({ a: {} }) },
     write: writer.write,
   });
   return { code, out: writer.text() };

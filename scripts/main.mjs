@@ -7,7 +7,7 @@ import { createRepo } from './lib/repo.mjs';
 import { bumpCommand } from './commands/bump.mjs';
 import { syncVscodeignoreCommand } from './commands/sync-vscodeignore.mjs';
 
-/** @type {import('./lib/cli.mjs').Command[]} */
+/** @type {import('./lib/cli.mjs').Command<{ repo: import('./lib/repo.mjs').Repo }>[]} */
 export const COMMANDS = [bumpCommand, syncVscodeignoreCommand];
 
 try {
@@ -15,7 +15,7 @@ try {
     binName: 'repo',
     commands: COMMANDS,
     argv: process.argv.slice(2),
-    repo: createRepo(),
+    context: { repo: createRepo() },
   });
 } catch (error) {
   if (error instanceof UsageError) {

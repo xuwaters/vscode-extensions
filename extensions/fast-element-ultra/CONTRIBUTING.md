@@ -51,22 +51,24 @@ tsserver resolves a plugin only from a probe location's
 directory. So the plugin has to be a real package directory inside the
 extension, both in the working tree (for F5 sessions) and in the VSIX:
 
-- [scripts/assemble-tsplugin.mjs](scripts/assemble-tsplugin.mjs) builds
-  `node_modules/wx-fast-element-tsplugin/` from the bundle and the WASM
-  artifact, plus a two-line `main.js` — tsserver expects `require(plugin)` to
-  *be* the factory, and the bundler emits it as a default export. `pnpm build`
-  runs it every time, because pnpm may prune that directory on install.
-- [scripts/inject-tsplugin.mjs](scripts/inject-tsplugin.mjs) puts that
-  directory back into the packaged VSIX. The `.vscodeignore` negation cannot do
-  it: vsce collects files with `ignore: 'node_modules/**'`, so nothing under
-  `node_modules` is ever offered to the ignore rules. A VSIX is a zip; the
-  script rewrites it after packaging.
-- [scripts/verify-vsix.mjs](scripts/verify-vsix.mjs) (`pnpm verify:vsix`) is the
-  check on all of that: extract the VSIX to a clean directory, resolve the
-  plugin the way tsserver's probe does, call the factory with the real
-  TypeScript, run the engine. The other half — installing into a real VS Code
-  and reading `Enabling plugin wx-fast-element-tsplugin` in the TS Server log —
-  needs a desktop and stays a manual step.
+Three commands do it, all under [scripts/](scripts/README.md) and all reached
+through `node scripts/main.mjs <command>`:
+
+- `assemble-tsplugin` builds `node_modules/wx-fast-element-tsplugin/` from the
+  bundle and the WASM artifact, plus a two-line `main.js` — tsserver expects
+  `require(plugin)` to *be* the factory, and the bundler emits it as a default
+  export. `pnpm build` runs it every time, because pnpm may prune that
+  directory on install.
+- `inject-tsplugin` puts that directory back into the packaged VSIX. The
+  `.vscodeignore` negation cannot do it: vsce collects files with
+  `ignore: 'node_modules/**'`, so nothing under `node_modules` is ever offered
+  to the ignore rules. A VSIX is a zip; the command rewrites it after packaging.
+- `verify-vsix` (`pnpm verify:vsix`) is the check on all of that: extract the
+  VSIX to a clean directory, resolve the plugin the way tsserver's probe does,
+  call the factory with the real TypeScript, run the engine. The other half —
+  installing into a real VS Code and reading
+  `Enabling plugin wx-fast-element-tsplugin` in the TS Server log — needs a
+  desktop and stays a manual step.
 
 [.vscodeignore](.vscodeignore) is a copy of a shared template — edit
 `scripts/templates/.vscodeignore` at the repo root and run

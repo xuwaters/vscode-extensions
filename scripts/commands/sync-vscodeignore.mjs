@@ -22,7 +22,7 @@ export const TEMPLATE_PATH = join(
   '.vscodeignore',
 );
 
-/** @type {import('../lib/cli.mjs').Command} */
+/** @type {import('../lib/cli.mjs').Command<{ repo: import('../lib/repo.mjs').Repo }>} */
 export const syncVscodeignoreCommand = {
   name: 'sync-vscodeignore',
   summary: 'Copy the shared .vscodeignore template into every extension',

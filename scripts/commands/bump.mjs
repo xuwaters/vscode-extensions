@@ -9,7 +9,7 @@ import { bumpSemver, isSemver } from '../lib/semver.mjs';
 /** @type {import('../lib/semver.mjs').ReleaseType[]} */
 const RELEASES = ['major', 'minor', 'patch'];
 
-/** @type {import('../lib/cli.mjs').Command} */
+/** @type {import('../lib/cli.mjs').Command<{ repo: import('../lib/repo.mjs').Repo }>} */
 export const bumpCommand = {
   name: 'bump',
   summary: 'Bump the version in extensions/*/package.json',

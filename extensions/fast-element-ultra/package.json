@@ -473,15 +473,16 @@
     "build:wasm": "cd ../../crates/fast/fast-analyzer-wasm && wasm-pack build --target nodejs --out-dir ../../../extensions/fast-element-ultra/wasm --out-name fast_analyzer_wasm",
     "generate:htmldata": "node ../../crates/fast/fast-html-data/generator/generate.mjs",
     "licenses": "cd ../../crates/fast/fast-analyzer-wasm && cargo about generate about.hbs -o ../../../extensions/fast-element-ultra/THIRD-PARTY-NOTICES.md",
-    "build": "tsdown && node scripts/assemble-tsplugin.mjs",
+    "fast-element": "node scripts/main.mjs",
+    "build": "tsdown && node scripts/main.mjs assemble-tsplugin",
     "clean": "rm -rf dist wasm node_modules/wx-fast-element-tsplugin",
-    "typecheck": "tsc --noEmit && tsc -p test --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p test --noEmit && tsc -p scripts/jsconfig.json",
     "watch": "tsdown --watch",
-    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository && node scripts/inject-tsplugin.mjs",
-    "vscode:prepublish": "pnpm run build:wasm && tsdown --minify && node scripts/assemble-tsplugin.mjs",
+    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository && node scripts/main.mjs inject-tsplugin",
+    "vscode:prepublish": "pnpm run build:wasm && tsdown --minify && node scripts/main.mjs assemble-tsplugin",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify:vsix": "node scripts/verify-vsix.mjs"
+    "verify:vsix": "node scripts/main.mjs verify-vsix"
   },
   "dependencies": {
     "vscode-css-languageservice": "^6.3.7",

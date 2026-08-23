@@ -22,14 +22,21 @@ import { parseArgs } from 'node:util';
  */
 
 /**
- * @typedef {object} CommandContext
- * @property {ParsedValues} values Parsed flags.
- * @property {string[]} positionals Remaining arguments.
- * @property {import('./repo.mjs').Repo} repo
- * @property {(message: string) => void} write Normal output; injected so tests can capture it.
+ * What every command is handed. `Extra` is whatever the caller of `run` puts
+ * in `context` — a `Repo` for the monorepo commands, a `Layout` for an
+ * extension's packaging commands — so dispatch stays independent of what the
+ * commands happen to operate on.
+ *
+ * @template {object} [Extra={}]
+ * @typedef {{
+ *   values: ParsedValues,
+ *   positionals: string[],
+ *   write: (message: string) => void,
+ * } & Extra} CommandContext
  */
 
 /**
+ * @template {object} [Extra={}]
  * @typedef {object} Command
  * @property {string} name Sub-command as typed on the command line.
  * @property {string} summary One line, shown in the command list.
@@ -37,7 +44,7 @@ import { parseArgs } from 'node:util';
  * @property {string[]} [details] Paragraphs shown under the options.
  * @property {Record<string, OptionSpec>} [options]
  * @property {boolean} [allowPositionals]
- * @property {(ctx: CommandContext) => number | void | Promise<number | void>} run
+ * @property {(ctx: CommandContext<Extra>) => number | void | Promise<number | void>} run
  *   Returns a process exit code; `undefined` means success.
  */
 
@@ -95,7 +102,7 @@ function formatOptions(options) {
 
 /**
  * @param {string} binName
- * @param {Command[]} commands
+ * @param {Command<any>[]} commands
  * @returns {string}
  */
 export function formatOverviewHelp(binName, commands) {
@@ -112,7 +119,7 @@ export function formatOverviewHelp(binName, commands) {
 
 /**
  * @param {string} binName
- * @param {Command} command
+ * @param {Command<any>} command
  * @returns {string}
  */
 export function formatCommandHelp(binName, command) {
@@ -133,11 +140,12 @@ export function formatCommandHelp(binName, command) {
  * Parse `argv` for one command. Split out from `run` so tests can check flag
  * handling without executing anything.
  *
- * @param {Command} command
+ * @param {Command<any>} command
  * @param {string[]} argv
+ * @param {string} [binName] Name used in the help attached to a parse failure.
  * @returns {{ values: ParsedValues, positionals: string[] }}
  */
-export function parseCommandArgs(command, argv) {
+export function parseCommandArgs(command, argv, binName = 'repo') {
   try {
     return parseArgs({
       args: argv,
@@ -148,7 +156,7 @@ export function parseCommandArgs(command, argv) {
   } catch (error) {
     throw new UsageError(
       error instanceof Error ? error.message : String(error),
-      formatCommandHelp('repo', command),
+      formatCommandHelp(binName, command),
     );
   }
 }
@@ -156,15 +164,16 @@ export function parseCommandArgs(command, argv) {
 /**
  * Dispatch `argv` to one of `commands`.
  *
+ * @template {object} Extra
  * @param {object} options
  * @param {string} options.binName Name to print in usage lines.
- * @param {Command[]} options.commands
+ * @param {Command<Extra>[]} options.commands
  * @param {string[]} options.argv Arguments after the script name.
- * @param {import('./repo.mjs').Repo} options.repo
+ * @param {Extra} options.context Merged into every command's context.
  * @param {(message: string) => void} [options.write] Defaults to stdout.
  * @returns {Promise<number>} Process exit code.
  */
-export async function run({ binName, commands, argv, repo, write = (m) => console.log(m) }) {
+export async function run({ binName, commands, argv, context, write = (m) => console.log(m) }) {
   const [name, ...rest] = argv;
 
   if (name === undefined || name === '--help' || name === '-h' || name === 'help') {
@@ -180,11 +189,11 @@ export async function run({ binName, commands, argv, repo, write = (m) => consol
     );
   }
 
-  const { values, positionals } = parseCommandArgs(command, rest);
+  const { values, positionals } = parseCommandArgs(command, rest, binName);
   if (values.help) {
     write(formatCommandHelp(binName, command));
     return 0;
   }
 
-  return (await command.run({ values, positionals, repo, write })) ?? 0;
+  return (await command.run({ values, positionals, write, ...context })) ?? 0;
 }
