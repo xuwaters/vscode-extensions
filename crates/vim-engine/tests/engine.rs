@@ -463,6 +463,53 @@ fn percent_motion_and_d_percent() {
 }
 
 #[test]
+fn unmatched_bracket_motions() {
+    let mut s = at("fn f() {\n  if (a) {\n    x\n  }\n}\n", 2, 4);
+    // `]}` climbs out of the block the cursor is in, one press per level.
+    feed(&mut s, "]}");
+    assert_eq!(s.cursor(), Pos::new(3, 2));
+    feed(&mut s, "]}");
+    assert_eq!(s.cursor(), Pos::new(4, 0));
+    // `[{` climbs the other way, and takes a count.
+    let mut s = at("fn f() {\n  if (a) {\n    x\n  }\n}\n", 2, 4);
+    feed(&mut s, "[{");
+    assert_eq!(s.cursor(), Pos::new(1, 9));
+    feed(&mut s, "[{");
+    assert_eq!(s.cursor(), Pos::new(0, 7));
+    let mut s = at("fn f() {\n  if (a) {\n    x\n  }\n}\n", 2, 4);
+    feed(&mut s, "2[{");
+    assert_eq!(s.cursor(), Pos::new(0, 7));
+    // `[(` / `])` on the same line.
+    let mut s = at("fn f(a, g(b), c) x", 0, 11);
+    feed(&mut s, "[(");
+    assert_eq!(s.cursor(), Pos::new(0, 9));
+    feed(&mut s, "])");
+    assert_eq!(s.cursor(), Pos::new(0, 11));
+    // Nothing unmatched that way: the cursor stays put and the keys clear.
+    let fx = feed(&mut s, "[{");
+    assert_eq!(s.cursor(), Pos::new(0, 11));
+    assert_eq!(fx.pending, "");
+    // `]` with a bracket that doesn't face that way is not a motion.
+    feed(&mut s, "]{");
+    assert_eq!(s.cursor(), Pos::new(0, 11));
+}
+
+#[test]
+fn unmatched_bracket_with_operator_and_visual() {
+    // Exclusive, like vim: the brace itself survives the operator.
+    let mut s = at("{ a b }", 0, 3);
+    feed(&mut s, "d]}");
+    assert_eq!(s.text(), "{ a}");
+    let mut s = at("{ a b }", 0, 3);
+    feed(&mut s, "d[{");
+    assert_eq!(s.text(), " b }");
+    // Visual mode covers the char the cursor lands on, brace included.
+    let mut s = at("{ a b }", 0, 3);
+    feed(&mut s, "v]}d");
+    assert_eq!(s.text(), "{ a");
+}
+
+#[test]
 fn paragraph_motions() {
     let mut s = session("a\nb\n\nc\n\nd");
     feed(&mut s, "}");

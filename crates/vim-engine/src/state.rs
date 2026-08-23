@@ -157,6 +157,10 @@ enum Awaiting {
     Replace,
     G,
     Z,
+    /// `[` or `]`, waiting for the bracket that names the pair (`]}`, `[(`).
+    Bracket {
+        forward: bool,
+    },
     Object {
         around: bool,
     },
@@ -800,6 +804,9 @@ impl Session {
             Awaiting::Replace => return self.resolve_replace(key, edits),
             Awaiting::G => return self.resolve_g(key, edits, commands),
             Awaiting::Z => return self.resolve_z(key, commands),
+            Awaiting::Bracket { forward } => {
+                return self.resolve_bracket(forward, key, edits, commands);
+            }
             Awaiting::Object { around } => return self.resolve_object(around, key, edits, commands),
             Awaiting::Search { backward } => return self.resolve_search(backward, key, edits, commands),
             Awaiting::Ex => return self.resolve_ex(key, edits),
@@ -839,6 +846,10 @@ impl Session {
             Key::Char('z') if self.pending.op.is_none() && !visual => {
                 self.pending.awaiting = Awaiting::Z;
                 self.pending.keys.push('z');
+            }
+            Key::Char(c @ ('[' | ']')) => {
+                self.pending.awaiting = Awaiting::Bracket { forward: c == ']' };
+                self.pending.keys.push(c);
             }
             Key::Char(c @ ('i' | 'a')) if self.pending.op.is_some() || visual => {
                 self.pending.awaiting = Awaiting::Object { around: c == 'a' };
@@ -1597,6 +1608,39 @@ impl Session {
             _ => {}
         }
         self.clear_pending();
+    }
+
+    /// `[(` `[{` `])` `]}`: to the unmatched bracket that opens or closes the
+    /// block the cursor is in. The prefix picks the direction and the second
+    /// key must be the bracket facing that way — `[` takes an opener, `]` a
+    /// closer; anything else (`[}`, `]]`, a letter) drops the pending keys.
+    /// Exclusive, like Vim, so `d]}` stops short of the brace.
+    fn resolve_bracket(
+        &mut self,
+        forward: bool,
+        key: Key,
+        edits: &mut Vec<Edit>,
+        commands: &mut Vec<Command>,
+    ) {
+        let Key::Char(c) = key else {
+            return self.clear_pending();
+        };
+        let (open, close) = match c {
+            '(' | ')' => ('(', ')'),
+            '{' | '}' => ('{', '}'),
+            _ => return self.clear_pending(),
+        };
+        if forward != (c == close) {
+            return self.clear_pending();
+        }
+        let count = self.pending.count();
+        match motion::unmatched_bracket(&self.buf, self.cursor, open, close, forward, count) {
+            Some(target) => {
+                self.pending.awaiting = Awaiting::None;
+                self.do_motion(target, MotionKind::Exclusive, edits, commands);
+            }
+            None => self.clear_pending(),
+        }
     }
 
     fn resolve_object(

@@ -286,21 +286,180 @@ pub fn matching_pair(buf: &Buffer, pos: Pos) -> Option<Pos> {
     // Find the first bracket at or after the cursor's char on this line.
     let cols = chars_with_cols(buf.line(pos.line));
     let idx = cols.partition_point(|&(c, _)| c <= pos.col).saturating_sub(1);
-    let (col, ch) = cols[idx.min(cols.len())..]
-        .iter()
-        .copied()
-        .find(|&(_, ch)| is_bracket(ch))?;
+    let at = idx.min(cols.len())
+        + cols[idx.min(cols.len())..]
+            .iter()
+            .position(|&(_, ch)| is_bracket(ch))?;
+    let (col, ch) = cols[at];
     let start = Pos::new(pos.line, col);
-    if let Some(&(open, close)) = PAIRS.iter().find(|&&(o, _)| o == ch) {
-        scan_match(buf, start, open, close, true)
-    } else {
-        let &(open, close) = PAIRS.iter().find(|&&(_, c)| c == ch)?;
-        scan_match(buf, start, open, close, false)
-    }
+    // Vim takes the bracket it landed on as the pattern for the other end:
+    // a `\(` matches a `\)` and skips a bare one (search.c `match_escaped`).
+    let escaped = backslashes(&cols, at) % 2 == 1;
+    let forward = PAIRS.iter().any(|&(o, _)| o == ch);
+    let &(open, close) = PAIRS.iter().find(|&&(o, c)| ch == o || ch == c)?;
+    let (nested, wanted) = if forward { (open, close) } else { (close, open) };
+    find_unmatched(buf, start, nested, wanted, forward, true, escaped)
 }
 
 fn is_bracket(ch: char) -> bool {
     PAIRS.iter().any(|&(o, c)| ch == o || ch == c)
+}
+
+/// `[(` `[{` `])` `]}`: the `count`-th unmatched bracket in one direction —
+/// the edge of the block the cursor sits in, from anywhere inside it. Nested
+/// pairs passed on the way are skipped whole, and scanning starts *beside*
+/// the cursor, so a cursor already on a bracket looks past it and repeating
+/// the key walks out one level at a time.
+///
+/// A count that runs out of blocks stops at the outermost one it reached
+/// rather than failing, which is what Vim's `nv_bracket_block` does with the
+/// last position it found.
+pub fn unmatched_bracket(
+    buf: &Buffer,
+    pos: Pos,
+    open: char,
+    close: char,
+    forward: bool,
+    count: usize,
+) -> Option<Pos> {
+    // Travelling forward, an `(` opens a nested pair and a `)` may be the
+    // unmatched one; backward the roles swap.
+    let (nested, wanted) = if forward { (open, close) } else { (close, open) };
+    let mut found: Option<Pos> = None;
+    for _ in 0..count.max(1) {
+        let from = found.unwrap_or(pos);
+        match find_unmatched(buf, from, nested, wanted, forward, true, false) {
+            Some(next) => found = Some(next),
+            None => break,
+        }
+    }
+    found
+}
+
+/// Vim's bracket scan (search.c `findmatchlimit`): step one position at a
+/// time from `start` until an unmatched `wanted` bracket turns up — `nested`
+/// opens a level, `wanted` closes one. The position `start` itself is stepped
+/// off before anything is examined, so a scan that begins on a bracket never
+/// reports it.
+///
+/// `smart_quotes` is Vim's default `'cpoptions'` (no `%`): brackets inside a
+/// `"…"` string are ignored, but only on lines whose quotes pair up, and only
+/// from where the scan *enters* the line — a scan starting inside a string
+/// counts as outside it, which is Vim's own "complicated, isn't it?" rule.
+/// `'x'` character literals are stepped over the same way. Text objects turn
+/// this off, as Vim does by forcing `cpo` to `%` around them.
+///
+/// `escaped` says the scan started from a backslash-escaped bracket; only
+/// brackets escaped the same way then count.
+fn find_unmatched(
+    buf: &Buffer,
+    start: Pos,
+    nested: char,
+    wanted: char,
+    forward: bool,
+    smart_quotes: bool,
+    escaped: bool,
+) -> Option<Pos> {
+    let mut line = start.line;
+    let mut cols = chars_with_cols(buf.line(line));
+    // The char index of `start` in its line; `cols.len()` stands for the line
+    // break, a position Vim visits too (it is the line's NUL).
+    let mut idx = cols.partition_point(|&(c, _)| c < start.col);
+    let mut quotes_even = smart_quotes && quotes_pair_up(&cols);
+    let mut inquote = false;
+    let mut depth = 0usize;
+    loop {
+        if forward {
+            if idx >= cols.len() {
+                if line + 1 >= buf.line_count() {
+                    return None;
+                }
+                line += 1;
+                cols = chars_with_cols(buf.line(line));
+                quotes_even = smart_quotes && quotes_pair_up(&cols);
+                idx = 0;
+            } else {
+                idx += 1;
+            }
+        } else if idx == 0 {
+            if line == 0 {
+                return None;
+            }
+            line -= 1;
+            cols = chars_with_cols(buf.line(line));
+            quotes_even = smart_quotes && quotes_pair_up(&cols);
+            idx = cols.len();
+        } else {
+            idx -= 1;
+        }
+        let Some(&(col, ch)) = cols.get(idx) else {
+            inquote = false; // the line break ends any string
+            continue;
+        };
+        if ch == '"' {
+            if quotes_even && backslashes(&cols, idx).is_multiple_of(2) {
+                inquote = !inquote;
+            }
+            continue;
+        }
+        if ch == '\'' && smart_quotes {
+            // Step over `'x'` and `'\x'`, which never hold a real bracket.
+            if forward {
+                if idx + 3 < cols.len() && cols[idx + 1].1 == '\\' && cols[idx + 3].1 == '\'' {
+                    idx += 3;
+                } else if idx + 2 < cols.len() && cols[idx + 2].1 == '\'' {
+                    idx += 2;
+                }
+            } else if idx >= 2 && cols[idx - 2].1 == '\'' {
+                idx -= 2;
+            } else if idx >= 3 && cols[idx - 2].1 == '\\' && cols[idx - 3].1 == '\'' {
+                idx -= 3;
+            }
+            continue;
+        }
+        if inquote || (ch != nested && ch != wanted) {
+            continue;
+        }
+        if (backslashes(&cols, idx) % 2 == 1) != escaped {
+            continue;
+        }
+        if ch == nested {
+            depth += 1;
+        } else {
+            match depth.checked_sub(1) {
+                Some(d) => depth = d,
+                None => return Some(Pos::new(line, col)),
+            }
+        }
+    }
+}
+
+/// Backslashes immediately before `idx`, which decide whether the char there
+/// is escaped.
+fn backslashes(cols: &[(usize, char)], idx: usize) -> usize {
+    cols[..idx].iter().rev().take_while(|&&(_, ch)| ch == '\\').count()
+}
+
+/// Whether a line's double quotes pair up. Vim only trusts its in-string
+/// bookkeeping on such lines; on the rest it matches brackets everywhere.
+/// A `"` inside a `'"'` literal is not a string delimiter and doesn't count.
+fn quotes_pair_up(cols: &[(usize, char)]) -> bool {
+    let mut quotes = 0usize;
+    let mut i = 0;
+    while i < cols.len() {
+        let ch = cols[i].1;
+        let char_literal = i > 0
+            && cols[i - 1].1 == '\''
+            && cols.get(i + 1).is_some_and(|&(_, c)| c == '\'');
+        if ch == '"' && !char_literal {
+            quotes += 1;
+        }
+        if ch == '\\' && i + 1 < cols.len() {
+            i += 1;
+        }
+        i += 1;
+    }
+    quotes.is_multiple_of(2)
 }
 
 pub(crate) fn scan_match(buf: &Buffer, start: Pos, open: char, close: char, forward: bool) -> Option<Pos> {
@@ -398,6 +557,82 @@ mod tests {
         assert_eq!(matching_pair(&b, Pos::new(1, 0)), Some(Pos::new(3, 0)));
         // Cursor before any bracket jumps from the first one after it.
         assert_eq!(matching_pair(&b, Pos::new(0, 0)), Some(Pos::new(0, 13)));
+    }
+
+    #[test]
+    fn unmatched_brackets() {
+        //          0123456789
+        let b = buf("fn f() {\n  if (a) {\n    x\n  }\n}\n");
+        let inside = Pos::new(2, 4); // on `x`
+        // `]}` climbs out one block per press; `[{` climbs the other way.
+        assert_eq!(
+            unmatched_bracket(&b, inside, '{', '}', true, 1),
+            Some(Pos::new(3, 2))
+        );
+        assert_eq!(
+            unmatched_bracket(&b, inside, '{', '}', true, 2),
+            Some(Pos::new(4, 0))
+        );
+        assert_eq!(
+            unmatched_bracket(&b, inside, '{', '}', false, 1),
+            Some(Pos::new(1, 9))
+        );
+        assert_eq!(
+            unmatched_bracket(&b, inside, '{', '}', false, 2),
+            Some(Pos::new(0, 7))
+        );
+        // A cursor already on a brace looks past it, so the key repeats.
+        assert_eq!(
+            unmatched_bracket(&b, Pos::new(3, 2), '{', '}', true, 1),
+            Some(Pos::new(4, 0))
+        );
+        // Nested pairs on the way are stepped over, not counted.
+        let flat = buf("a (b (c) d) e)");
+        assert_eq!(
+            unmatched_bracket(&flat, Pos::new(0, 6), '(', ')', true, 1),
+            Some(Pos::new(0, 7))
+        );
+        assert_eq!(
+            unmatched_bracket(&flat, Pos::new(0, 3), '(', ')', true, 1),
+            Some(Pos::new(0, 10))
+        );
+        assert_eq!(
+            unmatched_bracket(&flat, Pos::new(0, 12), '(', ')', true, 1),
+            Some(Pos::new(0, 13))
+        );
+        // Nothing unmatched that way: the motion fails.
+        assert_eq!(unmatched_bracket(&flat, Pos::new(0, 0), '(', ')', false, 1), None);
+        assert_eq!(unmatched_bracket(&flat, Pos::new(0, 13), '(', ')', true, 1), None);
+        // A count with nowhere left to climb stops at the outermost block
+        // reached, as vim's nv_bracket_block does with its last position.
+        assert_eq!(
+            unmatched_bracket(&b, inside, '{', '}', true, 9),
+            Some(Pos::new(4, 0))
+        );
+    }
+
+    #[test]
+    fn brackets_in_strings_are_skipped() {
+        //          0123456789012345678901
+        let b = buf("{ printf(\"}\"); x }");
+        // The `}` inside the quotes is not the block's end (vim's smart
+        // matching), so `%` and `]}` both look past it.
+        assert_eq!(matching_pair(&b, Pos::new(0, 0)), Some(Pos::new(0, 17)));
+        assert_eq!(
+            unmatched_bracket(&b, Pos::new(0, 15), '{', '}', true, 1),
+            Some(Pos::new(0, 17))
+        );
+        // Odd quotes on the line: vim can't tell which half is a string and
+        // matches everywhere.
+        let odd = buf("{ \" } }");
+        assert_eq!(matching_pair(&odd, Pos::new(0, 0)), Some(Pos::new(0, 4)));
+        // A char literal is stepped over whole.
+        let lit = buf("{ c == '}' ; }");
+        assert_eq!(matching_pair(&lit, Pos::new(0, 0)), Some(Pos::new(0, 13)));
+        // Escaped brackets only match brackets escaped the same way.
+        let esc = buf(r"a \( b ( c ) d \) e");
+        assert_eq!(matching_pair(&esc, Pos::new(0, 3)), Some(Pos::new(0, 16)));
+        assert_eq!(matching_pair(&esc, Pos::new(0, 7)), Some(Pos::new(0, 11)));
     }
 
     #[test]

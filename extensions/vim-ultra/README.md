@@ -10,7 +10,11 @@ commands), and mirrors external document changes back into the engine.
 - **Modes**: normal, insert, visual, visual line. Status bar shows the mode
   and pending keys; the cursor is a block outside insert mode.
 - **Motions**: `h j k l`, `0 ^ $`, `w W b B e E`, `gg G`, `{ }`, `%`,
-  `f F t T` with `;`/`,`, `enter + -`, all with counts (`3w`, `2f,`).
+  `[{ [( ]} ])` to the brace or paren that opens or closes the block the
+  cursor is in, `f F t T` with `;`/`,`, `enter + -`, all with counts (`3w`,
+  `2f,`, `2]}` for two blocks out). Bracket matching follows vim's: a brace
+  inside a `"…"` string, a `'}'` literal or an escaped `\}` is not the
+  block's edge.
 - **Search**: `/` and `?` (the pattern replaces the mode text in the status
   bar while you type it; `backspace` edits it, `escape` aborts, `enter` runs
   it), `n`/`N` to repeat, `*`/`#` for the word under the cursor. Searches
