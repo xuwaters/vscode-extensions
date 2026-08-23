@@ -52,6 +52,21 @@
         "embeddedLanguages": {
           "meta.embedded.block.html": "html",
           "meta.embedded.block.css": "css",
+          "meta.embedded.line.ts": "typescript",
+          "source.ts": "typescript"
+        }
+      },
+      {
+        "injectTo": [
+          "source.ts",
+          "source.tsx",
+          "source.js",
+          "source.jsx"
+        ],
+        "scopeName": "inline.fast-element-embedded",
+        "path": "./syntaxes/fast-element-embedded.injection.json",
+        "embeddedLanguages": {
+          "meta.embedded.line.ts": "typescript",
           "source.ts": "typescript"
         }
       }
@@ -481,6 +496,8 @@
     "parse5": "^8.0.0",
     "tsdown": "catalog:build",
     "typescript": "catalog:build",
-    "vitest": "catalog:build"
+    "vitest": "catalog:build",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

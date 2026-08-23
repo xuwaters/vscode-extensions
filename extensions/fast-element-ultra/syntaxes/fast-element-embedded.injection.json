@@ -1,0 +1,52 @@
+{
+  "$comment": "Second half of the injection pair. `fast-element-html.injection.json` opens the template and hands its body to text.html.basic / source.css; from there the body is tokenized by rules those grammars pushed, and a pattern listed on our own begin/end rule is never consulted again — so ${…} inside a tag or a declaration block, and FAST's :/?/@ prefixed attributes, need an injection that fires at any depth. The selectors match only inside our own templates (string.template.fast-element.ts) and stop at ${…}, whose contents are already TypeScript. A binding rule has to swallow the whole attribute, value and all: text.html.basic does not recognise a :/?/@ name, so anything we leave behind lands on its `invalid.illegal.character-not-allowed-here` catch-all.",
+  "scopeName": "inline.fast-element-embedded",
+  "injectionSelector": "L:string.template.fast-element.ts meta.embedded.block.html -meta.embedded.line.ts, L:string.template.fast-element.ts meta.embedded.block.css -meta.embedded.line.ts",
+  "patterns": [
+    { "include": "#templateInterpolation" },
+    { "include": "#fastBindingQuoted" },
+    { "include": "#fastBindingUnquoted" }
+  ],
+  "repository": {
+    "templateInterpolation": {
+      "begin": "\\$\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.template-expression.begin.ts" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.template-expression.end.ts" }
+      },
+      "name": "meta.template.expression.ts",
+      "contentName": "meta.embedded.line.ts",
+      "patterns": [{ "include": "source.ts" }]
+    },
+    "fastBindingQuoted": {
+      "begin": "(?<=[\\s\"'])([:?@])([a-zA-Z][\\w.-]*)(\\s*=\\s*)([\"'])",
+      "beginCaptures": {
+        "1": { "name": "keyword.operator.binding.fast-element punctuation.definition.binding.fast-element" },
+        "2": { "name": "entity.other.attribute-name.binding.fast-element" },
+        "3": { "name": "punctuation.separator.key-value.html" },
+        "4": { "name": "punctuation.definition.string.begin.html" }
+      },
+      "end": "\\4",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.html" }
+      },
+      "name": "meta.attribute.binding.fast-element.html",
+      "contentName": "string.quoted.html",
+      "patterns": [{ "include": "#templateInterpolation" }]
+    },
+    "fastBindingUnquoted": {
+      "begin": "(?<=[\\s\"'])([:?@])([a-zA-Z][\\w.-]*)(\\s*=\\s*)(?=\\$\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.operator.binding.fast-element punctuation.definition.binding.fast-element" },
+        "2": { "name": "entity.other.attribute-name.binding.fast-element" },
+        "3": { "name": "punctuation.separator.key-value.html" }
+      },
+      "end": "(?=[\\s/>])",
+      "name": "meta.attribute.binding.fast-element.html",
+      "patterns": [{ "include": "#templateInterpolation" }]
+    }
+  }
+}

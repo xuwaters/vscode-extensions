@@ -1,5 +1,5 @@
 {
-  "$comment": "Injection grammar: HTML inside FAST's html`` templates and CSS inside css``, written for this extension (not vendored from vscode-lit-html — task P5-01 chose write-our-own to avoid carrying a fork of another grammar). FAST's binding prefixes (:, ?, @) are captured where the HTML grammar leaves room; interpolations re-enter TypeScript.",
+  "$comment": "Injection grammar: HTML inside FAST's html`` templates and CSS inside css``, written for this extension (not vendored from vscode-lit-html — task P5-01 chose write-our-own to avoid carrying a fork of another grammar). This half only opens the template and hands the body over; everything that has to keep working *inside* the body — ${…} and FAST's :/?/@ binding prefixes — lives in `fast-element-embedded.injection.json`, because this selector's `-string` switches the whole grammar off the moment the template's own `string.template.fast-element.ts` scope is on the stack.",
   "scopeName": "inline.fast-element-html",
   "injectionSelector": "L:source.ts -comment -string, L:source.tsx -comment -string, L:source.js -comment -string, L:source.jsx -comment -string",
   "patterns": [
@@ -21,11 +21,7 @@
       },
       "name": "string.template.fast-element.ts",
       "contentName": "meta.embedded.block.html",
-      "patterns": [
-        { "include": "#templateInterpolation" },
-        { "include": "#fastBindingAttribute" },
-        { "include": "text.html.basic" }
-      ]
+      "patterns": [{ "include": "text.html.basic" }]
     },
     "fastCssTemplate": {
       "begin": "(?x)(\\bcss)\\s*(`)",
@@ -39,30 +35,7 @@
       },
       "name": "string.template.fast-element.ts",
       "contentName": "meta.embedded.block.css",
-      "patterns": [
-        { "include": "#templateInterpolation" },
-        { "include": "source.css" }
-      ]
-    },
-    "templateInterpolation": {
-      "begin": "\\$\\{",
-      "beginCaptures": {
-        "0": { "name": "punctuation.definition.template-expression.begin.ts" }
-      },
-      "end": "\\}",
-      "endCaptures": {
-        "0": { "name": "punctuation.definition.template-expression.end.ts" }
-      },
-      "name": "meta.template.expression.ts",
-      "contentName": "meta.embedded.line.ts",
-      "patterns": [{ "include": "source.ts" }]
-    },
-    "fastBindingAttribute": {
-      "match": "(?<=[\\s\"'])([:?@])([a-zA-Z][\\w.-]*)(?=\\s*=)",
-      "captures": {
-        "1": { "name": "keyword.operator.binding.fast-element punctuation.definition.binding.fast-element" },
-        "2": { "name": "entity.other.attribute-name.binding.fast-element" }
-      }
+      "patterns": [{ "include": "source.css" }]
     }
   }
 }

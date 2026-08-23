@@ -1,0 +1,295 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { beforeAll, describe, expect, it } from 'vitest';
+import * as oniguruma from 'vscode-oniguruma';
+import * as textmate from 'vscode-textmate';
+
+/**
+ * The injection grammar, tokenized for real.
+ *
+ * The grammar only ever runs injected into VS Code's own TypeScript grammar,
+ * against the real `text.html.basic` and `source.css` — so that is what this
+ * suite runs it against. A JavaScript `RegExp` cannot stand in for Oniguruma,
+ * and a hand-written stub for `source.ts` cannot reproduce the thing that
+ * actually decides whether the injection fires: which of the two grammars wins
+ * at the character where a tagged template begins.
+ *
+ * Skipped where no VS Code install is found (CI's node job), the same
+ * arrangement as the WASM suites.
+ */
+
+const ROOT = path.join(__dirname, '..');
+
+const APP_EXTENSIONS = [
+  '/Applications/Visual Studio Code.app/Contents/Resources/app/extensions',
+  '/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/extensions',
+  '/Applications/Cursor.app/Contents/Resources/app/extensions',
+  '/usr/share/code/resources/app/extensions',
+].find(candidate => fs.existsSync(candidate));
+
+/** TextMate scope → grammar file, read from the built-in extensions' manifests. */
+function readBuiltins(directory: string): Map<string, string> {
+  const grammars = new Map<string, string>();
+  for (const name of fs.readdirSync(directory)) {
+    const manifest = path.join(directory, name, 'package.json');
+    if (!fs.existsSync(manifest)) continue;
+    let contributes;
+    try {
+      contributes = JSON.parse(fs.readFileSync(manifest, 'utf8')).contributes;
+    } catch {
+      continue;
+    }
+    for (const grammar of contributes?.grammars ?? []) {
+      grammars.set(grammar.scopeName, path.join(directory, name, grammar.path));
+    }
+  }
+  return grammars;
+}
+
+interface GrammarContribution {
+  scopeName: string;
+  path: string;
+  injectTo: string[];
+}
+
+/** Every grammar the manifest contributes, and where it says to inject it. */
+const OURS: GrammarContribution[] = JSON.parse(
+  fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'),
+).contributes.grammars;
+
+let registry: textmate.Registry | undefined;
+
+beforeAll(async () => {
+  if (!APP_EXTENSIONS) return;
+  const builtins = readBuiltins(APP_EXTENSIONS);
+
+  const wasm = path.join(ROOT, 'node_modules', 'vscode-oniguruma', 'release', 'onig.wasm');
+  await oniguruma.loadWASM(fs.readFileSync(wasm).buffer as ArrayBuffer);
+
+  registry = new textmate.Registry({
+    onigLib: Promise.resolve({
+      createOnigScanner: sources => new oniguruma.OnigScanner(sources),
+      createOnigString: source => new oniguruma.OnigString(source),
+    }),
+    // Exactly what `contributes.grammars[].injectTo` asks VS Code to do.
+    getInjections: scopeName => {
+      const injected = OURS.filter(g => g.injectTo.includes(scopeName)).map(g => g.scopeName);
+      return injected.length ? injected : undefined;
+    },
+    loadGrammar: async scopeName => {
+      const own = OURS.find(g => g.scopeName === scopeName);
+      const file = own ? path.join(ROOT, own.path) : builtins.get(scopeName);
+      if (!file) return null;
+      return textmate.parseRawGrammar(fs.readFileSync(file, 'utf8'), file);
+    },
+  });
+});
+
+/** Every token of `source`, tokenized as TypeScript, one array per line. */
+async function tokenize(source: string): Promise<textmate.IToken[][]> {
+  const grammar = await registry!.loadGrammar('source.ts');
+  expect(grammar, 'source.ts did not load').not.toBeNull();
+
+  let stack = textmate.INITIAL;
+  const lines: textmate.IToken[][] = [];
+  for (const line of source.split('\n')) {
+    const result = grammar!.tokenizeLine(line, stack);
+    stack = result.ruleStack;
+    lines.push(result.tokens);
+  }
+  return lines;
+}
+
+/** Scopes on the token covering `needle`, wherever in `source` it first is. */
+async function scopesAt(source: string, needle: string): Promise<string[]> {
+  const lines = source.split('\n');
+  const row = lines.findIndex(line => line.includes(needle));
+  expect(row, `${JSON.stringify(needle)} is not in the source`).toBeGreaterThanOrEqual(0);
+
+  const column = lines[row].indexOf(needle);
+  const tokens = (await tokenize(source))[row];
+  const token = tokens.find(t => t.startIndex <= column && column < t.endIndex);
+  expect(token, `no token at ${row}:${column}`).toBeDefined();
+  return token!.scopes;
+}
+
+const describeWithCode = APP_EXTENSIONS ? describe : describe.skip;
+
+describeWithCode('html`` templates', () => {
+  it('hands an untyped template to the HTML grammar', async () => {
+    const scopes = await scopesAt('const t = html`<div class="a">hi</div>`;', 'div');
+    expect(scopes).toContain('meta.embedded.block.html');
+    expect(scopes).toContain('entity.name.tag.html');
+  });
+
+  it('hands a typed html<T>`` template to the HTML grammar', async () => {
+    const scopes = await scopesAt('const t = html<Foo>`<div class="a">hi</div>`;', 'div');
+    expect(scopes).toContain('meta.embedded.block.html');
+    expect(scopes).toContain('entity.name.tag.html');
+  });
+
+  it('scopes attribute names inside a typed template', async () => {
+    const source = 'const t = html<Foo>`<div class="mc-doc">hi</div>`;';
+    expect(await scopesAt(source, 'class')).toContain('entity.other.attribute-name.html');
+    expect(await scopesAt(source, '"mc-doc"')).toContain('string.quoted.double.html');
+  });
+
+  it('survives a multi-line template opened on a continuation line', async () => {
+    const source = [
+      'export const template = when(',
+      '  x => x.ready,',
+      '  html<McFilePreview>`',
+      '    <div class="mc-lightbox__doc">',
+      '      <span class="mc-lightbox__doc-name">${x => x.entry.name}</span>',
+      '    </div>',
+      '  `,',
+      ');',
+    ].join('\n');
+
+    expect(await scopesAt(source, 'div class')).toContain('entity.name.tag.html');
+    expect(await scopesAt(source, 'mc-lightbox__doc-name')).toContain('string.quoted.double.html');
+    expect(await scopesAt(source, 'x.entry.name')).toContain('meta.embedded.line.ts');
+  });
+
+  it('re-enters TypeScript inside ${…}', async () => {
+    const source = 'const t = html`<div>${x => x.name}</div>`;';
+    expect(await scopesAt(source, '=>')).toContain('meta.embedded.line.ts');
+    expect(await scopesAt(source, '${')).toContain(
+      'punctuation.definition.template-expression.begin.ts',
+    );
+  });
+
+  it('scopes FAST binding prefixes', async () => {
+    const source =
+      'const t = html`<x-y :prop="${x => x.a}" ?hide="${x => x.b}" @click="${x => x.c}"></x-y>`;';
+    for (const prefix of [':prop', '?hide', '@click']) {
+      const scopes = await scopesAt(source, prefix);
+      expect(scopes, prefix).toContain('keyword.operator.binding.fast-element');
+      expect(scopes, prefix).toContain('punctuation.definition.binding.fast-element');
+    }
+    for (const name of ['prop', 'hide', 'click']) {
+      expect(await scopesAt(source, name), name).toContain(
+        'entity.other.attribute-name.binding.fast-element',
+      );
+    }
+  });
+
+  it('leaves nothing of a binding for the HTML grammar to call illegal', async () => {
+    // text.html.basic has no rule for a `:`/`?`/`@` attribute name, so whatever
+    // the binding rule does not consume lands on its illegal-character catch-all.
+    const source =
+      'const t = html`<x-y :prop="${x => x.a}" ?hide="${x => x.b}" @click="${x => x.c}"></x-y>`;';
+    const illegal = (await tokenize(source))[0]
+      .filter(t => t.scopes.some(s => s.startsWith('invalid.')))
+      .map(t => source.slice(t.startIndex, t.endIndex));
+    expect(illegal).toEqual([]);
+  });
+
+  it('accepts a single-quoted binding value', async () => {
+    const source = "const t = html`<x-y @click='${x => x.go()}'></x-y>`;";
+    expect(await scopesAt(source, '@click')).toContain('keyword.operator.binding.fast-element');
+    expect(await scopesAt(source, 'x.go()')).toContain('meta.embedded.line.ts');
+  });
+
+  it('accepts an unquoted binding value', async () => {
+    const source = 'const t = html`<x-y :prop=${x => x.a}></x-y>`;';
+    expect(await scopesAt(source, ':prop')).toContain('keyword.operator.binding.fast-element');
+    expect(await scopesAt(source, 'x.a')).toContain('meta.embedded.line.ts');
+    const illegal = (await tokenize(source))[0].filter(t =>
+      t.scopes.some(s => s.startsWith('invalid.')),
+    );
+    expect(illegal).toEqual([]);
+  });
+
+  it('re-enters TypeScript for a bare element expression such as ${ref(…)}', async () => {
+    const source = "const t = html`<div ${ref('root')}></div>`;";
+    expect(await scopesAt(source, "ref('root')")).toContain('meta.embedded.line.ts');
+  });
+});
+
+describeWithCode('css`` templates', () => {
+  it('hands the body to the CSS grammar', async () => {
+    const scopes = await scopesAt('const s = css`:host { display: block; }`;', 'display');
+    expect(scopes).toContain('meta.embedded.block.css');
+    expect(scopes).toContain('support.type.property-name.css');
+  });
+
+  it('survives a multi-line template', async () => {
+    const source = [
+      'const styles = css`',
+      '  :host {',
+      '    display: flex;',
+      '  }',
+      '`;',
+    ].join('\n');
+    expect(await scopesAt(source, 'display')).toContain('support.type.property-name.css');
+  });
+
+  it('re-enters TypeScript inside ${…}', async () => {
+    const source = 'const s = css`:host { color: ${theme.fg}; }`;';
+    expect(await scopesAt(source, 'theme.fg')).toContain('meta.embedded.line.ts');
+  });
+});
+
+describeWithCode('interpolations the outer grammars would otherwise swallow', () => {
+  it('re-enters TypeScript inside an attribute value', async () => {
+    const source = 'const t = html`<div class="${x => x.cls}"></div>`;';
+    expect(await scopesAt(source, 'x.cls')).toContain('meta.embedded.line.ts');
+  });
+
+  it('re-enters TypeScript inside a bound attribute value', async () => {
+    const source = 'const t = html`<x-y :entry="${x => x.entry}"></x-y>`;';
+    expect(await scopesAt(source, 'x.entry}')).toContain('meta.embedded.line.ts');
+  });
+
+  it('re-enters TypeScript inside a CSS declaration block', async () => {
+    const source = 'const s = css`:host { color: ${theme.fg}; }`;';
+    expect(await scopesAt(source, 'theme.fg')).toContain('meta.embedded.line.ts');
+  });
+
+  it('does not re-inject inside an interpolation that is already TypeScript', async () => {
+    // `?.` and `x ?y=` shapes inside an expression must stay TypeScript.
+    const source = 'const t = html`<div>${x => (x.a ? x.b : x.c)}</div>`;';
+    const scopes = await scopesAt(source, '?');
+    expect(scopes).toContain('meta.embedded.line.ts');
+    expect(scopes).not.toContain('keyword.operator.binding.fast-element');
+  });
+});
+
+describeWithCode('where a template ends', () => {
+  it('returns to TypeScript after the closing backtick', async () => {
+    const source = [
+      'const t = html<Foo>`',
+      '  <div class="a">hi</div>',
+      '`;',
+      'const after: number = 1;',
+    ].join('\n');
+    const scopes = await scopesAt(source, 'const after');
+    expect(scopes).not.toContain('meta.embedded.block.html');
+    expect(scopes).not.toContain('string.template.fast-element.ts');
+  });
+
+  it('returns to TypeScript after a css template with a declaration block', async () => {
+    const source = [
+      'const s = css`',
+      '  :host { display: flex; }',
+      '`;',
+      'const after: number = 1;',
+    ].join('\n');
+    const scopes = await scopesAt(source, 'const after');
+    expect(scopes).not.toContain('meta.embedded.block.css');
+    expect(scopes).not.toContain('string.template.fast-element.ts');
+  });
+});
+
+describeWithCode('templates that are not ours', () => {
+  it('leaves an unrelated tag alone', async () => {
+    const scopes = await scopesAt('const t = gql`<div>hi</div>`;', 'div');
+    expect(scopes).not.toContain('meta.embedded.block.html');
+  });
+
+  it('leaves html`` inside a comment alone', async () => {
+    const scopes = await scopesAt('// const t = html`<div>hi</div>`;', 'div');
+    expect(scopes).not.toContain('meta.embedded.block.html');
+  });
+});
