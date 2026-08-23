@@ -1,0 +1,185 @@
+# The component model
+
+**Status**: design, nothing built.
+
+How a FAST element is discovered, what is known about it, and where each fact comes from. This is
+the part [proposal.md §1.2](../proposal.md#12-the-bolt-on-does-not-fit) argues is the weakest point
+of the current tool, so it is specified before anything else.
+
+The syntax being modelled is documented in [research/fast-element.md](../research/fast-element.md);
+this page is about extracting it.
+
+---
+
+## 1. Where discovery happens
+
+**In TypeScript**, in the plugin, not in Rust. Decorators, class members, inheritance and `const`
+resolution all want the AST and the checker, and a second parser would be a second source of truth
+that drifts ([0002](../decisions/0002-rust-engine-typescript-oracle.md)). Rust receives
+`ComponentFact`s and owns the registry, the merge order, and every lookup.
+
+Discovery runs per source file, on `upsertFile`, and replaces everything that file previously
+contributed.
+
+## 2. Registration
+
+Three forms, all supported ([research/fast-element.md §3](../research/fast-element.md#3-element-registration)):
+
+```ts
+@customElement("my-tag")                                   // A
+@customElement({ name: "my-tag", template, styles })       // B
+@customElement({ name: MY_TAG, template })                 // B, name from a const  ← the corpus case
+MyElement.define({ name: "my-tag", template });            // C
+FASTElement.define(MyElement, "my-tag");                   // C
+```
+
+### 2.1 Resolving the name
+
+The name is read **through the checker**, not off the AST:
+
+```ts
+const type = checker.getTypeAtLocation(nameExpression);
+if (type.isStringLiteral()) return type.value;
+```
+
+This handles a string literal, a `const` in the same file, a `const` imported from another module,
+and an `as const` member access — all of which are the same thing to the checker and four different
+AST shapes to a syntactic matcher. It is the fix for the bug in
+[corpus.md §2](../research/corpus.md#2-why-fast-analyzer-finds-none-of-it), and it is why discovery
+belongs on the TypeScript side.
+
+A name that is not a string-literal type (a template literal, a computed value, a function call) is
+not resolvable. The component is still registered — with its members, since those are still useful
+to rename and hover — but with `tagName: null`, and it is excluded from tag-name lookups. Silently
+dropping the whole component, which is today's behaviour, is the thing to avoid.
+
+### 2.2 Which decorator is `customElement`?
+
+By resolved symbol, not by name. `checker.getSymbolAtLocation` on the decorator's identifier, then
+check the declaration's source file is `@microsoft/fast-element`. A local function called
+`customElement` is not FAST's, and a renamed import (`import { customElement as element }`) is.
+
+Same test for `attr`, `observable`, `volatile`, and the directives.
+
+## 3. Members
+
+| Source | Produces | Notes |
+| --- | --- | --- |
+| `@attr prop` | attribute + property | Attribute name defaults to the property name |
+| `@attr({ attribute: "x" }) prop` | attribute `x` + property `prop` | |
+| `@attr({ mode: "boolean" }) prop` | boolean attribute | Changes what `no-incompatible-attr-config` expects |
+| `@attr({ mode: "fromView" }) prop` | attribute, read-only from the DOM's side | |
+| `@attr({ converter }) prop` | attribute whose DOM type is the converter's | Type comes from the converter's signature when resolvable, `any` otherwise |
+| `@observable prop` | property | No attribute |
+| `@volatile get prop()` | property | Getter — the declaration form fast-analyzer skips entirely |
+| `attributes: [...]` in the definition | attributes | `(AttributeConfiguration \| string)[]`; no decorator involved |
+| JSDoc `@attr` / `@prop` | attribute / property | For members that cannot be seen, e.g. set by a mixin |
+| JSDoc `@fires` | event | |
+| JSDoc `@slot` | slot | The **only** source of slot names — `no-unknown-slot` has nothing else |
+| JSDoc `@csspart` / `@cssprop` | CSS part / custom property | |
+| `this.$emit("name", detail)` | event | Name from arg 0, `detail` type from arg 1 |
+
+All of these apply to property declarations, **get/set accessors**, and members declared on any class
+in the inheritance chain.
+
+### 3.1 Inheritance
+
+Walk `checker.getBaseTypes()` from the component class up to but not including `FASTElement`,
+collecting members at each level. A member declared lower in the chain shadows one declared higher;
+the shadowing declaration is what go-to-definition and rename target.
+
+Mixins — `class X extends SomeMixin(FASTElement)` — arrive as an intersection or a synthesised base
+type. Where the checker gives us a declaration, we use it; where it does not, the member is still
+registered from the type, with no declaration and therefore no go-to-definition. Half a fact is
+better than none, and the `origin` field records which it is.
+
+This is the single largest gap against fast-analyzer, which reads exactly one class body.
+
+### 3.2 Types
+
+A member's type crosses to Rust as an **interned id**, never as a structure
+([architecture.md §3.1](architecture.md#31-what-rust-receives)). Rust needs to know that two members
+have the same type only to deduplicate; every real question about a type goes back to the plugin as a
+binding fact.
+
+## 4. What Rust does with the facts
+
+The registry is keyed by tag name, with an entry per contributing file so that removing a file
+removes exactly its contribution. Merge order, highest confidence first:
+
+1. Components declared in the program (`origin: decorator | define`)
+2. JSDoc-declared members on those components
+3. VS Code custom data (`fastElementUltra.customHtmlData`, `html.experimental.customData`)
+4. `globalTags` / `globalAttributes` / `globalEvents` — "assume this exists, check nothing"
+5. Built-in HTML/SVG data from `fast-html-data`
+
+A lower level never overrides a higher one; it fills gaps. Two files declaring the same tag name is
+a real condition — a duplicate registration is a runtime error in FAST — and is reported by
+`no-duplicate-tag-name` ([rules.md](rules.md#no-duplicate-tag-name)).
+
+## 5. What fast-analyzer covers today
+
+For comparison, and as the checklist Phase 2 is done against. Sources:
+`flavors/fast-element-analyzer.ts` (250 lines) and `ts-lit-plugin.ts`'s `extractTagNameFromClass`.
+
+| Construct | fast-analyzer | RFC 011 |
+| --- | :---: | :---: |
+| `@customElement("my-tag")` | ⚠️ rename path only | ✅ |
+| `@customElement({ name: "my-tag" })` | ✅ | ✅ |
+| `@customElement({ name: CONST })` | ❌ | ✅ |
+| `MyEl.define(…)` / `FASTElement.define(…)` | ❌ | ✅ |
+| Decorator identified by resolved symbol | ❌ — matches `escapedText === "customElement"` | ✅ |
+| `@attr` on a property | ✅ | ✅ |
+| `@attr({ attribute })` | ✅ | ✅ |
+| `@attr({ mode })` / `@attr({ converter })` | ❌ | ✅ |
+| `@observable` on a property | ✅ | ✅ |
+| `@attr` / `@observable` on an accessor | ❌ | ✅ |
+| `@volatile` | ❌ | ✅ |
+| `attributes: [...]` in the definition | ❌ | ✅ |
+| Inherited members | ❌ | ✅ |
+| Mixin members | ❌ | ⚠️ where the checker gives them |
+| JSDoc `@slot` / `@fires` / `@csspart` / `@cssprop` | ⚠️ only via WCA, which does not recognise FAST | ✅ |
+| `this.$emit("name")` | ✅ name only | ✅ name + `detail` type |
+| `shadowOptions: null` → light DOM | ❌ | ✅ |
+| `template` / `styles` → which template belongs to which component | ❌ | ✅ (§6) |
+| Second component model (`web-component-analyzer`) merged over the top | ✅ | ❌ — removed |
+
+## 6. Template source types
+
+Knowing which type `x` has at a point in a template is half of what this tool does, and it is not a
+per-file property. It is per *template*, and `repeat` changes it
+([corpus.md §3](../research/corpus.md#3-constructs-the-corpus-exercises-that-the-design-must-handle)):
+
+```ts
+html<CsvGrid>`
+  …
+  ${repeat(x => x.menu.items, html<MenuItem, CsvGrid>`
+      <button @click="${(item, c) => c.parent.pick(item)}">   ← item: MenuItem, c.parent: CsvGrid
+  `)}
+`
+```
+
+So each `VirtualDocument` carries its own `sourceTypeId` and `parentTypeId`, taken from the tag
+expression's type arguments. Three cases:
+
+| Written | `TSource` | Consequence |
+| --- | --- | --- |
+| `html<CsvGrid>` | `CsvGrid` | Members resolvable; TypeScript also checks the expression bodies |
+| `html<MenuItem, CsvGrid>` | `MenuItem` | Members resolve against `MenuItem`; `c.parent` against `CsvGrid` |
+| ``html` ` `` | `any` | **Nothing is checked, by TypeScript or by us.** `no-untyped-template` |
+
+When a component's definition names a template — `@customElement({ name, template })` — the link is
+recorded both ways: the template knows its component, and the component knows which template
+declares its markup. That is what lets a rename of `CsvGrid.hasHeader` reach the `:prop` bindings and
+the `${ref('…')}` strings in a *different file*, which is the corpus's actual layout
+(`element.ts` and `template.ts` are separate modules).
+
+## 7. Invalidation
+
+By file. `upsertFile(fileName, …)` replaces that file's whole contribution; `removeFile` drops it.
+A component whose members are spread across a base class in another file is re-derived when either
+file changes, because both files' `ComponentFact`s name the same tag.
+
+The registry is not incremental below file granularity, and should not become so without a
+measurement saying it must — tsserver already hands us change notifications at file granularity, and
+a finer model would be inventing precision the host does not have.
