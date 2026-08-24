@@ -8,12 +8,12 @@ wherever they appear.
 
 ## Features
 
-- **15 template languages**, one per host format: HTML, plain text, Rust,
+- **16 template languages**, one per host format: HTML, plain text, Rust,
   JavaScript, TypeScript, JSX, TSX, TOML, CSS, JSON, Markdown, YAML,
-  `.gitignore`, dotenv and Swift. Each is claimed by a base extension plus one
-  of four template suffixes — `.askama`, `.j2`, `.jinja`, `.jinja2` — so
-  `page.html.askama`, `page.html.j2`, `page.html.jinja` and `page.html.jinja2`
-  all resolve to Askama HTML.
+  `.gitignore`, dotenv, Swift and Cap'n Proto. Each is claimed by a base
+  extension plus one of four template suffixes — `.askama`, `.j2`, `.jinja`,
+  `.jinja2` — so `page.html.askama`, `page.html.j2`, `page.html.jinja` and
+  `page.html.jinja2` all resolve to Askama HTML.
 
 - **Host grammar underneath.** Every language grammar includes the real
   upstream grammar (`text.html.basic`, `source.rust`, `source.yaml`,
@@ -22,6 +22,10 @@ wherever they appear.
   way they normally are. Formats whose grammar ships in another extension —
   TOML, dotenv, `.gitignore` — fall back to plain text for the host part if that
   extension is not installed; the Askama tags are highlighted either way.
+  Cap'n Proto is the exception: no grammar for it ships with VS Code, so this
+  extension bundles its own — declarations, field ordinals (`@0`), unions and
+  groups, built-in types, annotations (`$Cxx.namespace`), `#` comments, strings
+  and numeric literals are highlighted with no other extension installed.
 
 - **Full tag grammar**: statements, expressions and comments including all
   whitespace-control markers (`{%-`, `{%+`, `{%~` and their closing forms), 30
@@ -47,7 +51,7 @@ wherever they appear.
   colours have separate defaults for dark, light, high contrast and high
   contrast light themes, and repaint 50 ms after you stop typing.
 
-- **16 snippets**, available in all 15 languages. Each block tag has both a
+- **16 snippets**, available in all 16 languages. Each block tag has both a
   bare prefix and a `%`-prefixed one — `for` and `%for` both expand to a
   `{% for … %} … {% endfor %}` pair with tab stops on the loop variable and the
   iterable. `{{` expands to `{{ expr }}` and `{#` to `{# comment #}`.
@@ -78,6 +82,7 @@ wherever they appear.
 | Askama gitignore | `.gitignore` | `.gitignore.askama`, `gitignore.j2` |
 | Askama dotenv | `.env` | `.env.askama`, `.env.production.j2` |
 | Askama Swift | `.swift` | `View.swift.askama` |
+| Askama Cap'n Proto | `.capnp` | `schema.capnp.askama` |
 
 Every base name above works with all four suffixes. The dotenv language also
 matches `.env.*.askama` and the `.j2` / `.jinja` / `.jinja2` variants, so
@@ -123,7 +128,7 @@ per-environment files like `.env.staging.jinja` are picked up too.
 {% endblock %}
 ```
 
-The same tags work in any of the other 14 languages; only the surrounding
+The same tags work in any of the other 15 languages; only the surrounding
 grammar changes. In `deploy.yaml.j2` the YAML keys stay YAML, in
 `handler.rs.jinja` the Rust stays Rust.
 

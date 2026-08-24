@@ -72,6 +72,7 @@ describe('language contributions', () => {
 
   it('covers every supported host language', () => {
     expect(languages.map(l => l.id).sort()).toEqual([
+      'askama-capnp',
       'askama-css',
       'askama-env',
       'askama-gitignore',

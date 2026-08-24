@@ -14,4 +14,5 @@ export const ASKAMA_LANGUAGES = new Set([
   'askama-gitignore',
   'askama-env',
   'askama-swift',
+  'askama-capnp',
 ]);

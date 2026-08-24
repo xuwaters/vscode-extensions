@@ -1,0 +1,152 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Askama Cap'n Proto",
+  "scopeName": "source.capnp.askama",
+  "patterns": [
+    { "include": "source.askama#comment" },
+    { "include": "#raw-block-capnp" },
+    { "include": "source.askama#statement" },
+    { "include": "source.askama#expression" },
+    { "include": "#capnp" }
+  ],
+  "repository": {
+    "raw-block-capnp": {
+      "name": "meta.raw.block.askama",
+      "begin": "(\\{%[-+~]?)\\s*(raw)\\s*([-+~]?%\\})",
+      "end": "(\\{%[-+~]?)\\s*(endraw)\\s*([-+~]?%\\})",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.embedded.begin.askama" },
+        "2": { "name": "keyword.control.askama" },
+        "3": { "name": "punctuation.section.embedded.end.askama" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.embedded.begin.askama" },
+        "2": { "name": "keyword.control.askama" },
+        "3": { "name": "punctuation.section.embedded.end.askama" }
+      },
+      "patterns": [
+        { "include": "#capnp" }
+      ]
+    },
+    "capnp": {
+      "patterns": [
+        { "include": "#capnp-comment" },
+        { "include": "#capnp-string" },
+        { "include": "#capnp-annotation-use" },
+        { "include": "#capnp-declaration" },
+        { "include": "#capnp-method" },
+        { "include": "#capnp-field" },
+        { "include": "#capnp-ordinal" },
+        { "include": "#capnp-keyword" },
+        { "include": "#capnp-constant" },
+        { "include": "#capnp-builtin-type" },
+        { "include": "#capnp-type" },
+        { "include": "#capnp-number" },
+        { "include": "#capnp-operator" }
+      ]
+    },
+    "capnp-comment": {
+      "name": "comment.line.number-sign.capnp",
+      "begin": "#",
+      "end": "$",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.comment.capnp" }
+      }
+    },
+    "capnp-string": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.capnp",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.capnp" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.capnp" } },
+          "patterns": [
+            { "name": "constant.character.escape.capnp", "match": "\\\\(?:[abfnrtv'\"\\\\]|x[0-9a-fA-F]{2}|[0-7]{1,3}|u[0-9a-fA-F]{4})" }
+          ]
+        },
+        {
+          "name": "string.quoted.single.capnp",
+          "begin": "'",
+          "end": "'",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.capnp" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.capnp" } },
+          "patterns": [
+            { "name": "constant.character.escape.capnp", "match": "\\\\(?:[abfnrtv'\"\\\\]|x[0-9a-fA-F]{2}|[0-7]{1,3}|u[0-9a-fA-F]{4})" }
+          ]
+        }
+      ]
+    },
+    "capnp-annotation-use": {
+      "match": "(\\$)\\s*([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)",
+      "captures": {
+        "1": { "name": "punctuation.definition.annotation.capnp" },
+        "2": { "name": "entity.other.attribute-name.capnp" }
+      }
+    },
+    "capnp-declaration": {
+      "match": "\\b(struct|interface|enum|annotation|const|using)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "storage.type.capnp" },
+        "2": { "name": "entity.name.type.capnp" }
+      }
+    },
+    "capnp-method": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*@(?:\\d+|0[xX][0-9a-fA-F]+)\\s*\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.capnp" }
+      }
+    },
+    "capnp-field": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*[@:])",
+      "captures": {
+        "1": { "name": "variable.other.member.capnp" }
+      }
+    },
+    "capnp-ordinal": {
+      "match": "(@)(0[xX][0-9a-fA-F]+|\\d+)",
+      "captures": {
+        "1": { "name": "punctuation.definition.ordinal.capnp" },
+        "2": { "name": "constant.numeric.ordinal.capnp" }
+      }
+    },
+    "capnp-keyword": {
+      "patterns": [
+        {
+          "name": "storage.type.capnp",
+          "match": "\\b(struct|interface|enum|annotation|const|using|union|group)\\b"
+        },
+        {
+          "name": "keyword.control.import.capnp",
+          "match": "\\b(import|extends)\\b"
+        },
+        {
+          "name": "keyword.other.capnp",
+          "match": "\\b(in|of|on|as|with|implicit|file|field|enumerant|method|param|namespace)\\b"
+        }
+      ]
+    },
+    "capnp-constant": {
+      "name": "constant.language.capnp",
+      "match": "\\b(true|false|void|inf|nan)\\b"
+    },
+    "capnp-builtin-type": {
+      "name": "support.type.builtin.capnp",
+      "match": "\\b(Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|Float64|Text|Data|List|AnyPointer|AnyStruct|AnyList|Capability)\\b"
+    },
+    "capnp-type": {
+      "name": "entity.name.type.capnp",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "capnp-number": {
+      "name": "constant.numeric.capnp",
+      "match": "(?<![A-Za-z0-9_])[-+]?(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\\d+(?:\\.\\d+)?(?:[eE][-+]?\\d+)?)\\b"
+    },
+    "capnp-operator": {
+      "patterns": [
+        { "name": "keyword.operator.capnp", "match": "->|=" },
+        { "name": "punctuation.separator.capnp", "match": "[:;,]" }
+      ]
+    }
+  }
+}

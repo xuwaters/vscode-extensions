@@ -2,7 +2,7 @@
   "name": "wx-vsce-askama-templates",
   "displayName": "Askama Templates",
   "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -262,6 +262,20 @@
           ".swift.jinja2"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-capnp",
+        "aliases": [
+          "Askama Cap'n Proto",
+          "askama-capnp"
+        ],
+        "extensions": [
+          ".capnp.askama",
+          ".capnp.j2",
+          ".capnp.jinja",
+          ".capnp.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -345,6 +359,11 @@
         "path": "./syntaxes/askama-swift.tmLanguage.json"
       },
       {
+        "language": "askama-capnp",
+        "scopeName": "source.capnp.askama",
+        "path": "./syntaxes/askama-capnp.tmLanguage.json"
+      },
+      {
         "scopeName": "askama.injection",
         "path": "./syntaxes/askama-injection.tmLanguage.json",
         "injectTo": [
@@ -361,7 +380,8 @@
           "source.yaml.askama",
           "source.ignore.askama",
           "source.dotenv.askama",
-          "source.swift.askama"
+          "source.swift.askama",
+          "source.capnp.askama"
         ]
       }
     ],
@@ -424,6 +444,10 @@
       },
       {
         "language": "askama-swift",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-capnp",
         "path": "./snippets/askama.json"
       }
     ],
@@ -516,6 +540,8 @@
     "@vscode/vsce": "catalog:build",
     "tsdown": "catalog:build",
     "typescript": "catalog:build",
-    "vitest": "catalog:build"
+    "vitest": "catalog:build",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

@@ -1,0 +1,96 @@
+{# This is a comment #}
+@{{ file_id }};  # generated with `capnp id`
+
+using Cxx = import "/capnp/c++.capnp";
+$Cxx.namespace("{{ namespace }}");
+
+{% for dep in imports %}
+using {{ dep.alias }} = import "{{ dep.path }}";
+{% endfor %}
+
+{# Variable declarations #}
+{% let type_name = format!("{}Record", entity_name) %}
+struct {{ type_name }} {
+  {% for field in fields %}
+  {{ field.name }} @{{ loop.index0 }} :{{ field.ty }};
+  {% endfor %}
+
+  {# Conditional members #}
+  {% if track_revisions %}
+  revision @{{ fields | length }} :UInt32 = 0;
+  createdAt @{{ fields | length }} :Int64;
+  {% endif %}
+
+  {# Nested declarations #}
+  struct Metadata {
+    key @0 :Text;
+    value @1 :Data;
+    tags @2 :List(Text);
+  }
+
+  {# Unions and groups #}
+  payload :union {
+    none @{{ union_base }} :Void;
+    inline @{{ union_base }} :Data;
+    reference @{{ union_base }} :Text;
+  }
+
+  position :group {
+    x @0 :Float64 = 0.0;
+    y @1 :Float64 = 0.0;
+  }
+}
+
+{# Pattern matching #}
+{% match status %}
+  {% when Status::Active %}
+const state :Text = "active";
+  {% when Status::Pending %}
+const state :Text = "pending";
+  {% when _ %}
+const state :Text = "unknown";
+{% endmatch %}
+
+{# Enumerations built from template data #}
+enum {{ entity_name }}Kind {
+  {% for item in items %}
+  {{ item.label | lower }} @{{ loop.index0 }};
+  {% endfor %}
+}
+
+{# Interfaces, methods, generics #}
+interface {{ entity_name }}Store {
+  get @0 (id :UInt64) -> (record :{{ type_name }});
+  put @1 (record :{{ type_name }}) -> (id :UInt64);
+  {% for method in extra_methods %}
+  {{ method.name }} @{{ loop.index0 + 2 }} ({{ method.params }}) -> ({{ method.results }});
+  {% endfor %}
+}
+
+interface Cursor(T) extends(Closeable) {
+  next @0 () -> (value :T, done :Bool);
+}
+
+{# Constants and annotations #}
+const maxItems :UInt32 = {{ max_items }};
+const defaultName :Text = "{{ default_name }}";
+const enabled :Bool = true;
+
+annotation deprecated @0xbd8a1c93bd2f0d1e (struct, field, interface) :Text;
+
+struct Legacy $deprecated("use {{ type_name }} instead") {
+  value @0 :Text;
+}
+
+{# Raw block - no template processing #}
+{% raw %}
+const literal :Text = "{{ this_stays_literal }}";
+{% endraw %}
+
+{# Macro usage #}
+{% import "macros.capnp" as m %}
+{{ m.render_struct(name="Preview", body="value @0 :Text;") }}
+
+{% include "partials/common.capnp" %}
+
+{% block extra %}{% endblock %}
