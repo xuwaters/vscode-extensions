@@ -5,7 +5,8 @@
   "patterns": [
     { "include": "#fastHtmlTemplate" },
     { "include": "#fastHtmlTypedTemplate" },
-    { "include": "#fastCssTemplate" }
+    { "include": "#fastCssTemplate" },
+    { "include": "#fastCssPartialTemplate" }
   ],
   "repository": {
     "fastHtmlTemplate": {
@@ -62,6 +63,27 @@
       "name": "string.template.fast-element.ts",
       "contentName": "meta.embedded.block.css",
       "patterns": [{ "include": "source.css" }]
+    },
+    "fastCssPartialTemplate": {
+      "$comment": "`css.partial` is the other half of FAST's css tag, and the dot is why `fastCssTemplate` cannot open it: a tagged template's tag is an expression, not just a name. The body is the reason it is a rule of its own rather than one more spelling — a partial is a declaration list with no rule around it (`position: absolute;`), which is `#rule-list-innards`, the CSS grammar's *inside* of a block, not `source.css`, whose top level expects a selector or an at-rule and would call a bare property name a tag selector. `#rule-list-innards` already carries `#selector`, so a partial that does write a whole rule keeps its selector; `#at-rules` and `#rule-list` are listed after it to open the block that follows one. Everything else is `fastCssTemplate`'s: the same `string.template.fast-element.ts` and `meta.embedded.block.css`, so `${…}` inside a partial reaches the embedded injection exactly as it does inside a full stylesheet.",
+      "begin": "(?x)(\\bcss)(\\.)(partial)\\s*(`)",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.tagged-template.ts" },
+        "2": { "name": "punctuation.accessor.ts" },
+        "3": { "name": "entity.name.function.tagged-template.ts" },
+        "4": { "name": "punctuation.definition.string.template.begin.ts" }
+      },
+      "end": "`",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.template.end.ts" }
+      },
+      "name": "string.template.fast-element.ts",
+      "contentName": "meta.embedded.block.css",
+      "patterns": [
+        { "include": "source.css#rule-list-innards" },
+        { "include": "source.css#at-rules" },
+        { "include": "source.css#rule-list" }
+      ]
     }
   }
 }

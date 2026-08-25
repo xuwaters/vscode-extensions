@@ -387,6 +387,66 @@ describeWithCode('css`` templates', () => {
   });
 });
 
+describeWithCode('css.partial`` templates', () => {
+  // A partial is a declaration list with no rule around it, so its body is
+  // whatever goes *inside* a block, not a stylesheet.
+  const partial = [
+    'export const srOnlyStyle = css.partial`',
+    '  position: absolute;',
+    '  width: 1px;',
+    '  overflow: hidden;',
+    '  clip: rect(0, 0, 0, 0);',
+    '  white-space: nowrap;',
+    '`;',
+    'const after: number = 1;',
+  ].join('\n');
+
+  it('hands a bare declaration list to the CSS grammar', async () => {
+    expect(await scopesAt(partial, 'position')).toContain('meta.embedded.block.css');
+    expect(await scopesAt(partial, 'position')).toContain('support.type.property-name.css');
+    expect(await scopesAt(partial, 'absolute')).toContain('support.constant.property-value.css');
+    expect(await scopesAt(partial, 'nowrap')).toContain('support.constant.property-value.css');
+  });
+
+  it('scopes a declaration exactly as a full stylesheet would', async () => {
+    // The one scope a partial must *not* have is the block it has no braces
+    // for; everything the CSS grammar says about the declaration itself has to
+    // come out the same as it does inside a rule.
+    const inRule = await scopesAt('const s = css`:host { clip: rect(0, 0, 0, 0); }`;', 'rect(');
+    expect(inRule).toContain('meta.property-list.css');
+    expect(await scopesAt(partial, 'rect(')).toEqual(
+      inRule.filter(scope => scope !== 'meta.property-list.css'),
+    );
+    expect(await scopesAt(partial, '1px')).toContain('constant.numeric.css');
+  });
+
+  it('scopes the tag and returns to TypeScript after the closing backtick', async () => {
+    expect(await scopesAt(partial, 'css.partial')).toContain(
+      'entity.name.function.tagged-template.ts',
+    );
+    const scopes = await scopesAt(partial, 'const after');
+    expect(scopes).not.toContain('meta.embedded.block.css');
+    expect(scopes).not.toContain('string.template.fast-element.ts');
+  });
+
+  it('re-enters TypeScript inside ${…}', async () => {
+    const source = 'const s = css.partial`color: ${theme.fg}; margin: 0;`;';
+    expect(await scopesAt(source, 'theme.fg')).toContain('meta.embedded.line.ts');
+    expect(await scopesAt(source, 'margin')).toContain('support.type.property-name.css');
+  });
+
+  it('still takes a partial that carries a whole rule', async () => {
+    const source = ['const s = css.partial`', '  :host { display: flex; }', '`;'].join('\n');
+    expect(await scopesAt(source, 'display')).toContain('support.type.property-name.css');
+    expect(await scopesAt(source, 'flex')).toContain('support.constant.property-value.css');
+  });
+
+  it('leaves a partial of some other tag alone', async () => {
+    const scopes = await scopesAt('const s = sql.partial`position: absolute;`;', 'position');
+    expect(scopes).not.toContain('meta.embedded.block.css');
+  });
+});
+
 describeWithCode('interpolations the outer grammars would otherwise swallow', () => {
   it('re-enters TypeScript inside an attribute value', async () => {
     const source = 'const t = html`<div class="${x => x.cls}"></div>`;';
