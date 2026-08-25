@@ -37,17 +37,13 @@ template in it and the templates are checked alongside the code around them.
 
 **The component model** covers what FAST actually ships: all three
 registration forms — including `@customElement({ name: SOME_CONST })`, the
-form this repo's own extensions use — `@attr` in every mode, on properties
+form this repo's own extensions use — plus `HTMLElementTagNameMap` for the
+elements no registration can be read from (see
+[Custom elements](#custom-elements)); `@attr` in every mode, on properties
 and accessors, `@observable`, `@volatile`, `attributes: [...]` in the
 definition, members inherited through the class chain, `$emit(...)` events
 with their detail types (see [Custom events](#custom-events)), and JSDoc
 `@slot`/`@fires`/`@csspart`/`@cssprop`.
-A library that registers its elements behind its own `define*` wrapper — where
-the tag is built at runtime from a prefix and a base name, and there is no
-literal to find — is picked up from its `HTMLElementTagNameMap` augmentation
-instead, declaration files included, so an installed design system gets
-completion, hover and go-to-definition too; its `HTMLElementEventMap`
-augmentation is read the same way.
 
 **IDE features** the compiler cannot provide: completion *inside*
 `ref('…')`/`slotted('…')`/`children('…')` string arguments with the source
@@ -58,6 +54,78 @@ every template that uses it.
 
 **Suppression**: a `@ts-ignore` (or `@fast-ignore`) comment on the previous
 line silences a template diagnostic.
+
+## Custom elements
+
+A tag is known when the extension can find where it was defined. There are two
+ways to say so — one for a component this project registers, one for a
+component whose registration is unreadable — and they are tried in that order:
+a real registration always wins, since its facts are exact.
+
+**1. Register it.** All three of FAST's forms are read, and the tag name comes
+from the *type checker* rather than off the syntax, so a constant works as
+well as a literal — including one imported from another module, which is the
+form this repo's own extensions use:
+
+```ts
+import { TAB_BAR_TAG } from './tags';   // export const TAB_BAR_TAG = 'tab-bar';
+
+@customElement({ name: TAB_BAR_TAG, template, styles })
+export class TabBar extends FASTElement {}
+```
+
+The other spellings register the same tag — `@customElement('tab-bar')`,
+`TabBar.define({ name: 'tab-bar', template })`, and
+`FASTElement.define(TabBar, 'tab-bar')` (register it once, though:
+`no-duplicate-tag-name` reports the second, as FAST throws on it at runtime).
+
+The decorator is identified by resolved symbol, not by name: a renamed import
+(`import { customElement as element }`) is FAST's, and your own local function
+called `customElement` is not. Same test for `@attr`, `@observable`,
+`@volatile` and the directives. A name that is not a string-literal type — a
+template literal, a concatenation, a `defineFoo()` call — leaves the class
+registered with its members, so hover and rename still work, but with no tag
+name to match a template against; give it form 2.
+
+**2. Augment `HTMLElementTagNameMap`.** The standard-DOM route, and the only
+one that reaches into an installed package:
+
+```ts
+declare global {
+  interface HTMLElementTagNameMap {
+    'fui-toaster': Toaster;
+  }
+}
+```
+
+Every dashed entry whose type reaches `FASTElement` becomes a known tag,
+pointing at the class it names — which is everything a template needs. The map
+is read from the whole program, `.d.ts` files included, so a design system that
+registers behind its own `defineToaster()` wrapper — tag built at runtime from
+a prefix and a base name, no literal anywhere to find — still gets completion,
+hover and go-to-definition, with nothing to configure. Three consequences of
+the class usually being someone else's: no diagnostics are reported inside it;
+a `.d.ts` keeps `position: ToastPosition` but not the `@attr` that made it an
+attribute, so when a class carries no FAST decorators at all every public
+member is offered as a property and the attribute-shaped ones as attributes
+too; and `no-missing-import` is skipped, the augmentation being ambient.
+An entry typed as plain `FASTElement`, naming no class of its own, registers
+the tag with global attributes and nothing else.
+
+Worth adding for your own components as well — it is what types
+`document.createElement('tab-bar')` and `querySelector('tab-bar')` as your
+class instead of `HTMLElement`. `no-missing-element-type-definition` points out
+every registered component that lacks the entry; it is off by default, so turn
+it on to find them:
+
+```jsonc
+"fastElementUltra.rules": { "no-missing-element-type-definition": "warning" }
+```
+
+**Neither.** For a tag defined somewhere nothing can read — a third-party
+bundle, a runtime registration — `fastElementUltra.globalTags` accepts names
+everywhere and checks nothing about them, and `fastElementUltra.customHtmlData`
+describes tags in VS Code's custom-data format, attributes and slots included.
 
 ## Custom events
 
