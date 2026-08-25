@@ -1,8 +1,8 @@
 # The component model
 
 **Status**: living — implemented in `tsplugin/extract.ts`, exercised by
-`test/discovery.test.ts` (every row of §5's table, including the ❌ rows) and
-the corpus gate. Two facts pinned from source while implementing: the default
+`test/discovery.test.ts` (every row of §5's table, including the ❌ rows),
+`test/tag-name-map.test.ts` (§2.3) and the corpus gate. Two facts pinned from source while implementing: the default
 attribute name is the property name **lowercased** (fast-element
 `AttributeDefinition`: `attribute = name.toLowerCase()`), and `{ template }`
 shorthand properties resolve through
@@ -68,6 +68,55 @@ check the declaration's source file is `@microsoft/fast-element`. A local functi
 
 Same test for `attr`, `observable`, `volatile`, and the directives.
 
+### 2.3 The fourth form: `HTMLElementTagNameMap`
+
+Some libraries never write any of A/B/C at a place a file walk can read. A design system that
+registers through its own wrapper —
+
+```ts
+export function defineToaster(options?: DefineComponentOptions): Promise<typeof Toaster> {
+  return defineComponent(toasterBlueprint, options);   // tag = `${prefix}-${baseName}`
+}
+```
+
+— has no decorator, no literal name, and its one real `.define` call sits inside the generic
+wrapper where the receiver is a type parameter and the name is a runtime concatenation. §2.1 cannot
+help: there is no string-literal type anywhere in the program. The same library consumed as a built
+package is worse still, since the plugin sees only its `.d.ts`.
+
+What such a library does have — or should, since `no-missing-element-type-definition` asks every
+component for it — is the tag-name-map augmentation:
+
+```ts
+declare global {
+  interface HTMLElementTagNameMap {
+    "fui-toaster": Toaster;
+  }
+}
+```
+
+That names the tag *and* points at the class, which is everything a template needs. So discovery has
+a fourth source: every dashed property of the merged `HTMLElementTagNameMap` whose type reaches
+`FASTElement`, for tags no source file declared (a real declaration always wins — its facts are
+exact). It is deliberately the only path that reads declaration files, and so the only one that
+reaches into an installed package.
+
+Three things follow from the class being someone else's:
+
+- **No diagnostics.** The member rules run to collect facts and their output is dropped: an
+  `@attr` mismatch in a published package is not this project's to fix.
+- **Members without decorators.** A `.d.ts` keeps `position: ToastPosition` but not the `@attr`
+  that made it an attribute. When the class carries no FAST decorators at all, every public member
+  is offered as a property and the ones with an attribute-shaped type as an attribute too — a
+  library's real `@attr` is never reported unknown, at the cost of accepting a few that are not.
+- **No import rule.** `no-missing-import` is skipped: the augmentation is ambient, and the
+  registration happened wherever the app was told to run it.
+
+An entry whose type names no class of its own — the styled containers built from a factory, typed
+as plain `FASTElement` — registers the tag with no members, so it takes global attributes and
+nothing else. The facts live in one synthetic registry file (`fast-element-ultra:tag-name-map`),
+recomputed whenever the program changes.
+
 ## 3. Members
 
 | Source | Produces | Notes |
@@ -121,6 +170,8 @@ removes exactly its contribution. Merge order, highest confidence first:
 
 1. Components declared in the program (`origin: decorator | define`)
 2. JSDoc-declared members on those components
+2b. Components known only through `HTMLElementTagNameMap` (`origin: tagNameMap`, §2.3) — a
+   declaration for the same tag replaces them outright rather than merging
 3. VS Code custom data (`fastElementUltra.customHtmlData`, `html.experimental.customData`)
 4. `globalTags` / `globalAttributes` / `globalEvents` — "assume this exists, check nothing"
 5. Built-in HTML/SVG data from `fast-html-data`

@@ -41,6 +41,11 @@ form this repo's own extensions use — `@attr` in every mode, on properties
 and accessors, `@observable`, `@volatile`, `attributes: [...]` in the
 definition, members inherited through the class chain, `this.$emit(...)`
 events with their detail types, and JSDoc `@slot`/`@fires`/`@csspart`/`@cssprop`.
+A library that registers its elements behind its own `define*` wrapper — where
+the tag is built at runtime from a prefix and a base name, and there is no
+literal to find — is picked up from its `HTMLElementTagNameMap` augmentation
+instead, declaration files included, so an installed design system gets
+completion, hover and go-to-definition too.
 
 **IDE features** the compiler cannot provide: completion *inside*
 `ref('…')`/`slotted('…')`/`children('…')` string arguments with the source

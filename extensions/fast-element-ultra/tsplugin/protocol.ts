@@ -73,7 +73,7 @@ export interface ComponentFact {
   styleDocumentIds?: string[];
   documentation?: string | null;
   inTagNameMap?: boolean;
-  origin: 'decorator' | 'define';
+  origin: 'decorator' | 'define' | 'tagNameMap';
 }
 
 export interface SourceMember {

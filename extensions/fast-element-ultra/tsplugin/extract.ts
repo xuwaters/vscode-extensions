@@ -108,6 +108,39 @@ export function extractFile(options: ExtractOptions): Extraction {
   return new Extractor(options).run();
 }
 
+export interface AmbientExtractOptions {
+  ts: Ts;
+  checker: tslib.TypeChecker;
+  /** Any file of the program: resolution context for the global map. */
+  location: tslib.SourceFile;
+  interner: Interner;
+  /** Tags a source file already declares — those richer facts win. */
+  known: ReadonlySet<string>;
+}
+
+/**
+ * Components the program only knows through `HTMLElementTagNameMap`.
+ *
+ * A library that registers its elements behind its own `define*` wrapper
+ * leaves no `@customElement` and no literal tag name to find — the tag is
+ * assembled at runtime from a prefix and a base name — so file extraction
+ * sees nothing. The tag-name-map augmentation it ships names the tag *and*
+ * points at the class, which is what a template needs. This is the only
+ * discovery path that reads declaration files, so it is also the only one
+ * that reaches a component in an installed package rather than in source.
+ */
+export function extractAmbientComponents(options: AmbientExtractOptions): ComponentFact[] {
+  return new Extractor({
+    ts: options.ts,
+    checker: options.checker,
+    sourceFile: options.location,
+    htmlTemplateTags: [],
+    cssTemplateTags: [],
+    interner: options.interner,
+    resolveModule: () => undefined,
+  }).ambientComponents(options.known);
+}
+
 class Extractor {
   private readonly ts: Ts;
   private readonly checker: tslib.TypeChecker;
@@ -573,25 +606,108 @@ class Extractor {
     this.buildComponent(cls, nameOrDef, 'define');
   }
 
+  /**
+   * Everything `HTMLElementTagNameMap` says about tags no source file in the
+   * program declares. Facts only: the classes are usually someone else's, so
+   * nothing collected here is linted (see {@link extractAmbientComponents}).
+   */
+  ambientComponents(known: ReadonlySet<string>): ComponentFact[] {
+    const map = this.tagNameMapType();
+    if (!map) return [];
+    for (const property of this.checker.getPropertiesOfType(map)) {
+      const tagName = property.getName();
+      // A custom-element name always has a dash; a built-in never does.
+      if (!tagName.includes('-') || known.has(tagName)) continue;
+      const entry = property.getDeclarations()?.[0];
+      if (!entry) continue;
+      const type = this.tryTypeOfSymbol(property, entry);
+      if (!type || !this.extendsFastElement(type)) continue;
+      const cls = type
+        .getSymbol()
+        ?.getDeclarations()
+        ?.find((d): d is tslib.ClassDeclaration => this.ts.isClassDeclaration(d));
+      if (cls) {
+        this.pushComponent(cls, tagName, this.mapEntrySpan(entry), undefined, 'tagNameMap');
+      } else {
+        this.pushAnonymousComponent(tagName, property, entry, type);
+      }
+    }
+    // The rules that ran while collecting members belong to whoever owns the
+    // class — often a published package, which is not ours to report on.
+    this.discovery.length = 0;
+    return this.components;
+  }
+
+  /**
+   * A tag whose map entry names no class of its own — the styled containers a
+   * library builds from a factory (`containerBlueprint(...)` returning an
+   * anonymous class) are typed as plain `FASTElement`. The tag exists and
+   * takes global attributes; there is nothing else to say about it, and the
+   * map entry is the only place to go.
+   */
+  private pushAnonymousComponent(
+    tagName: string,
+    property: tslib.Symbol,
+    entry: tslib.Declaration,
+    type: tslib.Type,
+  ): void {
+    const entrySpan =
+      this.ts.isPropertySignature(entry) && this.ts.isStringLiteralLike(entry.name)
+        ? this.literalContentsSpan(entry.name)
+        : null;
+    this.components.push({
+      tagName,
+      className: this.typeText(type),
+      tagNameSpan: this.mapEntrySpan(entry),
+      declSpan: entrySpan,
+      declarationId: null,
+      sourceTypeId: this.interner.idOfType(type),
+      attributes: [],
+      properties: [],
+      events: [],
+      slots: [],
+      cssParts: [],
+      cssProperties: [],
+      hasShadowRoot: true,
+      templateDocumentId: null,
+      styleDocumentIds: [],
+      documentation: this.documentationOf(property),
+      inTagNameMap: true,
+      origin: 'tagNameMap',
+    });
+  }
+
+  /** The tag string in `interface HTMLElementTagNameMap { 'x-el': XEl }`. */
+  private mapEntrySpan(entry: tslib.Declaration): FileSpan | null {
+    if (!this.ts.isPropertySignature(entry)) return null;
+    if (!this.ts.isStringLiteralLike(entry.name)) return null;
+    // A tag renamed inside an installed package would be an edit nobody
+    // asked for; only an augmentation the project owns is a rename target.
+    if (entry.getSourceFile().isDeclarationFile) return null;
+    return this.literalContentsSpan(entry.name);
+  }
+
+  private extendsFastElement(type: tslib.Type): boolean {
+    const seen = new Set<tslib.Type>();
+    const walk = (current: tslib.Type, depth: number): boolean => {
+      if (depth > 8 || seen.has(current)) return false;
+      seen.add(current);
+      const symbol = current.getSymbol();
+      if (symbol?.getName() === 'FASTElement' && this.isFastElementSymbol(symbol)) return true;
+      try {
+        return (current.getBaseTypes() ?? []).some((base) => walk(base, depth + 1));
+      } catch {
+        return false;
+      }
+    };
+    return walk(type, 0);
+  }
+
   private buildComponent(
     cls: tslib.ClassDeclaration,
     nameOrDef: tslib.Expression,
     origin: 'decorator' | 'define',
   ): void {
-    if (this.componentClasses.has(cls)) return;
-    this.componentClasses.add(cls);
-
-    const className = cls.name?.text ?? '(anonymous)';
-    const classSymbol = cls.name ? this.checker.getSymbolAtLocation(cls.name) : undefined;
-    let sourceTypeId: number | null = null;
-    try {
-      if (classSymbol) {
-        sourceTypeId = this.interner.idOfType(this.checker.getDeclaredTypeOfSymbol(classSymbol));
-      }
-    } catch {
-      // Keep null.
-    }
-
     // The definition: either the name expression directly, or the object.
     let nameExpr: tslib.Expression | undefined;
     let defObject: tslib.ObjectLiteralExpression | undefined;
@@ -615,6 +731,30 @@ class Extractor {
       tagNameSpan = this.tagNameStringSpan(nameExpr);
     }
 
+    this.pushComponent(cls, tagName, tagNameSpan, defObject, origin);
+  }
+
+  private pushComponent(
+    cls: tslib.ClassDeclaration,
+    tagName: string | null,
+    tagNameSpan: FileSpan | null,
+    defObject: tslib.ObjectLiteralExpression | undefined,
+    origin: 'decorator' | 'define' | 'tagNameMap',
+  ): void {
+    if (this.componentClasses.has(cls)) return;
+    this.componentClasses.add(cls);
+
+    const className = cls.name?.text ?? '(anonymous)';
+    const classSymbol = cls.name ? this.checker.getSymbolAtLocation(cls.name) : undefined;
+    let sourceTypeId: number | null = null;
+    try {
+      if (classSymbol) {
+        sourceTypeId = this.interner.idOfType(this.checker.getDeclaredTypeOfSymbol(classSymbol));
+      }
+    } catch {
+      // Keep null.
+    }
+
     let hasShadowRoot = true;
     if (defObject) {
       const shadow = findProperty(this.ts, defObject, 'shadowOptions');
@@ -635,6 +775,9 @@ class Extractor {
       this.collectDefinitionAttributes(cls, defObject, attributes);
     }
     this.collectJsDocFacts(cls, attributes, properties, events, slots, cssParts, cssProperties);
+    if (origin === 'tagNameMap' && attributes.length === 0 && properties.length === 0) {
+      this.collectDeclaredMembers(cls, attributes, properties);
+    }
 
     const templateDocumentId = defObject
       ? this.resolveTemplateReference(findProperty(this.ts, defObject, 'template')?.initializer, 'html')
@@ -698,7 +841,9 @@ class Extractor {
     return null;
   }
 
-  private isInTagNameMap(tagName: string): boolean {
+  /** `HTMLElementTagNameMap` with every augmentation merged in, or undefined
+   * when the checker cannot be asked (no DOM lib, an internal API gone). */
+  private tagNameMapType(): tslib.Type | undefined {
     try {
       const resolveName = (
         this.checker as unknown as {
@@ -710,7 +855,7 @@ class Extractor {
           ): tslib.Symbol | undefined;
         }
       ).resolveName;
-      if (!resolveName) return true; // cannot check → do not report
+      if (!resolveName) return undefined;
       const symbol = resolveName.call(
         this.checker,
         'HTMLElementTagNameMap',
@@ -718,8 +863,17 @@ class Extractor {
         this.ts.SymbolFlags.Type,
         false,
       );
-      if (!symbol) return true;
-      const type = this.checker.getDeclaredTypeOfSymbol(symbol);
+      if (!symbol) return undefined;
+      return this.checker.getDeclaredTypeOfSymbol(symbol);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private isInTagNameMap(tagName: string): boolean {
+    const type = this.tagNameMapType();
+    if (!type) return true; // cannot check → do not report
+    try {
       return type.getProperty(tagName) !== undefined;
     } catch {
       return true;
@@ -842,9 +996,89 @@ class Extractor {
     }
   }
 
+  /**
+   * Public members of a class whose decorators are gone — a `.d.ts` keeps
+   * `position: ToastPosition` but not the `@attr` that made it an attribute.
+   * Everything is offered as a property; the ones with a type an attribute
+   * can carry are offered as attributes too, so a real `@attr` in the source
+   * is never reported unknown.
+   */
+  private collectDeclaredMembers(
+    cls: tslib.ClassDeclaration,
+    attributes: MemberFact[],
+    properties: MemberFact[],
+  ): void {
+    const seen = new Set<string>();
+    let current: tslib.ClassDeclaration | undefined = cls;
+    let depth = 0;
+    while (current && depth < 16) {
+      for (const member of current.members) {
+        if (!this.ts.isPropertyDeclaration(member) && !this.ts.isGetAccessor(member)) continue;
+        if (!member.name || !this.ts.isIdentifier(member.name)) continue;
+        const name = member.name.text;
+        if (seen.has(name) || name.startsWith('$')) continue;
+        if (visibilityOf(this.ts, member) !== 'public') continue;
+        if (
+          this.ts.canHaveModifiers(member) &&
+          (this.ts.getModifiers(member) ?? []).some(
+            (m) => m.kind === this.ts.SyntaxKind.StaticKeyword,
+          )
+        ) {
+          continue;
+        }
+        seen.add(name);
+        const memberType = this.tryTypeOf(member.name);
+        const fact: MemberFact = {
+          name,
+          typeText: memberType ? this.typeText(memberType) : null,
+          typeId: memberType ? this.interner.idOfType(memberType) : null,
+          declarationId: this.interner.idOfNode(member),
+          declSpan: this.span(member.name),
+          documentation: this.documentationOf(this.checker.getSymbolAtLocation(member.name)),
+          origin: 'declaration',
+          visibility: 'public',
+          values: memberType ? stringLiteralUnion(memberType) : [],
+        };
+        properties.push(fact);
+        if (memberType && this.isAttributeShaped(memberType)) {
+          attributes.push({ ...fact, name: name.toLowerCase(), propertyName: name, mode: 'reflect' });
+        }
+      }
+      current = this.baseClassOf(current);
+      depth += 1;
+    }
+  }
+
+  /** A type an attribute string can round-trip without a converter. */
+  private isAttributeShaped(type: tslib.Type): boolean {
+    const mask =
+      this.ts.TypeFlags.StringLike |
+      this.ts.TypeFlags.NumberLike |
+      this.ts.TypeFlags.BigIntLike |
+      this.ts.TypeFlags.BooleanLike |
+      this.ts.TypeFlags.EnumLike |
+      this.ts.TypeFlags.Any |
+      this.ts.TypeFlags.Unknown |
+      this.ts.TypeFlags.Undefined |
+      this.ts.TypeFlags.Null;
+    const parts = type.isUnion() ? type.types : [type];
+    return parts.every((part) => (part.getFlags() & mask) !== 0);
+  }
+
   private tryTypeOf(node: tslib.Node): tslib.Type | undefined {
     try {
       return this.checker.getTypeAtLocation(node);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private tryTypeOfSymbol(
+    symbol: tslib.Symbol,
+    location: tslib.Node,
+  ): tslib.Type | undefined {
+    try {
+      return this.checker.getTypeOfSymbolAtLocation(symbol, location);
     } catch {
       return undefined;
     }
@@ -1029,7 +1263,7 @@ class Extractor {
         : (tag.comment?.map((c) => c.text).join('') ?? '');
       const { name, description } = parseJsDocNameComment(comment);
       const declSpan: FileSpan = {
-        fileName: this.sf.fileName,
+        fileName: tag.getSourceFile().fileName,
         start: tag.getStart(),
         end: tag.getEnd(),
       };

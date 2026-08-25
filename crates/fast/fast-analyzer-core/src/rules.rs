@@ -308,6 +308,13 @@ impl<'a> Pass<'a> {
         if !self.enabled("no-missing-import") {
             return;
         }
+        // A component known only through `HTMLElementTagNameMap` has no
+        // module of ours to import: the augmentation is ambient and the
+        // registration happens wherever the library was told to run it.
+        let components = self.registry.components_for_tag(tag);
+        if !components.is_empty() && components.iter().all(|c| c.origin == "tagNameMap") {
+            return;
+        }
         let reachable = self.registry.is_reachable(
             &self.doc.fact.file_name,
             tag,

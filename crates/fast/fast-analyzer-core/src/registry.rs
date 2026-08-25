@@ -7,6 +7,9 @@
 //!
 //! 1. components declared in the program (`origin: decorator | define`)
 //! 2. JSDoc-declared members on those components (folded into the facts)
+//! 2b. components known only through `HTMLElementTagNameMap`
+//!    (`origin: tagNameMap`) — the plugin sends these only for tags no
+//!    declaration covers, so they never compete with level 1
 //! 3. VS Code custom data
 //! 4. `globalTags` / `globalAttributes` / `globalEvents`
 //! 5. built-in HTML/SVG data from `fast-html-data`

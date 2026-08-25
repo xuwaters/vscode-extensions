@@ -19,6 +19,7 @@ import {
 } from './css.js';
 import type { SafeEngine } from './engine.js';
 import {
+  extractAmbientComponents,
   extractFile,
   Interner,
   type Extraction,
@@ -61,11 +62,17 @@ interface CachedFile {
   extraction: Extraction;
 }
 
+/** Not a path: the registry key the ambient (tag-name-map) components live
+ * under. No file of the project can collide with it. */
+const AMBIENT_FILE = 'fast-element-ultra:tag-name-map';
+
 export class FastService {
   private readonly ts: Ts;
   private readonly interner = new Interner();
   private readonly files = new Map<string, CachedFile>();
   private lastProgram: tslib.Program | undefined;
+  private ambientProgram: tslib.Program | undefined;
+  private ambientComponents: ComponentFact[] = [];
   private config: ResolvedConfig;
   private configPushed = false;
   private severities: Record<string, string> = {};
@@ -83,6 +90,7 @@ export class FastService {
     // Force re-extraction: template-tag settings change what a template is.
     this.files.clear();
     this.lastProgram = undefined;
+    this.ambientProgram = undefined;
   }
 
   get enabled(): boolean {
@@ -140,6 +148,7 @@ export class FastService {
     }
 
     if (changed.length === 0) {
+      this.syncAmbient(program, checker);
       this.lastProgram = program;
       return;
     }
@@ -170,7 +179,56 @@ export class FastService {
         );
       }
     }
+    this.syncAmbient(program, checker);
     this.lastProgram = program;
+  }
+
+  /**
+   * Tags only `HTMLElementTagNameMap` knows about — a library that registers
+   * its elements behind its own `define*` wrapper, or one consumed as a built
+   * package, declares nothing a file extraction can see. They land in one
+   * synthetic file so that removing them is a single call and so that the
+   * import-reachability rules can tell them apart (they are ambient: no
+   * import of ours makes them more or less defined).
+   */
+  private syncAmbient(program: tslib.Program, checker: tslib.TypeChecker): void {
+    if (this.ambientProgram === program) return;
+    this.ambientProgram = program;
+    const location = program.getSourceFiles().find((f) => this.files.has(f.fileName));
+    if (!location) {
+      if (this.ambientComponents.length > 0) {
+        this.ambientComponents = [];
+        this.context.engine.removeFile(AMBIENT_FILE);
+      }
+      return;
+    }
+    const known = new Set<string>();
+    for (const { extraction } of this.files.values()) {
+      for (const component of extraction.upsert.components) {
+        if (component.tagName) known.add(component.tagName);
+      }
+    }
+    try {
+      this.ambientComponents = extractAmbientComponents({
+        ts: this.ts,
+        checker,
+        location,
+        interner: this.interner,
+        known,
+      });
+    } catch (error) {
+      this.ambientComponents = [];
+      this.context.logger.error(
+        `tag-name-map discovery failed: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+    this.context.engine.upsertFile({
+      fileName: AMBIENT_FILE,
+      dependencies: [],
+      nodeModuleDependencies: [],
+      components: this.ambientComponents,
+      documents: [],
+    });
   }
 
   private resolveModule(
@@ -242,6 +300,9 @@ export class FastService {
       for (const component of extraction.upsert.components) {
         if (component.tagName === tag) out.push(component);
       }
+    }
+    for (const component of this.ambientComponents) {
+      if (component.tagName === tag) out.push(component);
     }
     return out;
   }
