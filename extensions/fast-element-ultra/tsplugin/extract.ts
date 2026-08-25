@@ -145,6 +145,23 @@ export function extractAmbientComponents(options: AmbientExtractOptions): Compon
   }).ambientComponents(options.known);
 }
 
+/** The files the ambient scans read, so a caller can tell when re-running
+ * them could possibly produce anything different. */
+export function globalMapSources(
+  options: Omit<AmbientExtractOptions, 'known'>,
+  names: readonly string[],
+): string[] {
+  return new Extractor({
+    ts: options.ts,
+    checker: options.checker,
+    sourceFile: options.location,
+    htmlTemplateTags: [],
+    cssTemplateTags: [],
+    interner: options.interner,
+    resolveModule: () => undefined,
+  }).globalMapSources(names);
+}
+
 export interface GlobalEventOptions {
   ts: Ts;
   checker: tslib.TypeChecker;
@@ -878,9 +895,9 @@ class Extractor {
     return null;
   }
 
-  /** A global interface with every augmentation merged in, or undefined when
-   * the checker cannot be asked (no DOM lib, an internal API gone). */
-  private globalInterfaceType(name: string): tslib.Type | undefined {
+  /** A global interface's symbol, every augmentation merged in, or undefined
+   * when the checker cannot be asked (no DOM lib, an internal API gone). */
+  private globalInterfaceSymbol(name: string): tslib.Symbol | undefined {
     try {
       const resolveName = (
         this.checker as unknown as {
@@ -893,18 +910,38 @@ class Extractor {
         }
       ).resolveName;
       if (!resolveName) return undefined;
-      const symbol = resolveName.call(
-        this.checker,
-        name,
-        undefined,
-        this.ts.SymbolFlags.Type,
-        false,
-      );
-      if (!symbol) return undefined;
+      return resolveName.call(this.checker, name, undefined, this.ts.SymbolFlags.Type, false);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** A global interface with every augmentation merged in. */
+  private globalInterfaceType(name: string): tslib.Type | undefined {
+    const symbol = this.globalInterfaceSymbol(name);
+    if (!symbol) return undefined;
+    try {
       return this.checker.getDeclaredTypeOfSymbol(symbol);
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Every file that declares one of the global maps — lib.dom's own, plus
+   * each `declare global` augmentation. This is the whole input to
+   * {@link ambientComponents} and {@link globalEvents} beyond the tag names
+   * the project itself registers, so it is what deciding whether to run them
+   * again comes down to.
+   */
+  globalMapSources(names: readonly string[]): string[] {
+    const out = new Set<string>();
+    for (const name of names) {
+      for (const declaration of this.globalInterfaceSymbol(name)?.getDeclarations() ?? []) {
+        out.add(declaration.getSourceFile().fileName);
+      }
+    }
+    return [...out];
   }
 
   private tagNameMapType(): tslib.Type | undefined {

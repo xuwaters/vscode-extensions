@@ -21,6 +21,7 @@ import type { SafeEngine } from './engine.js';
 import {
   extractAmbientComponents,
   extractFile,
+  globalMapSources,
   extractGlobalEvents,
   Interner,
   type Extraction,
@@ -68,12 +69,24 @@ interface CachedFile {
  * under. No file of the project can collide with it. */
 const AMBIENT_FILE = 'fast-element-ultra:tag-name-map';
 
+/** The global interfaces the ambient scans read. */
+const GLOBAL_MAPS = ['HTMLElementTagNameMap', 'HTMLElementEventMap'];
+
+/** Every file an extraction read types from, wherever it lives. Both lists:
+ * a package's declarations feed an extraction exactly as a sibling module
+ * does, and `@microsoft/fast-element` itself is in the second one. */
+function dependenciesOf(extraction: Extraction): string[] {
+  return [...extraction.upsert.dependencies, ...(extraction.upsert.nodeModuleDependencies ?? [])];
+}
+
 export class FastService {
   private readonly ts: Ts;
   private readonly interner = new Interner();
   private readonly files = new Map<string, CachedFile>();
-  private lastProgram: tslib.Program | undefined;
-  private ambientProgram: tslib.Program | undefined;
+  private lastOptions: tslib.CompilerOptions | undefined;
+  /** Script versions of the files the slice imports but does not contain. */
+  private outsideVersions = new Map<string, string>();
+  private ambientKey: string | undefined;
   private ambientComponents: ComponentFact[] = [];
   private globalEvents: EventFact[] = [];
   private config: ResolvedConfig;
@@ -92,8 +105,9 @@ export class FastService {
     this.configPushed = false;
     // Force re-extraction: template-tag settings change what a template is.
     this.files.clear();
-    this.lastProgram = undefined;
-    this.ambientProgram = undefined;
+    this.lastOptions = undefined;
+    this.outsideVersions.clear();
+    this.ambientKey = undefined;
   }
 
   get enabled(): boolean {
@@ -128,8 +142,21 @@ export class FastService {
     }
 
     const checker = program.getTypeChecker();
+    // A new compiler-options object means the tsconfig was reloaded, and with
+    // it module resolution — so every extraction's import edges may have
+    // moved and none of them can be trusted. Editing a source file does not
+    // do this; tsserver hands the same options object to program after
+    // program. A host that rebuilds options anyway costs us the old
+    // behaviour, nothing worse.
+    const options = program.getCompilerOptions();
+    const optionsChanged = this.lastOptions !== undefined && this.lastOptions !== options;
+    this.lastOptions = options;
+
     const present = new Set<string>();
-    const changed: string[] = [];
+    const versions = new Map<string, string>();
+    // Roots of the invalidation: files whose own text moved, plus files that
+    // left the program — whoever imported one of those read types from it.
+    const roots = new Set<string>();
     for (const sourceFile of program.getSourceFiles()) {
       if (sourceFile.isDeclarationFile) continue;
       if (sourceFile.fileName.includes('/node_modules/')) continue;
@@ -138,32 +165,39 @@ export class FastService {
       }
       present.add(sourceFile.fileName);
       const version = this.context.languageServiceHost.getScriptVersion(sourceFile.fileName);
+      versions.set(sourceFile.fileName, version);
       const cached = this.files.get(sourceFile.fileName);
-      if (cached && cached.version === version && this.lastProgram === program) continue;
-      changed.push(sourceFile.fileName);
+      if (!cached || cached.version !== version || optionsChanged) roots.add(sourceFile.fileName);
     }
 
     for (const fileName of [...this.files.keys()]) {
       if (!present.has(fileName)) {
         this.files.delete(fileName);
         this.context.engine.removeFile(fileName);
+        roots.add(fileName);
       }
     }
 
-    if (changed.length === 0) {
-      this.syncAmbient(program, checker);
-      this.lastProgram = program;
-      return;
+    // Files the slice reads but that are not part of it: the module holding a
+    // tag-name const, a base class in a file that never says "fast-element",
+    // a package's declarations. Nothing above would notice one of those
+    // changing, because the loop over the program only walks the slice.
+    for (const [dependency, version] of this.outsideDependencyVersions(present)) {
+      if (this.outsideVersions.get(dependency) !== version) roots.add(dependency);
     }
 
-    // Types in one file feed extractions of another (source members, tag
-    // consts), so any change re-extracts the whole FAST slice of the
-    // program. The slice is small by construction — files that mention
-    // fast-element — and extraction is a walk, not a check of the world.
-    for (const fileName of present) {
+    const stale = this.staleFiles(roots, present);
+    if (stale.size === 0) {
+      this.syncAmbient(program, checker);
+      return;
+    }
+    // Recorded after extraction below, not here: a first sync starts with no
+    // extractions at all, so the dependency edges do not exist yet and every
+    // outside file would look new on the sync after it.
+
+    for (const fileName of stale) {
       const sourceFile = program.getSourceFile(fileName);
       if (!sourceFile) continue;
-      const version = this.context.languageServiceHost.getScriptVersion(fileName);
       try {
         const extraction = extractFile({
           ts: this.ts,
@@ -174,7 +208,10 @@ export class FastService {
           interner: this.interner,
           resolveModule: (specifier, fromFile) => this.resolveModule(specifier, fromFile),
         });
-        this.files.set(fileName, { version, extraction });
+        this.files.set(fileName, {
+          version: versions.get(fileName) ?? '',
+          extraction,
+        });
         this.context.engine.upsertFile(extraction.upsert);
       } catch (error) {
         this.context.logger.error(
@@ -182,8 +219,64 @@ export class FastService {
         );
       }
     }
+    this.outsideVersions = this.outsideDependencyVersions(present);
     this.syncAmbient(program, checker);
-    this.lastProgram = program;
+  }
+
+  /** What every cached extraction read from outside the slice, and at which
+   * version. */
+  private outsideDependencyVersions(present: ReadonlySet<string>): Map<string, string> {
+    const outside = new Map<string, string>();
+    for (const { extraction } of this.files.values()) {
+      for (const dependency of dependenciesOf(extraction)) {
+        if (present.has(dependency) || outside.has(dependency)) continue;
+        outside.set(dependency, this.context.languageServiceHost.getScriptVersion(dependency));
+      }
+    }
+    return outside;
+  }
+
+  /**
+   * The files whose extraction the change might have invalidated: the roots,
+   * and then whatever imported them, transitively.
+   *
+   * Types cross module boundaries — a component's base class, the const a tag
+   * name is spelled with, the source type behind `html<T>` — so a file's
+   * facts really can go stale because a file it imports moved, and that is
+   * what the import edges recorded at extraction time are for. Walking them
+   * backwards is what keeps a keystroke to the handful of files that could
+   * have been affected rather than the whole FAST slice, which on a
+   * hundred-component project is the difference between a few milliseconds
+   * and a few hundred.
+   */
+  private staleFiles(roots: ReadonlySet<string>, present: ReadonlySet<string>): Set<string> {
+    // Built per sync from the extractions currently cached: a few thousand
+    // string pushes on the largest projects, against the type resolution one
+    // avoided extraction saves.
+    const importers = new Map<string, string[]>();
+    for (const [fileName, { extraction }] of this.files) {
+      for (const dependency of dependenciesOf(extraction)) {
+        const list = importers.get(dependency);
+        if (list) list.push(fileName);
+        else importers.set(dependency, [fileName]);
+      }
+    }
+
+    const stale = new Set<string>();
+    const queue = [...roots];
+    while (queue.length > 0) {
+      const fileName = queue.pop()!;
+      if (stale.has(fileName)) continue;
+      stale.add(fileName);
+      for (const importer of importers.get(fileName) ?? []) {
+        if (present.has(importer) && !stale.has(importer)) queue.push(importer);
+      }
+    }
+    // A file that left the program is a root but not something to extract.
+    for (const fileName of [...stale]) {
+      if (!present.has(fileName)) stale.delete(fileName);
+    }
+    return stale;
   }
 
   /**
@@ -199,10 +292,9 @@ export class FastService {
    * no import of ours makes them more or less defined).
    */
   private syncAmbient(program: tslib.Program, checker: tslib.TypeChecker): void {
-    if (this.ambientProgram === program) return;
-    this.ambientProgram = program;
     const location = program.getSourceFiles().find((f) => this.files.has(f.fileName));
     if (!location) {
+      this.ambientKey = undefined;
       if (this.ambientComponents.length > 0 || this.globalEvents.length > 0) {
         this.ambientComponents = [];
         this.globalEvents = [];
@@ -216,6 +308,16 @@ export class FastService {
         if (component.tagName) known.add(component.tagName);
       }
     }
+
+    // These scans read two things and nothing else: the files declaring the
+    // global maps, and the tags the project registers itself. Keying on those
+    // rather than on program identity is what stops a new program — one per
+    // keystroke — from re-resolving every ambient component's base chain and
+    // member types through a cold checker.
+    const key = this.ambientCacheKey(checker, location, known);
+    if (key !== undefined && key === this.ambientKey) return;
+    this.ambientKey = key;
+
     try {
       this.ambientComponents = extractAmbientComponents({
         ts: this.ts,
@@ -252,6 +354,30 @@ export class FastService {
       documents: [],
       globalEvents: this.globalEvents,
     });
+  }
+
+  /** Everything the ambient scans read, in one comparable string: the tag
+   * names the project registers, and the version of every file declaring a
+   * global map. `undefined` when the maps cannot be located at all, which
+   * disables the cache rather than pinning a wrong answer. */
+  private ambientCacheKey(
+    checker: tslib.TypeChecker,
+    location: tslib.SourceFile,
+    known: ReadonlySet<string>,
+  ): string | undefined {
+    try {
+      const sources = globalMapSources(
+        { ts: this.ts, checker, location, interner: this.interner },
+        GLOBAL_MAPS,
+      );
+      if (sources.length === 0) return undefined;
+      const stamped = sources
+        .sort()
+        .map((f) => `${f}@${this.context.languageServiceHost.getScriptVersion(f)}`);
+      return `${[...known].sort().join(',')}\n${stamped.join(',')}`;
+    } catch {
+      return undefined;
+    }
   }
 
   private resolveModule(
