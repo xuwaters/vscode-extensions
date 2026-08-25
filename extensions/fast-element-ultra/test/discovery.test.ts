@@ -203,6 +203,134 @@ describe.skipIf(!wasmBuilt)('component discovery', () => {
     expect(component.cssProperties.map((p) => p.name)).toEqual(['--thing-gap']);
   });
 
+  it('finds events emitted from the template, host and repeat-item alike', () => {
+    const harness = createHarness({
+      [ELEMENT]: `
+        import { FASTElement, customElement, html, observable, repeat } from '@microsoft/fast-element';
+        export class Tab { id = 0; }
+        const tabTemplate = html<Tab, TabBar>\`
+          <div @click="\${(x, c) => c.parent.$emit('tab-select', { id: x.id })}"></div>
+        \`;
+        const template = html<TabBar>\`
+          \${repeat((x) => x.tabs, tabTemplate)}
+          <button @click="\${(x) => x.$emit('tab-add')}"></button>
+        \`;
+        @customElement({ name: 'tab-bar', template })
+        export class TabBar extends FASTElement {
+          @observable tabs: Tab[] = [];
+        }
+      `,
+    });
+    harness.service.sync();
+    const [component] = harness.service
+      .fileExtraction(ELEMENT)!
+      .upsert.components.filter((c) => c.tagName === 'tab-bar');
+    expect(component.events.map((e) => e.name).sort()).toEqual(['tab-add', 'tab-select']);
+    // `c.parent` types to the host, so the detail comes along with it.
+    expect(component.events.find((e) => e.name === 'tab-select')?.typeText).toContain('id');
+  });
+
+  it('attributes an emit to the class the receiver names, not the nearest one', () => {
+    const OTHER = fixture('other.ts');
+    const harness = createHarness({
+      [OTHER]: `
+        import { FASTElement, customElement } from '@microsoft/fast-element';
+        @customElement('other-el')
+        export class OtherEl extends FASTElement {}
+      `,
+      [ELEMENT]: `
+        import { FASTElement, customElement, html } from '@microsoft/fast-element';
+        import { OtherEl } from './other.js';
+        const template = html<HostEl>\`
+          <button @click="\${(x) => x.other.$emit('not-mine')}"></button>
+          <button @click="\${(x) => x.$emit('mine')}"></button>
+        \`;
+        @customElement({ name: 'host-el', template })
+        export class HostEl extends FASTElement {
+          other!: OtherEl;
+        }
+      `,
+    });
+    harness.service.sync();
+    const [component] = harness.service
+      .fileExtraction(ELEMENT)!
+      .upsert.components.filter((c) => c.tagName === 'host-el');
+    expect(component.events.map((e) => e.name)).toEqual(['mine']);
+  });
+
+  it('reads a declared $events map, through an interface and with docs', () => {
+    const harness = createHarness({
+      [ELEMENT]: `
+        import { FASTElement, customElement } from '@microsoft/fast-element';
+        export interface BarEvents {
+          /** A tab was chosen. */
+          'tab-select': { id: number };
+          'tab-add': void;
+        }
+        @customElement('map-el')
+        export class MapEl extends FASTElement {
+          declare $events: BarEvents;
+        }
+      `,
+    });
+    harness.service.sync();
+    const [component] = harness.service.fileExtraction(ELEMENT)!.upsert.components;
+    const events = new Map(component.events.map((e) => [e.name, e]));
+    expect([...events.keys()].sort()).toEqual(['tab-add', 'tab-select']);
+    expect(events.get('tab-select')?.typeText).toContain('id');
+    expect(events.get('tab-select')?.documentation).toBe('A tab was chosen.');
+    // `void` is "no detail", not a detail type worth showing.
+    expect(events.get('tab-add')?.typeText).toBeNull();
+    // The map itself is a contract, not a bindable property.
+    expect(component.properties.map((p) => p.name)).not.toContain('$events');
+  });
+
+  it('a declared $events entry types an event the class also emits', () => {
+    const harness = createHarness({
+      [ELEMENT]: `
+        import { FASTElement, customElement } from '@microsoft/fast-element';
+        /** @fires closed - The panel went away. */
+        @customElement('both-el')
+        export class BothEl extends FASTElement {
+          declare $events: { closed: { reason: 'user' | 'timeout' } };
+          close(): void { this.$emit('closed', { reason: 'user' } as { reason: 'user' | 'timeout' }); }
+        }
+      `,
+    });
+    harness.service.sync();
+    const [component] = harness.service.fileExtraction(ELEMENT)!.upsert.components;
+    expect(component.events).toHaveLength(1);
+    // Declared type, JSDoc prose, and the map's own span — merged, not
+    // dropped because the name was already taken.
+    expect(component.events[0].typeText).toContain('reason');
+    expect(component.events[0].documentation).toBe('The panel went away.');
+  });
+
+  it('takes the detail type from a typed @fires tag', () => {
+    const harness = createHarness({
+      [ELEMENT]: `
+        import { FASTElement, customElement } from '@microsoft/fast-element';
+        /**
+         * @fires {{ id: number }} tab-select - A tab was chosen.
+         * @fires {CustomEvent<string>} named - Documented elsewhere.
+         * @attr {number} row-height - How tall a row is.
+         */
+        @customElement('doc-el')
+        export class DocEl extends FASTElement {}
+      `,
+    });
+    harness.service.sync();
+    const [component] = harness.service.fileExtraction(ELEMENT)!.upsert.components;
+    const events = new Map(component.events.map((e) => [e.name, e]));
+    expect([...events.keys()].sort()).toEqual(['named', 'tab-select']);
+    expect(events.get('tab-select')?.typeText).toBe('{ id: number }');
+    expect(events.get('tab-select')?.documentation).toBe('A tab was chosen.');
+    expect(events.get('named')?.typeText).toBe('CustomEvent<string>');
+    const attribute = component.attributes.find((a) => a.name === 'row-height');
+    expect(attribute?.typeText).toBe('number');
+    expect(attribute?.documentation).toBe('How tall a row is.');
+  });
+
   it('records shadowOptions: null as light DOM', () => {
     const harness = createHarness({
       [ELEMENT]: `

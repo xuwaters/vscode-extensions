@@ -35,6 +35,10 @@ const FAST_DIRECTIVES = new Set(['when', 'repeat', 'render', 'ref', 'slotted', '
 const MAX_SOURCE_MEMBERS = 512;
 const MAX_TYPE_TEXT = 120;
 
+/** The declared event map: `declare $events: { "tab-select": { id: number } }`.
+ * `declare` emits no field, so the member is a contract and nothing else. */
+const EVENT_MAP_MEMBER = '$events';
+
 export interface TemplateInfo {
   documentId: string;
   node: tslib.TaggedTemplateExpression;
@@ -151,6 +155,7 @@ class Extractor {
   private documents: VirtualDocumentFact[] = [];
   private components: ComponentFact[] = [];
   private componentClasses = new Set<tslib.ClassDeclaration>();
+  private emits: Map<tslib.ClassDeclaration, EventFact[]> | null = null;
   private dependencies: string[] = [];
   private nodeModuleDependencies: string[] = [];
   private discovery: FileDiagnostic[] = [];
@@ -896,7 +901,17 @@ class Extractor {
     while (current && depth < 16) {
       const origin = depth === 0 ? 'decorator' : 'inherited';
       this.collectClassMembers(current, tagName, origin, seen, attributes, properties);
-      this.collectEmitCalls(current, events);
+      // The declared map first: it is the one source with a real type behind
+      // every name, so it wins the fields an inferred `$emit` also fills.
+      this.collectDeclaredEvents(current, events);
+      if (current.getSourceFile() === this.sf) {
+        for (const fact of this.emitIndex().get(current) ?? []) mergeEvent(events, fact);
+      } else {
+        // Another file's class body, which the emit index does not cover; a
+        // base class emitting from its own template is out of reach and wants
+        // `@fires` or `$events`.
+        this.collectEmitCalls(current, events);
+      }
       current = this.baseClassOf(current);
       depth += 1;
     }
@@ -1208,7 +1223,89 @@ class Extractor {
     }
   }
 
-  /** `this.$emit("name", detail)` → an event (P2-07). */
+  // ------------------------------------------------------------------ events
+
+  /**
+   * Every `$emit` in the file, keyed by the class its receiver's type names
+   * (P2-07).
+   *
+   * The idiomatic place to raise an event is the template, not the class
+   * body: `x.$emit("tab-add")` on the host, `c.parent.$emit("tab-select", …)`
+   * from inside a `repeat` item template. Neither is spelled `this.$emit` and
+   * neither is lexically inside the class, so the *type* of the receiver is
+   * what decides whose event it is — which is also what keeps a neighbouring
+   * `otherEl.$emit(…)` off this component.
+   */
+  private emitIndex(): Map<tslib.ClassDeclaration, EventFact[]> {
+    if (this.emits) return this.emits;
+    const index = new Map<tslib.ClassDeclaration, EventFact[]>();
+    this.emits = index;
+    if (!this.sf.text.includes('$emit')) return index;
+    const visit = (node: tslib.Node): void => {
+      if (
+        this.ts.isCallExpression(node) &&
+        this.ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === '$emit'
+      ) {
+        const cls = this.receiverClass(node.expression.expression);
+        const fact = cls ? this.emitFact(node) : undefined;
+        if (cls && fact) {
+          const list = index.get(cls);
+          if (list) mergeEvent(list, fact);
+          else index.set(cls, [fact]);
+        }
+      }
+      this.ts.forEachChild(node, visit);
+    };
+    visit(this.sf);
+    return index;
+  }
+
+  /** The class declaration a `$emit` receiver's type names, if any. */
+  private receiverClass(receiver: tslib.Expression): tslib.ClassDeclaration | undefined {
+    const type = this.tryTypeOf(receiver);
+    if (!type) return undefined;
+    try {
+      return type
+        .getSymbol()
+        ?.getDeclarations()
+        ?.find((d): d is tslib.ClassDeclaration => this.ts.isClassDeclaration(d));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** `$emit("name", detail)` → the event it raises: the name from argument 0
+   * (a literal, or anything the checker narrows to one), the detail type from
+   * argument 1. */
+  private emitFact(call: tslib.CallExpression): EventFact | undefined {
+    const nameArg = call.arguments[0];
+    if (!nameArg) return undefined;
+    let name: string | undefined;
+    let declSpan: FileSpan | null = null;
+    if (this.ts.isStringLiteralLike(nameArg)) {
+      name = nameArg.text;
+      declSpan = this.literalContentsSpan(nameArg);
+    } else {
+      const type = this.tryTypeOf(nameArg);
+      if (type?.isStringLiteral()) {
+        name = type.value;
+        declSpan = this.span(nameArg);
+      }
+    }
+    if (!name) return undefined;
+    const detail = call.arguments[1];
+    const detailType = detail && this.tryTypeOf(detail);
+    return {
+      name,
+      typeText: detailType ? this.typeText(detailType) : null,
+      declSpan,
+      documentation: null,
+    };
+  }
+
+  /** `this.$emit(…)` inside a class body the emit index does not cover — a
+   * base class declared in another file. */
   private collectEmitCalls(cls: tslib.ClassDeclaration, events: EventFact[]): void {
     const visit = (node: tslib.Node): void => {
       if (
@@ -1217,33 +1314,59 @@ class Extractor {
         node.expression.name.text === '$emit' &&
         node.expression.expression.kind === this.ts.SyntaxKind.ThisKeyword
       ) {
-        const nameArg = node.arguments[0];
-        let name: string | undefined;
-        let declSpan: FileSpan | null = null;
-        if (nameArg && this.ts.isStringLiteralLike(nameArg)) {
-          name = nameArg.text;
-          declSpan = this.literalContentsSpan(nameArg);
-        } else if (nameArg) {
-          const type = this.tryTypeOf(nameArg);
-          if (type?.isStringLiteral()) {
-            name = type.value;
-            declSpan = this.span(nameArg);
-          }
-        }
-        if (name && !events.some((e) => e.name === name)) {
-          const detail = node.arguments[1];
-          const detailType = detail && this.tryTypeOf(detail);
-          events.push({
-            name,
-            typeText: detailType ? this.typeText(detailType) : null,
-            declSpan,
-            documentation: null,
-          });
-        }
+        const fact = this.emitFact(node);
+        if (fact) mergeEvent(events, fact);
       }
       this.ts.forEachChild(node, visit);
     };
     visit(cls);
+  }
+
+  /**
+   * The declared event map — `declare $events: { "tab-select": { id: number } }`.
+   *
+   * Read through the checker, so a named interface (`declare $events:
+   * TabBarEvents`) and an inherited map work the same as a literal. A `void`
+   * detail is "no detail", not a type worth showing.
+   */
+  private collectDeclaredEvents(cls: tslib.ClassDeclaration, events: EventFact[]): void {
+    const member = cls.members.find(
+      (m) =>
+        this.ts.isPropertyDeclaration(m) &&
+        m.name !== undefined &&
+        this.ts.isIdentifier(m.name) &&
+        m.name.text === EVENT_MAP_MEMBER,
+    );
+    if (!member?.name) return;
+    const type = this.tryTypeOf(member.name);
+    if (!type) return;
+    let properties: readonly tslib.Symbol[] = [];
+    try {
+      properties = this.checker.getPropertiesOfType(type);
+    } catch {
+      return;
+    }
+    for (const property of properties) {
+      const declaration = property.getDeclarations()?.[0];
+      const detail = declaration ? this.tryTypeOfSymbol(property, declaration) : undefined;
+      const typeText = detail ? this.typeText(detail) : null;
+      mergeEvent(events, {
+        name: property.getName(),
+        typeText: typeText === 'void' || typeText === 'undefined' ? null : typeText,
+        declSpan: declaration ? this.declaredEventSpan(declaration) : null,
+        documentation: this.documentationOf(property),
+      });
+    }
+  }
+
+  /** The event name inside the map, quotes excluded, so go-to-definition on
+   * `@tab-select` lands on the declaration rather than on `$events`. */
+  private declaredEventSpan(declaration: tslib.Declaration): FileSpan | null {
+    const name = (declaration as tslib.NamedDeclaration).name;
+    if (!name) return this.span(declaration);
+    return this.ts.isStringLiteralLike(name)
+      ? this.literalContentsSpan(name)
+      : this.span(name);
   }
 
   /** JSDoc `@slot` / `@fires` / `@csspart` / `@cssprop` / `@attr` / `@prop`. */
@@ -1261,7 +1384,14 @@ class Extractor {
       const comment = typeof tag.comment === 'string'
         ? tag.comment
         : (tag.comment?.map((c) => c.text).join('') ?? '');
-      const { name, description } = parseJsDocNameComment(comment);
+      const { typeText, name, description } = parseJsDocNameComment(comment);
+      // A tag TypeScript itself knows keeps its `{Type}` in a type expression
+      // rather than in the comment text; ours arrive in the text.
+      const typeExpression = (tag as { typeExpression?: tslib.JSDocTypeExpression })
+        .typeExpression;
+      const declaredType = typeExpression?.type
+        ? typeExpression.type.getText()
+        : typeText;
       const declSpan: FileSpan = {
         fileName: tag.getSourceFile().fileName,
         start: tag.getStart(),
@@ -1281,8 +1411,13 @@ class Extractor {
           break;
         case 'fires':
         case 'event':
-          if (name && !events.some((e) => e.name === name)) {
-            events.push({ name, typeText: null, declSpan, documentation: description || null });
+          if (name) {
+            mergeEvent(events, {
+              name,
+              typeText: declaredType,
+              declSpan,
+              documentation: description || null,
+            });
           }
           break;
         case 'attr':
@@ -1292,6 +1427,7 @@ class Extractor {
               name,
               propertyName: null,
               mode: 'reflect',
+              typeText: declaredType,
               declSpan,
               documentation: description || null,
               origin: 'jsdoc',
@@ -1303,6 +1439,7 @@ class Extractor {
           if (name && !properties.some((p) => p.name === name)) {
             properties.push({
               name,
+              typeText: declaredType,
               declSpan,
               documentation: description || null,
               origin: 'jsdoc',
@@ -1437,16 +1574,67 @@ function isArrayLike(ts: Ts, checker: tslib.TypeChecker, type: tslib.Type): bool
   }
 }
 
-/** `@slot name - description`, `@slot - description` (default slot). */
-function parseJsDocNameComment(comment: string): { name: string; description: string } {
-  const trimmed = comment.trim();
-  if (!trimmed) return { name: '', description: '' };
-  if (/^-(\s|$)/.test(trimmed)) {
-    return { name: '', description: trimmed.slice(1).trim() };
+/**
+ * `@fires {Detail} name - description`, `@slot name - description`,
+ * `@slot - description` (the default slot) — every part optional.
+ *
+ * The type is text, not a checked type: the tags this reads are ones
+ * TypeScript does not know, so nothing resolves `Detail` for us. It is worth
+ * carrying anyway — hover and completion show it, which is the whole point of
+ * writing it down.
+ */
+function parseJsDocNameComment(comment: string): {
+  typeText: string | null;
+  name: string;
+  description: string;
+} {
+  let rest = comment.trim();
+  let typeText: string | null = null;
+  if (rest.startsWith('{')) {
+    const close = matchingBrace(rest);
+    if (close > 0) {
+      typeText = rest.slice(1, close).trim() || null;
+      rest = rest.slice(close + 1).trim();
+    }
   }
-  const match = /^(\S+)\s*(?:-\s*)?(.*)$/s.exec(trimmed);
-  if (!match) return { name: '', description: trimmed };
-  return { name: match[1], description: match[2].trim() };
+  if (!rest) return { typeText, name: '', description: '' };
+  if (/^-(\s|$)/.test(rest)) {
+    return { typeText, name: '', description: rest.slice(1).trim() };
+  }
+  const match = /^(\S+)\s*(?:-\s*)?(.*)$/s.exec(rest);
+  if (!match) return { typeText, name: '', description: rest };
+  return { typeText, name: match[1], description: match[2].trim() };
+}
+
+/** Index of the `}` closing the `{` at position 0, or -1 — the nesting an
+ * inline object type brings (`{{ id: number }}`) is why this is not indexOf. */
+function matchingBrace(text: string): number {
+  let depth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === '{') depth += 1;
+    else if (text[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Merge an event into the list: a later source fills the fields an earlier one
+ * left empty instead of being dropped whole. `@fires` documenting an event the
+ * class also `$emit`s is the ordinary case — the emit knows the detail type,
+ * the JSDoc knows what the event means, and both are worth keeping.
+ */
+function mergeEvent(events: EventFact[], fact: EventFact): void {
+  const existing = events.find((e) => e.name === fact.name);
+  if (!existing) {
+    events.push(fact);
+    return;
+  }
+  existing.typeText ??= fact.typeText ?? null;
+  existing.declSpan ??= fact.declSpan ?? null;
+  existing.documentation ??= fact.documentation ?? null;
 }
 
 /** The virtual-document substitution: length preserved, index recoverable. */

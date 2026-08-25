@@ -81,7 +81,7 @@ unimported component.
 | A tag name | The component class declaration |
 | An attribute | The `@attr` member, or the `attributes:` entry, or the JSDoc tag |
 | A property | The `@observable`/`@volatile` member |
-| An event | The `this.$emit("…")` call that emits it, or the `@fires` JSDoc |
+| An event | The `$emit("…")` call that emits it, its `$events` entry, or the `@fires` JSDoc |
 | A slot name | The `@slot` JSDoc |
 | **`ref('name')`** | **The member `name`** — new |
 | A CSS part or custom property | Its JSDoc declaration |

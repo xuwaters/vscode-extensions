@@ -39,8 +39,9 @@ template in it and the templates are checked alongside the code around them.
 registration forms — including `@customElement({ name: SOME_CONST })`, the
 form this repo's own extensions use — `@attr` in every mode, on properties
 and accessors, `@observable`, `@volatile`, `attributes: [...]` in the
-definition, members inherited through the class chain, `this.$emit(...)`
-events with their detail types, and JSDoc `@slot`/`@fires`/`@csspart`/`@cssprop`.
+definition, members inherited through the class chain, `$emit(...)` events
+with their detail types (see [Custom events](#custom-events)), and JSDoc
+`@slot`/`@fires`/`@csspart`/`@cssprop`.
 A library that registers its elements behind its own `define*` wrapper — where
 the tag is built at runtime from a prefix and a base name, and there is no
 literal to find — is picked up from its `HTMLElementTagNameMap` augmentation
@@ -56,6 +57,76 @@ every template that uses it.
 
 **Suppression**: a `@ts-ignore` (or `@fast-ignore`) comment on the previous
 line silences a template diagnostic.
+
+## Custom events
+
+`no-unknown-event` only knows the events it can find, so `@my-event` on a
+component that never declared one is reported as a typo. There are three ways
+a component says what it emits, and they combine — a detail type from one and
+prose from another end up on the same event.
+
+**1. Just emit it.** Every `$emit` in the file counts, wherever it is written,
+and the *type of the receiver* decides whose event it is. The idiomatic FAST
+spellings all work: `this.$emit(…)` in a method, `x.$emit(…)` in the host's
+own template, and `c.parent.$emit(…)` from inside a `repeat` item template —
+where `c.parent` is the only way back to the host:
+
+```ts
+const tabTemplate = html<Tab, TabBar>`
+  <div @click="${(x, c) => c.parent.$emit('tab-select', { id: x.id })}"></div>
+`;
+
+const template = html<TabBar>`
+  ${repeat((x) => x.tabs, tabTemplate)}
+  <button @click="${(x) => x.$emit('tab-add')}"></button>
+`;
+```
+
+Both events are found, `tab-select` carrying `{ id: number }` as its detail —
+nothing to annotate. The reach stops at the file: a base class in another
+file contributes its `this.$emit` calls, but an event that class raises from
+*its* template needs one of the next two forms.
+
+**2. Declare the map.** The explicit contract, and the only form the compiler
+itself checks. `declare` emits no field, so this costs nothing at runtime:
+
+```ts
+@customElement({ name: 'tab-bar', template })
+export class TabBar extends FASTElement {
+  declare $events: {
+    /** A tab was chosen. */
+    'tab-select': { id: number };
+    'tab-close': { id: number };
+    'tab-add': void;
+  };
+}
+```
+
+Names and detail types are read through the type checker, so a named
+interface (`declare $events: TabBarEvents`) works the same way, `void` means
+"no detail", and go-to-definition on `@tab-select` lands on the line that
+declares it. Reach for this when the event is part of the component's public
+API, or when it is raised somewhere the emit scan cannot see — a mixin, a
+helper, a controller.
+
+**3. JSDoc `@fires`.** The documentation form, for a component whose events
+are described in prose anyway. A `{Type}` in braces sets the detail type shown
+on hover and completion (it is text, not a checked type):
+
+```ts
+/**
+ * @fires {{ id: number }} tab-select - A tab was chosen.
+ * @fires tab-add - The "+" button was pressed.
+ */
+@customElement({ name: 'tab-bar', template })
+export class TabBar extends FASTElement {}
+```
+
+`@event` is accepted as a synonym, and `@attr`/`@prop` take a `{Type}` the
+same way.
+
+For an event that is genuinely global — one a library dispatches on anything —
+`fastElementUltra.globalEvents` accepts it everywhere instead.
 
 ## What it deliberately does not do
 

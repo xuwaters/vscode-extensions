@@ -117,6 +117,37 @@ describe.skipIf(!wasmBuilt)('hover, definition, references', () => {
     expect(target.textSpan.start).toBeLessThan(position);
   });
 
+  it('an event binding hovers its detail type and goes to the $events entry', () => {
+    const harness = harnessWith(`
+      import { FASTElement, customElement, html } from '@microsoft/fast-element';
+      const bar = html<TabBar>\`<div></div>\`;
+      @customElement({ name: 'tab-bar', template: bar })
+      export class TabBar extends FASTElement {
+        declare $events: {
+          /** A tab was chosen. */
+          'tab-select': { id: number };
+        };
+      }
+      @customElement({ name: 'tab-host', template: null as never })
+      export class TabHost extends FASTElement {}
+      export const use = html<TabHost>\`<tab-bar @tab-select="\${(x, c) => c.event}"></tab-bar>\`;
+    `);
+    const position = offsetOf(harness, FILE, '@tab-select="', 3);
+    const info = harness.decorated.getQuickInfoAtPosition(FILE, position);
+    const docs = (info?.documentation ?? []).map((d) => d.text).join('');
+    expect(docs).toContain('CustomEvent<{ id: number; }>');
+    expect(docs).toContain('A tab was chosen.');
+
+    const result = harness.decorated.getDefinitionAndBoundSpan(FILE, position);
+    const target = result!.definitions![0];
+    const text = harness.ls.getProgram()!.getSourceFile(FILE)!.text;
+    expect(text.slice(target.textSpan.start, target.textSpan.start + target.textSpan.length)).toBe(
+      'tab-select',
+    );
+    // The declaration in the map, not the binding being hovered.
+    expect(target.textSpan.start).toBeLessThan(position);
+  });
+
   it('find-all-references from a tag finds every template use', () => {
     const harness = harnessWith(
       `${PRELUDE}

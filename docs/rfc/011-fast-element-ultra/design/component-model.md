@@ -130,10 +130,11 @@ recomputed whenever the program changes.
 | `@volatile get prop()` | property | Getter — the declaration form fast-analyzer skips entirely |
 | `attributes: [...]` in the definition | attributes | `(AttributeConfiguration \| string)[]`; no decorator involved |
 | JSDoc `@attr` / `@prop` | attribute / property | For members that cannot be seen, e.g. set by a mixin |
-| JSDoc `@fires` | event | |
+| JSDoc `@fires` | event | An optional leading `{Type}` is the detail type — text, not a checked type |
 | JSDoc `@slot` | slot | The **only** source of slot names — `no-unknown-slot` has nothing else |
 | JSDoc `@csspart` / `@cssprop` | CSS part / custom property | |
-| `this.$emit("name", detail)` | event | Name from arg 0, `detail` type from arg 1 |
+| `$emit("name", detail)` | event | Name from arg 0, `detail` type from arg 1; see §3.2 |
+| `declare $events: { … }` | events | Names and detail types read through the checker; `void` = no detail |
 
 All of these apply to property declarations, **get/set accessors**, and members declared on any class
 in the inheritance chain.
@@ -156,7 +157,30 @@ hand back as a class declaration contributes nothing — the accepted half-fact
 is narrower than designed, and `origin: 'inherited'` marks what came from
 above.
 
-### 3.2 Types
+### 3.2 Events
+
+An event is found by the *type of the `$emit` receiver*, not by where the call is written. The
+idiomatic place to raise one is the template, not the class body: `x.$emit("tab-add")` on the host,
+`c.parent.$emit("tab-select", …)` from inside a `repeat` item template — where `c.parent` is the only
+route back to the host. Neither is spelled `this.$emit` and neither is lexically inside the class, so
+a class-body walk finds nothing and every such event is reported unknown at its listener.
+
+So the file is indexed once — every `$emit` call in it, keyed by the class declaration its receiver's
+type names — and each component takes the entries for its own chain. Typing the receiver is also what
+keeps a neighbouring `otherEl.$emit(…)` off this component; a receiver whose type names no class in
+the chain is dropped rather than guessed at.
+
+The index covers one file. A base class in another file still contributes its `this.$emit` calls
+(walked directly), but an event that class raises from its own template is out of reach and wants
+`@fires` or `$events`.
+
+Three sources, then, and they **merge** rather than compete: the first to name an event owns the
+fields it fills, and a later one fills what is still empty. `@fires` prose on an event the class also
+emits keeps the emit's detail type and gains the description, which is what someone writing both
+meant. Precedence within a class: the declared `$events` map (a real type behind every name), then
+the emit index, then the class's JSDoc.
+
+### 3.3 Types
 
 A member's type crosses to Rust as an **interned id**, never as a structure
 ([architecture.md §3.1](architecture.md#31-what-rust-receives)). Rust needs to know that two members

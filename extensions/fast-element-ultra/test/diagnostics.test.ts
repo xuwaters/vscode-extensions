@@ -93,6 +93,42 @@ describe.skipIf(!wasmBuilt)('structural rules', () => {
     expect(messages(diagnostics)[0]).toContain("Did you mean 'click'?");
   });
 
+  it('no-unknown-event stays quiet for events declared any of the three ways', () => {
+    const { diagnostics } = diagnose(`
+      import { FASTElement, customElement, html, observable, repeat } from '@microsoft/fast-element';
+      export class Tab { id = 0; }
+      const tabTemplate = html<Tab, TabBar>\`
+        <div @click="\${(x, c) => c.parent.$emit('tab-select', { id: x.id })}"></div>
+      \`;
+      const template = html<TabBar>\`
+        \${repeat((x) => x.tabs, tabTemplate)}
+        <button @click="\${(x) => x.$emit('tab-add')}"></button>
+      \`;
+      /** @fires tab-rename - A tab was renamed. */
+      @customElement({ name: 'tab-bar', template })
+      export class TabBar extends FASTElement {
+        declare $events: { 'tab-close': { id: number } };
+        @observable tabs: Tab[] = [];
+      }
+
+      @customElement({ name: 'tab-host', template: null as never })
+      export class TabHost extends FASTElement {}
+      export const host = html<TabHost>\`
+        <tab-bar
+          @tab-select="\${(x, c) => c.event}"
+          @tab-close="\${(x, c) => c.event}"
+          @tab-add="\${(x, c) => c.event}"
+          @tab-rename="\${(x, c) => c.event}"
+          @tab-shuffle="\${(x, c) => c.event}"
+        ></tab-bar>
+      \`;
+    `);
+    // Only the one nobody declared.
+    expect(messages(diagnostics)).toEqual([
+      expect.stringContaining("Unknown event '@tab-shuffle'"),
+    ]);
+  });
+
   it('no-unknown-slot against JSDoc-declared slots', () => {
     const { diagnostics } = diagnose(`
       import { FASTElement, customElement, html } from '@microsoft/fast-element';
