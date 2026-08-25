@@ -321,6 +321,21 @@ struct Register {
     linewise: bool,
 }
 
+thread_local! {
+    /// The unnamed register. Vim shares it across buffers — a `yy` in one
+    /// pastes in another — and every session in the wasm instance is a buffer
+    /// of the same editor, so it lives beside the sessions, not in one.
+    static REGISTER: std::cell::RefCell<Register> = std::cell::RefCell::default();
+}
+
+fn register() -> Register {
+    REGISTER.with(|r| r.borrow().clone())
+}
+
+fn set_register(reg: Register) {
+    REGISTER.with(|r| *r.borrow_mut() = reg);
+}
+
 /// How a motion combines with an operator.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum MotionKind {
@@ -355,7 +370,6 @@ pub struct Session {
     /// Extra cursors, in the host's order after the primary. Empty unless the
     /// editor has a multi-cursor selection.
     secondaries: Vec<CursorState>,
-    register: Register,
     last_find: Option<(FindKind, char)>,
     last_search: Option<Search>,
     /// The replacement `:s` last used, behind a bare `:s`, `&` and `~`.
@@ -401,7 +415,6 @@ impl Session {
             desired_col: 0,
             pending: Pending::default(),
             secondaries: Vec::new(),
-            register: Register::default(),
             last_find: None,
             last_search: None,
             last_replacement: None,
@@ -2220,10 +2233,10 @@ impl Session {
     }
 
     fn yank_range(&mut self, s: Pos, e: Pos, linewise: bool) {
-        self.register = Register {
+        set_register(Register {
             text: self.buf.slice(s, e),
             linewise,
-        };
+        });
     }
 
     fn yank_lines(&mut self, l1: usize, l2: usize) {
@@ -2231,7 +2244,7 @@ impl Session {
             .map(|l| self.buf.line(l))
             .collect::<Vec<_>>()
             .join("\n");
-        self.register = Register { text, linewise: true };
+        set_register(Register { text, linewise: true });
     }
 
     fn linewise_yank(&mut self, count: usize) {
@@ -2434,7 +2447,7 @@ impl Session {
     fn paste(&mut self, before: bool, count: usize, edits: &mut Vec<Edit>) {
         // Visual paste: delete the selection, then paste at the gap.
         if let Mode::Visual { linewise } = self.mode {
-            let saved = self.register.clone();
+            let saved = register();
             let (s, e) = self.visual_range(linewise);
             self.mode = Mode::Normal;
             if linewise {
@@ -2445,15 +2458,17 @@ impl Session {
                 self.emit_edit(s, e, "", edits);
                 self.cursor = self.clamp_normal(s);
             }
-            let deleted = std::mem::replace(&mut self.register, saved);
-            if self.register.linewise || linewise {
+            let deleted = register();
+            let linewise_paste = saved.linewise || linewise;
+            set_register(saved);
+            if linewise_paste {
                 self.paste_at(true, count, edits);
             } else {
                 // Insert exactly at the gap (which may sit at end of line,
                 // past where a normal-mode cursor can rest).
                 self.paste_charwise_at(s, count, edits);
             }
-            self.register = deleted;
+            set_register(deleted);
             self.clear_pending();
             return;
         }
@@ -2462,7 +2477,7 @@ impl Session {
     }
 
     fn paste_at(&mut self, before: bool, count: usize, edits: &mut Vec<Edit>) {
-        let reg = self.register.clone();
+        let reg = register();
         if reg.text.is_empty() {
             return;
         }
@@ -2496,7 +2511,7 @@ impl Session {
     }
 
     fn paste_charwise_at(&mut self, at: Pos, count: usize, edits: &mut Vec<Edit>) {
-        let text = self.register.text.repeat(count.max(1));
+        let text = register().text.repeat(count.max(1));
         if text.is_empty() {
             return;
         }

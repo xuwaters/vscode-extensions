@@ -187,6 +187,20 @@ fn yy_and_p() {
 }
 
 #[test]
+fn register_is_shared_across_sessions() {
+    // Each open document is its own Session; yanking in one buffer must
+    // paste in another, the way Vim's unnamed register spans buffers.
+    let mut a = session("alpha\nbeta");
+    let mut b = session("one\ntwo");
+    feed(&mut a, "yy");
+    feed(&mut b, "p");
+    assert_eq!(b.text(), "one\nalpha\ntwo");
+    feed(&mut b, "yw");
+    feed(&mut a, "j$p");
+    assert_eq!(a.text(), "alpha\nbetaalpha");
+}
+
+#[test]
 fn yank_word_and_paste_charwise() {
     let mut s = session("foo bar");
     feed(&mut s, "yw");
