@@ -151,6 +151,63 @@ describeWithCode('html`` templates', () => {
     expect(await scopesAt(source, 'x.entry.name')).toContain('meta.embedded.line.ts');
   });
 
+  it('opens a template whose type arguments are spread over several lines', async () => {
+    // A `begin` pattern only ever sees one line, so the opener cannot be a
+    // single regex that runs from `html` to the backtick.
+    const source = [
+      'export const toastItemTemplate: ViewTemplate<ToastItem, Toaster> = html<',
+      '  ToastItem,',
+      '  Toaster',
+      '>`',
+      '  <div class="toast" data-variant="${x => x.variant}">',
+      '    <slot></slot>',
+      '  </div>',
+      '`;',
+      'const after: number = 1;',
+    ].join('\n');
+
+    expect(await scopesAt(source, 'div class')).toContain('entity.name.tag.html');
+    expect(await scopesAt(source, '"toast"')).toContain('string.quoted.double.html');
+    expect(await scopesAt(source, 'slot>')).toContain('entity.name.tag.html');
+    expect(await scopesAt(source, 'x.variant')).toContain('meta.embedded.line.ts');
+    expect(await scopesAt(source, '  ToastItem,')).toContain('meta.type.parameters.ts');
+    expect(await scopesAt(source, 'const after')).not.toContain('string.template.fast-element.ts');
+  });
+
+  it('opens a template whose type argument is itself generic', async () => {
+    const source = 'const t = html<Row<Cell>>`<div class="a">hi</div>`;';
+    expect(await scopesAt(source, 'div class')).toContain('entity.name.tag.html');
+    expect(await scopesAt(source, 'Cell')).toContain('meta.type.parameters.ts');
+  });
+
+  it('opens a template whose backtick is on the line after the type arguments', async () => {
+    const source = [
+      'const t = html<',
+      '  Foo',
+      '>',
+      '`<div class="a">hi</div>`;',
+      'const after: number = 1;',
+    ].join('\n');
+    expect(await scopesAt(source, 'div class')).toContain('entity.name.tag.html');
+    expect(await scopesAt(source, 'const after')).not.toContain('string.template.fast-element.ts');
+  });
+
+  it('gives up on a type argument list that no template follows', async () => {
+    // Nothing writes this, but the rule that spans lines has to be unable to
+    // swallow the rest of the file when the backtick it is waiting for never
+    // arrives.
+    const source = ['const t = html<Foo>;', 'const after: number = 1;'].join('\n');
+    const scopes = await scopesAt(source, 'const after');
+    expect(scopes).not.toContain('string.template.fast-element.ts');
+    expect(scopes).not.toContain('meta.type.parameters.ts');
+  });
+
+  it('leaves a less-than comparison on `html` alone', async () => {
+    const source = ['const flag = html < count;', 'const after: number = 1;'].join('\n');
+    expect(await scopesAt(source, 'count')).not.toContain('meta.type.parameters.ts');
+    expect(await scopesAt(source, 'const after')).not.toContain('meta.type.parameters.ts');
+  });
+
   it('re-enters TypeScript inside ${…}', async () => {
     const source = 'const t = html`<div>${x => x.name}</div>`;';
     expect(await scopesAt(source, '=>')).toContain('meta.embedded.line.ts');
@@ -264,6 +321,25 @@ describeWithCode('templates nested in an interpolation', () => {
     expect(await scopesAt(source, 'x-panel')).toContain('entity.name.tag.html');
     expect(await scopesAt(source, '?busy')).toContain('keyword.operator.binding.fast-element');
     expect(await scopesAt(source, 'x.busy')).toContain('meta.embedded.line.ts');
+  });
+
+  it('nests a template whose type arguments are spread over several lines', async () => {
+    const source = [
+      'const t = html<A>`',
+      '  ${when(',
+      '    x => x.ready,',
+      '    html<',
+      '      Row,',
+      '      Table',
+      '    >`<li class="row">${x => x.name}</li>`,',
+      '  )}',
+      '`;',
+      'const after: number = 1;',
+    ].join('\n');
+    expect(await scopesAt(source, 'li class')).toContain('entity.name.tag.html');
+    expect(await scopesAt(source, '"row"')).toContain('string.quoted.double.html');
+    expect(await scopesAt(source, 'x.name')).toContain('meta.embedded.line.ts');
+    expect(await scopesAt(source, 'const after')).not.toContain('string.template.fast-element.ts');
   });
 
   it('nests inside a binding value', async () => {

@@ -4,6 +4,7 @@
   "injectionSelector": "L:source.ts -comment -string, L:source.tsx -comment -string, L:source.js -comment -string, L:source.jsx -comment -string, L:string.template.fast-element.ts meta.embedded.line.ts -comment -string.quoted.single.ts -string.quoted.double.ts -string.template.ts -string.regexp",
   "patterns": [
     { "include": "#fastHtmlTemplate" },
+    { "include": "#fastHtmlTypedTemplate" },
     { "include": "#fastCssTemplate" }
   ],
   "repository": {
@@ -14,6 +15,31 @@
         "2": { "name": "punctuation.definition.typeparameters.begin.ts" },
         "3": { "name": "punctuation.definition.typeparameters.end.ts" },
         "4": { "name": "punctuation.definition.string.template.begin.ts" }
+      },
+      "end": "`",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.template.end.ts" }
+      },
+      "name": "string.template.fast-element.ts",
+      "contentName": "meta.embedded.block.html",
+      "patterns": [{ "include": "text.html.basic" }]
+    },
+    "fastHtmlTypedTemplate": {
+      "$comment": "Everything `fastHtmlTemplate`'s single regex cannot open, because a `begin` only ever sees one line: type arguments broken over several lines (`html<\\n  ToastItem,\\n  Toaster\\n>`…``), and a type argument that is itself generic (`html<Row<Cell>>`). The region runs from `html` to the template's closing backtick, and its two children divide it up — the type arguments go to TypeScript's own `#type-arguments` rule, so they keep the colours they have anywhere else, and the backtick that follows opens the body exactly as above. The end is a lookbehind, so it can only match once the body rule has popped, and it never fires early: while the body is on the stack it is the body's own end that is consulted. `fastHtmlTemplate` is listed first, so for a template that fits on one line it wins the tie and this rule never opens. The second alternative of the end is the escape hatch for something that only *looked* like a typed template — `html<x` that turns out to be a comparison — after which the type arguments close on a `>` that no backtick follows; without it the rule would stay open to the end of the file. The `(?=<…)` guard is what keeps that case rare: a comparison is written `html < count`, with the spaces this rule refuses.",
+      "begin": "(\\bhtml)(?=<(?:$|[^=\\d]))",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.tagged-template.ts" }
+      },
+      "end": "(?<=`)|(?<=>)(?=\\s*[^\\s`])",
+      "patterns": [
+        { "include": "source.ts#type-arguments" },
+        { "include": "#fastHtmlBody" }
+      ]
+    },
+    "fastHtmlBody": {
+      "begin": "`",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.template.begin.ts" }
       },
       "end": "`",
       "endCaptures": {
