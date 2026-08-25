@@ -21,6 +21,7 @@ import type { SafeEngine } from './engine.js';
 import {
   extractAmbientComponents,
   extractFile,
+  extractGlobalEvents,
   Interner,
   type Extraction,
   type TemplateInfo,
@@ -38,6 +39,7 @@ import {
   type EngineDocumentInfo,
   type EngineQuickInfo,
   type EngineRenameInfo,
+  type EventFact,
   type FileSpan,
   type MemberFact,
   type ProtocolDiagnostic,
@@ -73,6 +75,7 @@ export class FastService {
   private lastProgram: tslib.Program | undefined;
   private ambientProgram: tslib.Program | undefined;
   private ambientComponents: ComponentFact[] = [];
+  private globalEvents: EventFact[] = [];
   private config: ResolvedConfig;
   private configPushed = false;
   private severities: Record<string, string> = {};
@@ -184,20 +187,25 @@ export class FastService {
   }
 
   /**
-   * Tags only `HTMLElementTagNameMap` knows about — a library that registers
-   * its elements behind its own `define*` wrapper, or one consumed as a built
-   * package, declares nothing a file extraction can see. They land in one
-   * synthetic file so that removing them is a single call and so that the
-   * import-reachability rules can tell them apart (they are ambient: no
-   * import of ours makes them more or less defined).
+   * What only the global interfaces know: tags from `HTMLElementTagNameMap`,
+   * events from `HTMLElementEventMap`.
+   *
+   * A library that registers its elements behind its own `define*` wrapper,
+   * or one consumed as a built package, declares nothing a file extraction
+   * can see — but it does augment those two interfaces, because that is what
+   * makes `createElement` and `addEventListener` typed for its users. Both
+   * land in one synthetic file so that removing them is a single call and so
+   * that the import-reachability rules can tell them apart (they are ambient:
+   * no import of ours makes them more or less defined).
    */
   private syncAmbient(program: tslib.Program, checker: tslib.TypeChecker): void {
     if (this.ambientProgram === program) return;
     this.ambientProgram = program;
     const location = program.getSourceFiles().find((f) => this.files.has(f.fileName));
     if (!location) {
-      if (this.ambientComponents.length > 0) {
+      if (this.ambientComponents.length > 0 || this.globalEvents.length > 0) {
         this.ambientComponents = [];
+        this.globalEvents = [];
         this.context.engine.removeFile(AMBIENT_FILE);
       }
       return;
@@ -222,12 +230,27 @@ export class FastService {
         `tag-name-map discovery failed: ${error instanceof Error ? error.message : error}`,
       );
     }
+    try {
+      this.globalEvents = extractGlobalEvents({
+        ts: this.ts,
+        checker,
+        location,
+        interner: this.interner,
+        isDefaultLibrary: (file) => program.isSourceFileDefaultLibrary(file),
+      });
+    } catch (error) {
+      this.globalEvents = [];
+      this.context.logger.error(
+        `event-map discovery failed: ${error instanceof Error ? error.message : error}`,
+      );
+    }
     this.context.engine.upsertFile({
       fileName: AMBIENT_FILE,
       dependencies: [],
       nodeModuleDependencies: [],
       components: this.ambientComponents,
       documents: [],
+      globalEvents: this.globalEvents,
     });
   }
 
@@ -258,6 +281,11 @@ export class FastService {
 
   fileExtraction(fileName: string): Extraction | undefined {
     return this.files.get(fileName)?.extraction;
+  }
+
+  /** What the project added to `HTMLElementEventMap`, for tests. */
+  ambientGlobalEvents(): readonly EventFact[] {
+    return this.globalEvents;
   }
 
   private templateAt(

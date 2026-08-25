@@ -145,6 +145,38 @@ export function extractAmbientComponents(options: AmbientExtractOptions): Compon
   }).ambientComponents(options.known);
 }
 
+export interface GlobalEventOptions {
+  ts: Ts;
+  checker: tslib.TypeChecker;
+  /** Any file of the program: resolution context for the global map. */
+  location: tslib.SourceFile;
+  interner: Interner;
+  /** `program.isSourceFileDefaultLibrary` — lib.dom's own entries are the
+   * DOM's, not the project's, and `fast-html-data` already has them. */
+  isDefaultLibrary(file: tslib.SourceFile): boolean;
+}
+
+/**
+ * Events the project added to `HTMLElementEventMap`.
+ *
+ * Augmenting that interface is how a web-component library tells
+ * `addEventListener` about the events it dispatches, so a project that has
+ * done it has already said what it emits — and said it globally, since the
+ * interface belongs to every `HTMLElement`. Taken at face value: the name
+ * exists, on any tag, which is exactly what the augmentation claims.
+ */
+export function extractGlobalEvents(options: GlobalEventOptions): EventFact[] {
+  return new Extractor({
+    ts: options.ts,
+    checker: options.checker,
+    sourceFile: options.location,
+    htmlTemplateTags: [],
+    cssTemplateTags: [],
+    interner: options.interner,
+    resolveModule: () => undefined,
+  }).globalEvents(options.isDefaultLibrary);
+}
+
 class Extractor {
   private readonly ts: Ts;
   private readonly checker: tslib.TypeChecker;
@@ -846,9 +878,9 @@ class Extractor {
     return null;
   }
 
-  /** `HTMLElementTagNameMap` with every augmentation merged in, or undefined
-   * when the checker cannot be asked (no DOM lib, an internal API gone). */
-  private tagNameMapType(): tslib.Type | undefined {
+  /** A global interface with every augmentation merged in, or undefined when
+   * the checker cannot be asked (no DOM lib, an internal API gone). */
+  private globalInterfaceType(name: string): tslib.Type | undefined {
     try {
       const resolveName = (
         this.checker as unknown as {
@@ -863,7 +895,7 @@ class Extractor {
       if (!resolveName) return undefined;
       const symbol = resolveName.call(
         this.checker,
-        'HTMLElementTagNameMap',
+        name,
         undefined,
         this.ts.SymbolFlags.Type,
         false,
@@ -873,6 +905,10 @@ class Extractor {
     } catch {
       return undefined;
     }
+  }
+
+  private tagNameMapType(): tslib.Type | undefined {
+    return this.globalInterfaceType('HTMLElementTagNameMap');
   }
 
   private isInTagNameMap(tagName: string): boolean {
@@ -1356,6 +1392,47 @@ class Extractor {
         declSpan: declaration ? this.declaredEventSpan(declaration) : null,
         documentation: this.documentationOf(property),
       });
+    }
+  }
+
+  /**
+   * The project's own `HTMLElementEventMap` entries (see
+   * {@link extractGlobalEvents}), with lib.dom's left where they are.
+   *
+   * The map's values are event *types*; a `CustomEvent<T>` is unwrapped to
+   * `T` so the detail reads the same as an inferred `$emit` detail. Anything
+   * else — a plain `Event`, a `MouseEvent` — claims no detail rather than
+   * claiming the wrong one.
+   */
+  globalEvents(isDefaultLibrary: (file: tslib.SourceFile) => boolean): EventFact[] {
+    const map = this.globalInterfaceType('HTMLElementEventMap');
+    if (!map) return [];
+    const out: EventFact[] = [];
+    for (const property of this.checker.getPropertiesOfType(map)) {
+      const declaration = property
+        .getDeclarations()
+        ?.find((d) => !isDefaultLibrary(d.getSourceFile()));
+      if (!declaration) continue;
+      const eventType = this.tryTypeOfSymbol(property, declaration);
+      const detail = eventType && this.customEventDetail(eventType);
+      out.push({
+        name: property.getName(),
+        typeText: detail ? this.typeText(detail) : null,
+        declSpan: this.declaredEventSpan(declaration),
+        documentation: this.documentationOf(property),
+      });
+    }
+    return out;
+  }
+
+  /** `CustomEvent<T>` → `T`. */
+  private customEventDetail(type: tslib.Type): tslib.Type | undefined {
+    if (type.getSymbol()?.getName() !== 'CustomEvent') return undefined;
+    try {
+      const args = this.checker.getTypeArguments(type as tslib.TypeReference);
+      return args.length === 1 ? args[0] : undefined;
+    } catch {
+      return undefined;
     }
   }
 

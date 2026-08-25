@@ -71,13 +71,14 @@ impl Engine {
             node_module_dependencies,
             components,
             documents,
+            global_events,
         } = upsert;
         // Reachability treats project and node_modules imports alike; the
         // depth limits differ only in configuration today.
         dependencies.extend(node_module_dependencies);
         self.remove_file_documents(&file_name);
         self.registry
-            .upsert_file(&file_name, components, dependencies);
+            .upsert_file(&file_name, components, global_events, dependencies);
         let mut ids = Vec::with_capacity(documents.len());
         for fact in documents {
             ids.push(fact.id.clone());

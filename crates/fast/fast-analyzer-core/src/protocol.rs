@@ -225,6 +225,9 @@ pub struct UpsertFile {
     pub node_module_dependencies: Vec<String>,
     pub components: Vec<ComponentFact>,
     pub documents: Vec<VirtualDocumentFact>,
+    /// Events this file added to `HTMLElementEventMap`. Sent only for the
+    /// synthetic ambient file, where the merged map is read once per program.
+    pub global_events: Vec<EventFact>,
 }
 
 // ------------------------------------------------------------ analysis out

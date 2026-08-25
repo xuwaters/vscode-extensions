@@ -215,3 +215,59 @@ describe.skipIf(!wasmBuilt)('tag-name-map discovery', () => {
     ]);
   });
 });
+
+describe.skipIf(!wasmBuilt)('event-map discovery', () => {
+  const APP_WITH_EVENTS = `
+      import { FASTElement, customElement, html } from '@microsoft/fast-element';
+      declare global {
+        interface HTMLElementEventMap {
+          /** A tab was chosen. */
+          'tab-select': CustomEvent<{ id: number }>;
+        }
+      }
+      @customElement('dv-panel')
+      export class Panel extends FASTElement {}
+      const template = html<App>\`
+        <dv-panel @tab-select="\${(x, c) => c.event}"></dv-panel>
+        <div @tab-select="\${(x, c) => c.event}"></div>
+      \`;
+      @customElement({ name: 'dv-app', template })
+      export class App extends FASTElement {}
+    `;
+
+  it('accepts an augmented event on any tag, component or built-in', () => {
+    const harness = createHarness({ [APP]: APP_WITH_EVENTS });
+    harness.service.sync();
+    expect(messages(harness.fastDiagnostics(APP))).toEqual([]);
+    // Still only what the map says: a near miss is a near miss.
+    harness.updateFile(APP, APP_WITH_EVENTS.replace('<div @tab-select', '<div @tab-selct'));
+    expect(messages(harness.fastDiagnostics(APP))).toEqual([
+      expect.stringContaining("Unknown event '@tab-selct'"),
+    ]);
+    expect(messages(harness.fastDiagnostics(APP))[0]).toContain("Did you mean 'tab-select'?");
+  });
+
+  it('hovers the detail type and goes to the map entry', () => {
+    const harness = createHarness({ [APP]: APP_WITH_EVENTS });
+    harness.service.sync();
+    const at = APP_WITH_EVENTS.indexOf('<div @tab-select') + '<div @'.length;
+    const info = harness.decorated.getQuickInfoAtPosition(APP, at);
+    const docs = (info?.documentation ?? []).map((d) => d.text).join('');
+    // `CustomEvent<T>` unwrapped to its detail, so it reads like any other.
+    expect(docs).toContain('CustomEvent<{ id: number; }>');
+    expect(docs).toContain('A tab was chosen.');
+
+    const definition = harness.decorated.getDefinitionAndBoundSpan(APP, at);
+    const target = definition!.definitions![0];
+    expect(
+      APP_WITH_EVENTS.slice(target.textSpan.start, target.textSpan.start + target.textSpan.length),
+    ).toBe('tab-select');
+  });
+
+  it('leaves lib.dom’s own entries to fast-html-data', () => {
+    const harness = createHarness({ [APP]: APP_WITH_EVENTS });
+    harness.service.sync();
+    const events = harness.service.ambientGlobalEvents();
+    expect(events.map((e) => e.name)).toEqual(['tab-select']);
+  });
+});

@@ -11,7 +11,8 @@
 //!    (`origin: tagNameMap`) — the plugin sends these only for tags no
 //!    declaration covers, so they never compete with level 1
 //! 3. VS Code custom data
-//! 4. `globalTags` / `globalAttributes` / `globalEvents`
+//! 4. `globalTags` / `globalAttributes` / `globalEvents`, and the project's
+//!    own `HTMLElementEventMap` augmentation — global by construction
 //! 5. built-in HTML/SVG data from `fast-html-data`
 
 use std::collections::HashMap;
@@ -25,6 +26,9 @@ use crate::protocol::{ComponentFact, Config, EventFact, MemberFact};
 pub struct Registry {
     /// File → the components that file declared.
     by_file: HashMap<String, Vec<ComponentFact>>,
+    /// File → the events it added to `HTMLElementEventMap`. The augmentation
+    /// is global by construction, so these are not attached to any tag.
+    global_events: HashMap<String, Vec<EventFact>>,
     /// File → its resolved imports.
     dependencies: HashMap<String, Vec<String>>,
     /// Parsed custom data from the config.
@@ -84,14 +88,21 @@ impl Registry {
         &mut self,
         file_name: &str,
         components: Vec<ComponentFact>,
+        global_events: Vec<EventFact>,
         dependencies: Vec<String>,
     ) {
         self.by_file.insert(file_name.to_string(), components);
+        if global_events.is_empty() {
+            self.global_events.remove(file_name);
+        } else {
+            self.global_events.insert(file_name.to_string(), global_events);
+        }
         self.dependencies.insert(file_name.to_string(), dependencies);
     }
 
     pub fn remove_file(&mut self, file_name: &str) {
         self.by_file.remove(file_name);
+        self.global_events.remove(file_name);
         self.dependencies.remove(file_name);
     }
 
@@ -239,6 +250,17 @@ impl Registry {
             .iter()
             .flat_map(|c| c.events.iter())
             .find(|e| e.name == name)
+    }
+
+    /// Everything the project added to `HTMLElementEventMap`. Global in the
+    /// same sense the DOM's own map is: the augmentation says the name exists,
+    /// not which element raises it.
+    pub fn global_events(&self) -> impl Iterator<Item = &EventFact> {
+        self.global_events.values().flatten()
+    }
+
+    pub fn global_event(&self, name: &str) -> Option<&EventFact> {
+        self.global_events().find(|e| e.name == name)
     }
 
     // ---------------------------------------------------------- reachability

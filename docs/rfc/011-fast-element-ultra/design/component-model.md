@@ -135,6 +135,7 @@ recomputed whenever the program changes.
 | JSDoc `@csspart` / `@cssprop` | CSS part / custom property | |
 | `$emit("name", detail)` | event | Name from arg 0, `detail` type from arg 1; see §3.2 |
 | `declare $events: { … }` | events | Names and detail types read through the checker; `void` = no detail |
+| `HTMLElementEventMap` augmentation | events, on every tag | Global by construction, like the interface itself; see §3.2 |
 
 All of these apply to property declarations, **get/set accessors**, and members declared on any class
 in the inheritance chain.
@@ -174,11 +175,20 @@ The index covers one file. A base class in another file still contributes its `t
 (walked directly), but an event that class raises from its own template is out of reach and wants
 `@fires` or `$events`.
 
-Three sources, then, and they **merge** rather than compete: the first to name an event owns the
-fields it fills, and a later one fills what is still empty. `@fires` prose on an event the class also
-emits keeps the emit's detail type and gains the description, which is what someone writing both
-meant. Precedence within a class: the declared `$events` map (a real type behind every name), then
-the emit index, then the class's JSDoc.
+Three per-component sources, then, and they **merge** rather than compete: the first to name an event
+owns the fields it fills, and a later one fills what is still empty. `@fires` prose on an event the
+class also emits keeps the emit's detail type and gains the description, which is what someone
+writing both meant. Precedence within a class: the declared `$events` map (a real type behind every
+name), then the emit index, then the class's JSDoc.
+
+A fourth source belongs to no component. `declare global { interface HTMLElementEventMap { … } }` is
+how a library types its events for `addEventListener`, so a project that has augmented it has already
+said what it dispatches — and said it of every `HTMLElement`, which is what the interface means.
+Taken at face value: the names are accepted on any tag, exactly as `globalEvents` in the config is,
+but with a declaration behind them, so hover shows the detail (a `CustomEvent<T>` unwrapped to `T`)
+and go-to-definition lands on the entry. The merged map is read once per program alongside the
+tag-name map (§2.3) and lands in the same synthetic file; `lib.dom`'s own entries are skipped, being
+`fast-html-data`'s job already.
 
 ### 3.3 Types
 
@@ -197,7 +207,9 @@ removes exactly its contribution. Merge order, highest confidence first:
 2b. Components known only through `HTMLElementTagNameMap` (`origin: tagNameMap`, §2.3) — a
    declaration for the same tag replaces them outright rather than merging
 3. VS Code custom data (`fastElementUltra.customHtmlData`, `html.experimental.customData`)
-4. `globalTags` / `globalAttributes` / `globalEvents` — "assume this exists, check nothing"
+4. `globalTags` / `globalAttributes` / `globalEvents` — "assume this exists, check nothing" — and the
+   program's `HTMLElementEventMap` augmentation (§3.2), which is the same claim with a declaration
+   behind it
 5. Built-in HTML/SVG data from `fast-html-data`
 
 A lower level never overrides a higher one; it fills gaps. Two files declaring the same tag name is

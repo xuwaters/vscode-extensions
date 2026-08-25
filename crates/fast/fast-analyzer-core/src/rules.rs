@@ -1084,6 +1084,10 @@ impl<'a> Pass<'a> {
         }
         if fast_html_data::event(name).is_some()
             || self.config.global_events.iter().any(|e| e == name)
+            // `declare global { interface HTMLElementEventMap { … } }` — the
+            // standard way a library types its events for addEventListener,
+            // and global there means global here.
+            || self.registry.global_event(name).is_some()
         {
             return true;
         }
@@ -1211,6 +1215,8 @@ impl<'a> Pass<'a> {
         if let TagKnowledge::Components(comps) = knowledge {
             candidates.extend(comps.iter().flat_map(|c| c.events.iter()).map(|e| e.name.clone()));
         }
+        candidates.extend(self.registry.global_events().map(|e| e.name.clone()));
+        candidates.extend(self.config.global_events.iter().cloned());
         suggest::nearest(name, candidates.iter().map(String::as_str)).map(str::to_string)
     }
 }

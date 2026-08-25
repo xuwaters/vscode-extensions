@@ -502,6 +502,25 @@ impl Engine {
                     });
                 }
             }
+            // The project's `HTMLElementEventMap` augmentation: below this
+            // tag's own events, above the DOM's — and never twice, when the
+            // augmentation restates a name one of those already carries.
+            for e in self.registry.global_events() {
+                let offered = format!("{p}{}", e.name);
+                if fast_html_data::event(&e.name).is_some()
+                    || items.iter().any(|i| i.name == offered)
+                {
+                    continue;
+                }
+                items.push(CompletionItem {
+                    name: offered,
+                    kind: "event".into(),
+                    sort_text: Some("1".into()),
+                    documentation: e.documentation.clone(),
+                    type_text: e.type_text.clone(),
+                    ..CompletionItem::default()
+                });
+            }
             for (name, description) in fast_html_data::events() {
                 items.push(CompletionItem {
                     name: format!("{p}{name}"),
@@ -786,12 +805,16 @@ impl Engine {
                 }
                 _ => Some(format!("Property binding: `{tag}.{name} = value`")),
             },
-            Some(Modifier::Event) => match knowledge {
-                TagKnowledge::Components(comps) => {
-                    if let Some(event) = self.registry.find_event(comps, name) {
+            Some(Modifier::Event) => {
+                let declared = match knowledge {
+                    TagKnowledge::Components(comps) => self.registry.find_event(comps, name),
+                    _ => None,
+                }
+                .or_else(|| self.registry.global_event(name));
+                match declared {
+                    Some(event) => {
                         let detail = event.type_text.as_deref().unwrap_or("any");
-                        let mut out =
-                            format!("```ts\n@{name} — CustomEvent<{detail}>\n```");
+                        let mut out = format!("```ts\n@{name} — CustomEvent<{detail}>\n```");
                         if let Some(docs) = &event.documentation {
                             if !docs.is_empty() {
                                 out.push_str("\n\n");
@@ -799,12 +822,10 @@ impl Engine {
                             }
                         }
                         Some(out)
-                    } else {
-                        fast_html_data::event(name).map(str::to_string)
                     }
+                    None => fast_html_data::event(name).map(str::to_string),
                 }
-                _ => fast_html_data::event(name).map(str::to_string),
-            },
+            }
         }
     }
 
@@ -854,10 +875,13 @@ impl Engine {
                 let tag = el.name.text(text);
                 let name = attr.name.text(text);
                 let comps = self.registry.components_for_tag(tag);
-                if comps.is_empty() {
+                let modifier = attr.modifier.map(|(m, _)| m);
+                // An event may be declared globally, so it resolves on a
+                // built-in tag too; everything else needs a component.
+                if comps.is_empty() && !matches!(modifier, Some(Modifier::Event)) {
                     return None;
                 }
-                let decl = match attr.modifier.map(|(m, _)| m) {
+                let decl = match modifier {
                     None | Some(Modifier::Boolean) => self
                         .registry
                         .find_attribute(&comps, name)
@@ -869,6 +893,7 @@ impl Engine {
                     Some(Modifier::Event) => self
                         .registry
                         .find_event(&comps, name)
+                        .or_else(|| self.registry.global_event(name))
                         .and_then(|e| e.decl_span.clone()),
                 }?;
                 let (start, end) = doc.utf16_span(attr.name);

@@ -42,6 +42,7 @@ export interface MemberFact {
   values?: string[];
 }
 
+/** @see UpsertFile.globalEvents */
 export interface EventFact {
   name: string;
   typeText?: string | null;
@@ -136,6 +137,11 @@ export interface UpsertFile {
   nodeModuleDependencies?: string[];
   components: ComponentFact[];
   documents: VirtualDocumentFact[];
+  /** Events this file added to `HTMLElementEventMap` — accepted on every tag,
+   * because that is what augmenting a global interface means. Sent only for
+   * the synthetic ambient file, where the merged map is read once per
+   * program. */
+  globalEvents?: EventFact[];
 }
 
 export type DiagnosticSeverity = 'warning' | 'error' | 'suggestion';

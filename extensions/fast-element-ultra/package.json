@@ -2,7 +2,7 @@
   "name": "wx-vsce-fast-element-ultra",
   "displayName": "FAST Element Ultra",
   "description": "FAST Element template analysis inside TypeScript: diagnostics, completion, hover, go-to-definition, find-all-references, rename, quick fixes, closing tags, folding and colours for html`` and css`` tagged templates — a Rust engine running inside tsserver, with the type checker answering what only it can",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "publisher": "weixu",
   "engines": {

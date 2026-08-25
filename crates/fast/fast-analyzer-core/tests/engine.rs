@@ -215,6 +215,19 @@ fn upsert_with_deps(
         node_module_dependencies: vec![],
         components,
         documents: docs,
+        global_events: vec![],
+    });
+}
+
+/// The synthetic ambient file, carrying an `HTMLElementEventMap` augmentation.
+fn upsert_global_events(engine: &mut Engine, events: Vec<EventFact>) {
+    engine.upsert_file(UpsertFile {
+        file_name: "fast-element-ultra:tag-name-map".into(),
+        dependencies: vec![],
+        node_module_dependencies: vec![],
+        components: vec![],
+        documents: vec![],
+        global_events: events,
     });
 }
 
@@ -448,6 +461,82 @@ fn component_event_is_known() {
     );
     let result = engine.analyze("t1").unwrap();
     assert_eq!(rule_ids(&result), Vec::<&str>::new(), "{:#?}", result.diagnostics);
+}
+
+#[test]
+fn html_element_event_map_augmentation_is_global() {
+    let mut engine = strict_engine();
+    upsert_global_events(
+        &mut engine,
+        vec![EventFact {
+            name: "tab-select".into(),
+            type_text: Some("{ id: number; }".into()),
+            decl_span: Some(FileSpan {
+                file_name: "/proj/events.ts".into(),
+                start: 42,
+                end: 52,
+            }),
+            documentation: Some("A tab was chosen.".into()),
+        }],
+    );
+    let source = r#"<div @tab-select="${(x) => x.pick()}" @tab-selct="${(x) => x.pick()}"></div>"#;
+    upsert(&mut engine, "/proj/t.ts", vec![], vec![doc("t1", "/proj/t.ts", source)]);
+
+    // Known everywhere — the augmentation names no tag — and the near miss
+    // beside it still suggests the real one.
+    let result = engine.analyze("t1").unwrap();
+    assert_eq!(rule_ids(&result), vec!["no-unknown-event"]);
+    assert!(result.diagnostics[0].message.contains("tab-select"), "{:#?}", result.diagnostics);
+
+    let offset = source.find("@tab-select").unwrap() + 2;
+    let hover = engine.query(serde_json::from_value(serde_json::json!({
+        "type": "quickInfo", "documentId": "t1", "offset": offset
+    })).unwrap());
+    let contents = hover["contents"].as_str().unwrap();
+    assert!(contents.contains("CustomEvent<{ id: number; }>"), "{contents}");
+    assert!(contents.contains("A tab was chosen."), "{contents}");
+
+    let definition = engine.query(serde_json::from_value(serde_json::json!({
+        "type": "definition", "documentId": "t1", "offset": offset
+    })).unwrap());
+    assert_eq!(definition["targets"][0]["fileName"], "/proj/events.ts");
+    assert_eq!(definition["targets"][0]["start"], 42);
+
+    let completions = engine.query(serde_json::from_value(serde_json::json!({
+        "type": "completions", "documentId": "t1", "offset": 5
+    })).unwrap());
+    let names: Vec<String> = completions["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["name"].as_str().unwrap().to_string())
+        .collect();
+    // Offset 5 sits on the `@` already typed, so the names come unprefixed.
+    assert!(names.contains(&"tab-select".to_string()), "{names:?}");
+    assert_eq!(names.iter().filter(|n| *n == "click").count(), 1, "{names:?}");
+}
+
+#[test]
+fn removing_the_ambient_file_takes_its_global_events_with_it() {
+    let mut engine = strict_engine();
+    upsert_global_events(
+        &mut engine,
+        vec![EventFact {
+            name: "tab-select".into(),
+            ..EventFact::default()
+        }],
+    );
+    upsert(
+        &mut engine,
+        "/proj/t.ts",
+        vec![],
+        vec![doc("t1", "/proj/t.ts", r#"<div @tab-select="${(x) => x.pick()}"></div>"#)],
+    );
+    assert_eq!(rule_ids(&engine.analyze("t1").unwrap()), Vec::<&str>::new());
+
+    // The program changed and the augmentation went away.
+    upsert_global_events(&mut engine, vec![]);
+    assert_eq!(rule_ids(&engine.analyze("t1").unwrap()), vec!["no-unknown-event"]);
 }
 
 #[test]

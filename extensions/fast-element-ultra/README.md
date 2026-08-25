@@ -46,7 +46,8 @@ A library that registers its elements behind its own `define*` wrapper — where
 the tag is built at runtime from a prefix and a base name, and there is no
 literal to find — is picked up from its `HTMLElementTagNameMap` augmentation
 instead, declaration files included, so an installed design system gets
-completion, hover and go-to-definition too.
+completion, hover and go-to-definition too; its `HTMLElementEventMap`
+augmentation is read the same way.
 
 **IDE features** the compiler cannot provide: completion *inside*
 `ref('…')`/`slotted('…')`/`children('…')` string arguments with the source
@@ -61,9 +62,9 @@ line silences a template diagnostic.
 ## Custom events
 
 `no-unknown-event` only knows the events it can find, so `@my-event` on a
-component that never declared one is reported as a typo. There are three ways
-a component says what it emits, and they combine — a detail type from one and
-prose from another end up on the same event.
+component that never declared one is reported as a typo. There are four ways
+to say what an event is, and they combine — a detail type from one and prose
+from another end up on the same event.
 
 **1. Just emit it.** Every `$emit` in the file counts, wherever it is written,
 and the *type of the receiver* decides whose event it is. The idiomatic FAST
@@ -125,8 +126,34 @@ export class TabBar extends FASTElement {}
 `@event` is accepted as a synonym, and `@attr`/`@prop` take a `{Type}` the
 same way.
 
-For an event that is genuinely global — one a library dispatches on anything —
-`fastElementUltra.globalEvents` accepts it everywhere instead.
+**4. Augment `HTMLElementEventMap`.** The standard-DOM route, and the one
+worth taking when `addEventListener` should know about the event too:
+
+```ts
+declare global {
+  interface HTMLElementEventMap {
+    /** A tab was chosen. */
+    'tab-select': CustomEvent<{ id: number }>;
+  }
+}
+```
+
+The augmentation is read from the whole program — your own files, and the
+`.d.ts` of any package you installed — so a design system that ships one gets
+its events recognised with nothing to configure. Note what the interface
+actually says, though: it belongs to *every* `HTMLElement`, so the name is
+accepted on any tag rather than tied to the component that raises it. Hover
+and go-to-definition work from the entry, and a `CustomEvent<T>` is shown by
+its detail `T`, the same as the other three forms. `lib.dom`'s own entries are
+left alone — those are already known.
+
+Prefer 2 or 3 when the event belongs to one component. Reach for this when the
+element's consumers call `addEventListener` as often as they bind `@event`, or
+when the library already ships the augmentation.
+
+For an event that is genuinely global but typed nowhere — one a library
+dispatches on anything — `fastElementUltra.globalEvents` accepts it everywhere
+without any declaration.
 
 ## What it deliberately does not do
 
