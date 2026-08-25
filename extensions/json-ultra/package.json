@@ -2,7 +2,7 @@
   "name": "wx-vsce-json-ultra",
   "displayName": "JSON Ultra",
   "description": "JSON, JSONC, JSON5, and JSON Lines — diagnostics, comment-preserving formatting with optional recursive key sort, outline, folding, JSON-path hovers, a JSON Lines table preview, and oxfmt delegation — powered by a Rust parser compiled to WebAssembly.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
