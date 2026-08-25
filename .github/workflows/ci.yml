@@ -79,7 +79,8 @@ jobs:
             -p typst-lsp-wasm \
             -p markdown-engine \
             -p log-parser \
-            -p fast-analyzer-wasm
+            -p fast-analyzer-wasm \
+            -p json-analyzer
 
       - name: Report the typst artifact size
         run: |

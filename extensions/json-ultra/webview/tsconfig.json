@@ -1,0 +1,18 @@
+{
+  // The webview is a browser bundle. `rootDir` is the package root because
+  // the page imports `../src/messages.js` and `../src/types.js` — the
+  // protocol and DTOs it shares with the extension host.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../dist/webview",
+    "rootDir": "..",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["."]
+}

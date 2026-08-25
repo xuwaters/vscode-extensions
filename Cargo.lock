@@ -1556,6 +1556,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "json-analyzer"
+version = "0.1.0"
+dependencies = [
+ "analyzer-core",
+ "console_error_panic_hook",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "kamadak-exif"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

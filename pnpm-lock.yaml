@@ -314,6 +314,27 @@ importers:
         specifier: catalog:build
         version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
 
+  extensions/json-ultra:
+    devDependencies:
+      '@types/node':
+        specifier: catalog:build
+        version: 25.5.0
+      '@types/vscode':
+        specifier: ^1.96.0
+        version: 1.110.0
+      '@vscode/vsce':
+        specifier: catalog:build
+        version: 3.7.1(supports-color@7.2.0)
+      tsdown:
+        specifier: catalog:build
+        version: 0.21.4(@tsdown/css@0.21.4)(typescript@6.0.3)
+      typescript:
+        specifier: catalog:build
+        version: 6.0.3
+      vitest:
+        specifier: catalog:build
+        version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
+
   extensions/log-viewer:
     devDependencies:
       '@types/node':

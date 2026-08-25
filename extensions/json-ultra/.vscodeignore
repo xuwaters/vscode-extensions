@@ -1,0 +1,34 @@
+# Shared by every extension in this repo.
+# Edit this template and run `pnpm sync-vscodeignore` — do not edit the copies.
+
+# Sources: only the bundle in dist/ ships.
+src/
+test/
+webview/
+examples/
+# Language-server sources, for extensions that run one in a child process
+# (typst-ultra). The bundle lands in dist/server.js like every other entry.
+server/
+**/*.test.ts
+# Build-time scripts and the tables they read — for extensions that generate
+# part of what they ship, such as typst-ultra's embedded-language grammar. The
+# generated file ships; what expands into it does not.
+scripts/
+
+# Build configuration.
+tsconfig.json
+tsconfig.tsbuildinfo
+tsdown.config.mts
+vitest.config.mts
+
+# Build leftovers.
+target/
+temp
+**/*.js.map
+**/*.ts.map
+**/*.d.ts
+
+# Repo bookkeeping. README.md and LICENSE.md ship; developer docs do not.
+.gitignore
+wasm/.gitignore
+CONTRIBUTING.md

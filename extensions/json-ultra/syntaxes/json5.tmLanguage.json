@@ -1,0 +1,151 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "JSON5",
+  "scopeName": "source.json5",
+  "patterns": [{ "include": "#value" }],
+  "repository": {
+    "value": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#constants" },
+        { "include": "#numbers" },
+        { "include": "#doubleString" },
+        { "include": "#singleString" },
+        { "include": "#object" },
+        { "include": "#array" }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.json5",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "captures": { "0": { "name": "punctuation.definition.comment.json5" } }
+        },
+        {
+          "name": "comment.line.double-slash.json5",
+          "begin": "//",
+          "end": "(?=$)",
+          "captures": { "0": { "name": "punctuation.definition.comment.json5" } }
+        }
+      ]
+    },
+    "constants": {
+      "name": "constant.language.json5",
+      "match": "\\b(?:true|false|null|Infinity|NaN)\\b"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.json5",
+          "match": "[+-]?0[xX][0-9a-fA-F]+"
+        },
+        {
+          "name": "constant.numeric.json5",
+          "match": "[+-]?(?:Infinity|NaN|(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?)"
+        }
+      ]
+    },
+    "escape": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.json5",
+          "match": "\\\\(?:[\"'\\\\/bfnrtv0]|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|\\r?\\n)"
+        },
+        {
+          "name": "invalid.illegal.unrecognized-string-escape.json5",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "doubleString": {
+      "name": "string.quoted.double.json5",
+      "begin": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.json5" } },
+      "end": "\"",
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.json5" } },
+      "patterns": [{ "include": "#escape" }]
+    },
+    "singleString": {
+      "name": "string.quoted.single.json5",
+      "begin": "'",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.json5" } },
+      "end": "'",
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.json5" } },
+      "patterns": [{ "include": "#escape" }]
+    },
+    "object": {
+      "name": "meta.structure.dictionary.json5",
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.definition.dictionary.begin.json5" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.definition.dictionary.end.json5" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#objectKey" },
+        {
+          "begin": ":",
+          "beginCaptures": {
+            "0": { "name": "punctuation.separator.dictionary.key-value.json5" }
+          },
+          "end": "(,)|(?=\\})",
+          "endCaptures": {
+            "1": { "name": "punctuation.separator.dictionary.pair.json5" }
+          },
+          "name": "meta.structure.dictionary.value.json5",
+          "patterns": [{ "include": "#value" }]
+        }
+      ]
+    },
+    "objectKey": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.support.type.property-name.json5",
+          "begin": "\"(?=(?:[^\"\\\\]|\\\\.)*\"\\s*:)",
+          "beginCaptures": {
+            "0": { "name": "punctuation.support.type.property-name.begin.json5" }
+          },
+          "end": "\"",
+          "endCaptures": {
+            "0": { "name": "punctuation.support.type.property-name.end.json5" }
+          },
+          "contentName": "support.type.property-name.json5",
+          "patterns": [{ "include": "#escape" }]
+        },
+        {
+          "name": "string.quoted.single.support.type.property-name.json5",
+          "begin": "'(?=(?:[^'\\\\]|\\\\.)*'\\s*:)",
+          "beginCaptures": {
+            "0": { "name": "punctuation.support.type.property-name.begin.json5" }
+          },
+          "end": "'",
+          "endCaptures": {
+            "0": { "name": "punctuation.support.type.property-name.end.json5" }
+          },
+          "contentName": "support.type.property-name.json5",
+          "patterns": [{ "include": "#escape" }]
+        },
+        {
+          "name": "support.type.property-name.unquoted.json5",
+          "match": "[A-Za-z_$][A-Za-z0-9_$]*(?=\\s*:)"
+        }
+      ]
+    },
+    "array": {
+      "name": "meta.structure.array.json5",
+      "begin": "\\[",
+      "beginCaptures": { "0": { "name": "punctuation.definition.array.begin.json5" } },
+      "end": "\\]",
+      "endCaptures": { "0": { "name": "punctuation.definition.array.end.json5" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#value" },
+        {
+          "name": "punctuation.separator.array.json5",
+          "match": ","
+        }
+      ]
+    }
+  }
+}
