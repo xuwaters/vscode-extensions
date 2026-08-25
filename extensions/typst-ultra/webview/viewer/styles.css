@@ -212,7 +212,16 @@ typst-preview * {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  /*
+   * `safe`, and that word is the whole reason a page zoomed past the width of
+   * the panel can be read. Plain centring puts a too-wide page's left edge at a
+   * negative offset from the content box, and `scrollLeft` does not go below
+   * zero — so the overflow to the left is simply unreachable and the margin is
+   * clipped away. `safe` falls back to start alignment the moment the page no
+   * longer fits, which puts the left edge back at the scroller's origin; pages
+   * that do fit are still centred. (`pdf-ultra`'s column does the same.)
+   */
+  align-items: safe center;
   gap: 16px;
   scroll-behavior: auto;
 }
