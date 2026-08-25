@@ -18,13 +18,14 @@ use crate::ast::{Ast, Comment, Member, Value, ValueKind};
 use crate::diagnostics::DiagnosticCode;
 use crate::workspace::ParsedFile;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FormatOptions {
     pub tab_size: u32,
     pub insert_spaces: bool,
-    /// Sort object keys recursively (code-point order, stable).
+    /// Sort object keys recursively (see [`compare_keys`], stable).
     pub sort_keys: bool,
     pub insert_final_newline: bool,
 }
@@ -151,7 +152,7 @@ impl<'a> Renderer<'a> {
     fn members<'m>(&self, members: &'m [Member]) -> Vec<&'m Member> {
         let mut refs: Vec<&Member> = members.iter().collect();
         if self.opts.sort_keys {
-            refs.sort_by(|a, b| a.key.name.cmp(&b.key.name));
+            refs.sort_by(|a, b| compare_keys(&a.key.name, &b.key.name));
         }
         refs
     }
@@ -275,6 +276,69 @@ impl<'a> Renderer<'a> {
     }
 }
 
+/// Key order for `sort_keys`, the way a reader expects to find names in
+/// a settings file rather than the way bytes happen to be numbered.
+///
+/// Raw code-point order drops `[` (U+005B) between the uppercase and
+/// lowercase letters, so `"C_pp"` sorts before `"[astro]"` sorts before
+/// `"astro"` — the same name in three neighbourhoods. Folding case
+/// first keeps every punctuation-led key (`[astro]`, `$schema`) in one
+/// group ahead of the words, and digit runs compare as numbers so
+/// `item2` precedes `item10`. Exact code points break ties last, which
+/// keeps the order total and deterministic (`A` before `a`).
+fn compare_keys(a: &str, b: &str) -> Ordering {
+    natural_cmp(a, b).then_with(|| a.cmp(b))
+}
+
+fn natural_cmp(a: &str, b: &str) -> Ordering {
+    let (mut x, mut y) = (a, b);
+    loop {
+        let (ca, cb) = match (x.chars().next(), y.chars().next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(ca), Some(cb)) => (ca, cb),
+        };
+        if ca.is_ascii_digit() && cb.is_ascii_digit() {
+            let (da, resta) = split_digits(x);
+            let (db, restb) = split_digits(y);
+            match number_cmp(da, db) {
+                Ordering::Equal => {
+                    x = resta;
+                    y = restb;
+                }
+                ord => return ord,
+            }
+        } else {
+            match fold(ca).cmp(&fold(cb)) {
+                Ordering::Equal => {
+                    x = &x[ca.len_utf8()..];
+                    y = &y[cb.len_utf8()..];
+                }
+                ord => return ord,
+            }
+        }
+    }
+}
+
+/// Leading run of ASCII digits, and whatever follows it.
+fn split_digits(s: &str) -> (&str, &str) {
+    let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    s.split_at(end)
+}
+
+/// Two digit runs by value: leading zeros are noise, then longer wins,
+/// then the digits themselves.
+fn number_cmp(a: &str, b: &str) -> Ordering {
+    let a = a.trim_start_matches('0');
+    let b = b.trim_start_matches('0');
+    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
+}
+
+fn fold(c: char) -> char {
+    c.to_lowercase().next().unwrap_or(c)
+}
+
 fn push_normalized(out: &mut String, raw: &str) {
     if !raw.contains('\r') {
         out.push_str(raw);
@@ -359,6 +423,114 @@ mod tests {
             fmt_with("{\"a\": 1, \"a\": 2}", Flavor::Json, &opts).unwrap(),
             "{\n  \"a\": 1,\n  \"a\": 2\n}\n"
         );
+    }
+
+    /// Keys of a sorted object, in order — the shape most sort tests want.
+    fn sorted_keys(src: &str, flavor: Flavor) -> Vec<String> {
+        let opts = FormatOptions { sort_keys: true, ..FormatOptions::default() };
+        let out = fmt_with(src, flavor, &opts).unwrap_or_else(|| src.to_string());
+        out.lines()
+            .filter_map(|line| line.trim().split_once(": "))
+            .map(|(key, _)| key.trim_matches(|c| c == '"' || c == '\'').to_string())
+            .collect()
+    }
+
+    #[test]
+    fn sort_groups_bracketed_keys_before_words() {
+        // The reported case: `[` (U+005B) sits between the upper and
+        // lower alphabets, so code-point order scatters these three.
+        assert_eq!(
+            sorted_keys(r#"{"astro": 1, "C_pp": 2, "[astro]": 3}"#, Flavor::Json),
+            ["[astro]", "astro", "C_pp"]
+        );
+    }
+
+    #[test]
+    fn sort_is_case_insensitive() {
+        assert_eq!(
+            sorted_keys(r#"{"Zebra": 1, "apple": 2, "Apricot": 3, "banana": 4}"#, Flavor::Json),
+            ["apple", "Apricot", "banana", "Zebra"]
+        );
+    }
+
+    #[test]
+    fn sort_falls_back_to_code_points_for_case_only_ties() {
+        // Deterministic and total: same letters, uppercase first.
+        assert_eq!(
+            sorted_keys(r#"{"ab": 1, "AB": 2, "Ab": 3, "aB": 4}"#, Flavor::Json),
+            ["AB", "Ab", "aB", "ab"]
+        );
+    }
+
+    #[test]
+    fn sort_compares_digit_runs_as_numbers() {
+        assert_eq!(
+            sorted_keys(r#"{"item10": 1, "item9": 2, "item100": 3, "item2": 4}"#, Flavor::Json),
+            ["item2", "item9", "item10", "item100"]
+        );
+    }
+
+    #[test]
+    fn sort_ignores_leading_zeros_in_digit_runs() {
+        assert_eq!(
+            sorted_keys(r#"{"v007": 1, "v7a": 2, "v10": 3}"#, Flavor::Json),
+            ["v007", "v7a", "v10"]
+        );
+    }
+
+    #[test]
+    fn sort_orders_dotted_setting_names_by_segment() {
+        assert_eq!(
+            sorted_keys(
+                r#"{"editor.fontSize": 1, "$schema": 2, "editor.formatOnSave": 3, "[json]": 4, "editorBracket": 5}"#,
+                Flavor::Json
+            ),
+            ["$schema", "[json]", "editor.fontSize", "editor.formatOnSave", "editorBracket"]
+        );
+    }
+
+    #[test]
+    fn sort_handles_non_ascii_keys() {
+        // Case folds (`É` with `é`), but this is not a full Unicode
+        // collation: accented letters keep their code points, so they
+        // land after the ASCII alphabet rather than beside `e`.
+        assert_eq!(
+            sorted_keys(r#"{"Éclair": 1, "eclair": 2, "école": 3, "zebra": 4}"#, Flavor::Json),
+            ["eclair", "zebra", "Éclair", "école"]
+        );
+    }
+
+    #[test]
+    fn sort_places_a_prefix_before_its_extensions() {
+        assert_eq!(
+            sorted_keys(r#"{"abc": 1, "ab": 2, "": 3, "a": 4}"#, Flavor::Json),
+            ["", "a", "ab", "abc"]
+        );
+    }
+
+    #[test]
+    fn sort_uses_decoded_key_text_not_the_escapes() {
+        // "\u0061pple" is `apple`, and must sort as one.
+        assert_eq!(
+            sorted_keys("{\"banana\": 1, \"\\u0061pple\": 2}", Flavor::Json),
+            ["\\u0061pple", "banana"]
+        );
+    }
+
+    #[test]
+    fn sort_orders_unquoted_json5_keys_with_the_quoted_ones() {
+        assert_eq!(
+            sorted_keys("{zed: 1, 'apple': 2, beta: 3}", Flavor::Json5),
+            ["apple", "beta", "zed"]
+        );
+    }
+
+    #[test]
+    fn sort_is_idempotent() {
+        let opts = FormatOptions { sort_keys: true, ..FormatOptions::default() };
+        let src = r#"{"[astro]": 1, "C_pp": {"z9": 1, "z10": 2}, "astro": 3, "Astro": 4}"#;
+        let once = fmt_with(src, Flavor::Json, &opts).unwrap();
+        assert_eq!(fmt_with(&once, Flavor::Json, &opts), None, "second sort still edits");
     }
 
     #[test]

@@ -16,7 +16,10 @@ compiled to WebAssembly.
   Lines formats to one compact record per line.
 - **Sort object keys recursively** — the `JSON Ultra: Sort Object Keys
   Recursively` command, or continuously during formatting via
-  `jsonUltra.format.sortKeys`. Comments move with their keys.
+  `jsonUltra.format.sortKeys`. Comments move with their keys. The order
+  is case-insensitive with digit runs compared as numbers, so
+  `[astro]` and `$schema` group ahead of the words and `item2` precedes
+  `item10`; exact code points only break ties.
 - **oxc integration** — when the workspace is configured for oxc's
   formatter (`.oxfmtrc.json`, `.oxfmtrc.jsonc`, `oxfmt.config.ts`,
   `oxfmt.config.mts`), formatting is delegated to the project's `oxfmt`
