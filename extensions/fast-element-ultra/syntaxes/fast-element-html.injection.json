@@ -10,12 +10,11 @@
   ],
   "repository": {
     "fastHtmlTemplate": {
-      "begin": "(?x)(\\bhtml)\\s*(?:(<)[^<>`]{0,240}(>))?\\s*(`)",
+      "$comment": "The untyped spelling, and only that one. A `begin` that reached across the type arguments as well would have to leave them uncaptured — and text a `begin` matches but does not capture takes the rule's own `name`, so `html<string, AtMessage>` would paint both arguments as string. `AtMessage` would then be repaired by tsserver's semantic tokens and `string`, which has no semantic token of its own, would stay the wrong colour. So anything with type arguments goes to `fastHtmlTypedTemplate` instead, which hands them to TypeScript's own rule.",
+      "begin": "(?x)(\\bhtml)\\s*(`)",
       "beginCaptures": {
         "1": { "name": "entity.name.function.tagged-template.ts" },
-        "2": { "name": "punctuation.definition.typeparameters.begin.ts" },
-        "3": { "name": "punctuation.definition.typeparameters.end.ts" },
-        "4": { "name": "punctuation.definition.string.template.begin.ts" }
+        "2": { "name": "punctuation.definition.string.template.begin.ts" }
       },
       "end": "`",
       "endCaptures": {
@@ -26,7 +25,7 @@
       "patterns": [{ "include": "text.html.basic" }]
     },
     "fastHtmlTypedTemplate": {
-      "$comment": "Everything `fastHtmlTemplate`'s single regex cannot open, because a `begin` only ever sees one line: type arguments broken over several lines (`html<\\n  ToastItem,\\n  Toaster\\n>`…``), and a type argument that is itself generic (`html<Row<Cell>>`). The region runs from `html` to the template's closing backtick, and its two children divide it up — the type arguments go to TypeScript's own `#type-arguments` rule, so they keep the colours they have anywhere else, and the backtick that follows opens the body exactly as above. The end is a lookbehind, so it can only match once the body rule has popped, and it never fires early: while the body is on the stack it is the body's own end that is consulted. `fastHtmlTemplate` is listed first, so for a template that fits on one line it wins the tie and this rule never opens. The second alternative of the end is the escape hatch for something that only *looked* like a typed template — `html<x` that turns out to be a comparison — after which the type arguments close on a `>` that no backtick follows; without it the rule would stay open to the end of the file. The `(?=<…)` guard is what keeps that case rare: a comparison is written `html < count`, with the spaces this rule refuses.",
+      "$comment": "Every template that carries type arguments, whether or not it fits on one line: `html<Row>`…``, a list broken over several lines (`html<\\n  ToastItem,\\n  Toaster\\n>`…``), and an argument that is itself generic (`html<Row<Cell>>`). The region runs from `html` to the template's closing backtick, and its two children divide it up — the type arguments go to TypeScript's own `#type-arguments` rule, so they keep the colours they have anywhere else, and the backtick that follows opens the body exactly as `fastHtmlTemplate` does. The end is a lookbehind, so it can only match once the body rule has popped, and it never fires early: while the body is on the stack it is the body's own end that is consulted. The second alternative of the end is the escape hatch for something that only *looked* like a typed template — `html<x` that turns out to be a comparison — after which the type arguments close on a `>` that no backtick follows; without it the rule would stay open to the end of the file. The `(?=<…)` guard is what keeps that case rare: a comparison is written `html < count`, with the spaces this rule refuses.",
       "begin": "(\\bhtml)(?=<(?:$|[^=\\d]))",
       "beginCaptures": {
         "1": { "name": "entity.name.function.tagged-template.ts" }

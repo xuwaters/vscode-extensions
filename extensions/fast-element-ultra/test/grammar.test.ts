@@ -128,6 +128,18 @@ describeWithCode('html`` templates', () => {
     expect(scopes).toContain('entity.name.tag.html');
   });
 
+  it('gives the type arguments the colours they have anywhere else', async () => {
+    // The opener must not swallow them: text a `begin` matches but does not
+    // capture takes the rule's own `name`, which would paint them as string.
+    // `AtMessage` would be repaired by tsserver's semantic tokens; `string`,
+    // which has none of its own, would stay wrong.
+    const source = 'const t = html<string, AtMessage>`<button>hi</button>`;';
+    expect(await scopesAt(source, 'string')).toContain('support.type.primitive.ts');
+    expect(await scopesAt(source, 'AtMessage')).toContain('entity.name.type.ts');
+    expect(await scopesAt(source, 'string')).not.toContain('string.template.fast-element.ts');
+    expect(await scopesAt(source, 'button')).toContain('entity.name.tag.html');
+  });
+
   it('scopes attribute names inside a typed template', async () => {
     const source = 'const t = html<Foo>`<div class="mc-doc">hi</div>`;';
     expect(await scopesAt(source, 'class')).toContain('entity.other.attribute-name.html');
