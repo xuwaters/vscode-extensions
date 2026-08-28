@@ -29,14 +29,15 @@ SecretStorage, never in settings.
   | --- | --- | --- | --- | --- | --- |
   | `workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813` | DeepSeek V4 Pro | 1048576 | 16384 | yes | no |
   | `workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731` | DeepSeek V4 Flash | 1048576 | 16384 | yes | no |
+  | `workers-ai/@cf/zai-org/glm-5.3-flash` | GLM 5.3 Flash | 1048576 | 16384 | yes | yes |
   | `workers-ai/@cf/zai-org/glm-5.2` | GLM 5.2 | 262144 | 16384 | yes | no |
   | `workers-ai/@cf/moonshotai/kimi-k2.6` | Kimi K2.6 | 262144 | 16384 | yes | yes |
   | `workers-ai/@cf/moonshotai/kimi-k2.7-code` | Kimi K2.7 Code | 262144 | 16384 | yes | yes |
   | `workers-ai/@cf/qwen/qwen3-30b-a3b-fp8` | Qwen3 30B | 32768 | 8192 | yes | no |
 
-  DeepSeek V4 Pro, GLM 5.2, Kimi K2.6 and Kimi K2.7 Code come pre-ticked in the
-  preset's picker. Model ids are normalised: a bare `@cf/…` id is rewritten to
-  `workers-ai/@cf/…`, so you can paste either form.
+  DeepSeek V4 Pro, GLM 5.3 Flash, GLM 5.2, Kimi K2.6 and Kimi K2.7 Code come
+  pre-ticked in the preset's picker. Model ids are normalised: a bare `@cf/…` id
+  is rewritten to `workers-ai/@cf/…`, so you can paste either form.
 
 - **Any other model id**, via the "Custom model ID…" entry in the preset picker
   or by adding it to `wxCloudflareAi.models`. Repeating a curated id in settings

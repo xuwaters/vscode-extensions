@@ -32,6 +32,16 @@ export const CURATED: CuratedModel[] = [
     vision: false,
   },
   {
+    id: 'workers-ai/@cf/zai-org/glm-5.3-flash',
+    name: 'GLM 5.3 Flash (Cloudflare)',
+    family: 'glm-5.3',
+    maxInputTokens: 1_048_576,
+    maxOutputTokens: 16_384,
+    toolCalling: true,
+    vision: true,
+    defaultPicked: true,
+  },
+  {
     id: 'workers-ai/@cf/zai-org/glm-5.2',
     name: 'GLM 5.2 (Cloudflare)',
     family: 'glm-5.2',
