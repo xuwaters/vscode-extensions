@@ -101,6 +101,14 @@ impl Server {
         let changed = settings.wgsl.validate != self.settings.wgsl.validate
             || settings.glsl.validate != self.settings.glsl.validate;
         self.settings = settings;
+        if changed {
+            // Unlike the triggers beside it, the dialect is read where the
+            // analysis is *made*, so each open document holds its own copy.
+            let settings = &self.settings;
+            for document in self.documents.values_mut() {
+                document.set_dialect(settings.for_language(document.language).validate.dialect);
+            }
+        }
         changed
     }
 

@@ -77,12 +77,34 @@ The status bar shows which one was picked. `GLSL: Show Shader Stage of Current
 File` explains it in full, and a code action offers to write a guess down as a
 `#pragma`.
 
+### Vulkan GLSL, not OpenGL GLSL
+
+naga's GLSL front end exists to feed `wgpu`, so the language it implements is
+**Vulkan GLSL** — the dialect `glslangValidator -V` accepts. OpenGL GLSL differs
+in two places, and naga reports both as errors:
+
+| | Vulkan GLSL, which naga reads | OpenGL GLSL, which it does not |
+| --- | --- | --- |
+| Bindings | `layout(set = 0, binding = 0) uniform Camera { … }` on every resource | the driver assigns them — `uniform Camera { … }` |
+| Samplers | `texture2D` and `sampler` declared apart, fused at the call site with `sampler2D(albedo, albedo_sampler)` | one combined `uniform sampler2D albedo` |
+
+A missing binding says `uniform/buffer blocks require layout(binding=X)`. A
+combined sampler is worse: `sampler2D` is not a type naga has, so the
+declaration fails to parse and the message is the generic `Not implemented:
+variable qualifier`, which does not name the real cause.
+
+Both are right for a shader aimed at Vulkan or `wgpu` and noise for one aimed at
+OpenGL or WebGL, and nothing in a `.frag` says which it is. So `glsl.validate.dialect`
+decides, and by default it looks at the file: a shader using either OpenGL-only
+construct is **not validated**, and the status bar says so rather than
+squiggling code nobody got wrong. Set it to `vulkan` to be told anyway.
+
 ### What naga does not validate
 
-naga's GLSL front end implements the vertex, fragment and compute stages at
-`#version 440`, `450` and `460 core`. Outside that — GLSL ES, geometry,
-tessellation, ray tracing — the file is **not validated**, and the status bar
-says so rather than pretending.
+Beyond the dialect, naga's GLSL front end implements the vertex, fragment and
+compute stages at `#version 440`, `450` and `460 core`. Outside that — GLSL ES,
+geometry, tessellation, ray tracing — the file is again **not validated**, and
+the status bar says so rather than pretending.
 
 Everything else still works there. Completion, hover, definition, rename,
 symbols and folding come from a parser of this extension's own, which covers
@@ -108,10 +130,11 @@ Every setting exists under both `wgsl.` and `glsl.`.
 | `embedded.enabled` | `true` | Language features inside tagged string literals. |
 | `embedded.diagnostics` | `false` | Validate embedded shaders too. |
 
-Plus two of their own:
+Plus three of their own:
 
 | Setting | Default | |
 | --- | --- | --- |
+| `glsl.validate.dialect` | `auto` | Which GLSL to validate against: `auto` skips a file using OpenGL-only constructs, `vulkan` validates regardless, `opengl` never validates. See [above](#vulkan-glsl-not-opengl-glsl). |
 | `glsl.showStageInStatusBar` | `true` | |
 | `wgsl.rust.highlightHint` | `true` | Offer the rust-analyzer fix described above. |
 

@@ -160,6 +160,33 @@ fn a_dialect_naga_cannot_parse_gets_no_squiggles_but_says_why() {
     assert_eq!(info["ok"], false);
 }
 
+/// OpenGL GLSL is valid GLSL that naga does not implement: implicit bindings
+/// and combined image samplers. Same treatment as GLSL ES — say why once,
+/// rather than an error on every resource in the file.
+#[test]
+fn an_opengl_style_shader_gets_no_squiggles_but_says_why() {
+    let source = "#version 450\n\
+        uniform VertexInfo {\n  mat4 mvp;\n  mat4 model;\n} vertex_info;\n\
+        uniform sampler2D albedoTexture;\n\
+        void main() { gl_FragColor = texture(albedoTexture, vec2(0.0)); }\n";
+
+    let mut harness = Harness::new();
+    let uri = harness.open("gl.frag", source);
+    assert!(harness.diagnostics(&uri).is_none());
+
+    let info: serde_json::Value = harness
+        .request("wgsl/shaderInfo", json!({ "textDocument": { "uri": uri.as_str() } }))
+        .expect("shader info");
+    assert_eq!(info["stage"], "fragment");
+    assert!(info["skipped"].as_str().unwrap().contains("Vulkan GLSL"));
+
+    // Someone targeting `wgpu` asks for the errors and gets them, on the file
+    // already open rather than only on the next one.
+    harness.configure(json!({ "glsl": { "validate": { "dialect": "vulkan" } } }));
+    let diagnostics = harness.diagnostics(&uri).expect("published");
+    assert_eq!(diagnostics[0].source.as_deref(), Some("naga"));
+}
+
 /// naga cannot parse this at all, so the syntax layer is the only thing that
 /// can say anything — and it can say exactly what is wrong.
 #[test]

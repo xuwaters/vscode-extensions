@@ -54,7 +54,8 @@ impl Server {
         self.index_mut().remove(&item.uri);
 
         let uri = item.uri.clone();
-        self.insert_document(Document::new(item.uri, language, item.version, item.text));
+        let dialect = self.settings().for_language(language).validate.dialect;
+        self.insert_document(Document::new(item.uri, language, item.version, item.text, dialect));
         // Publish on open regardless of the `onType`/`onSave` settings: those
         // govern *re*validation, and a file with errors should say so the
         // moment it is opened rather than waiting for an edit.

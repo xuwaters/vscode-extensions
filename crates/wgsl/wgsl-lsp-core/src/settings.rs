@@ -12,6 +12,8 @@
 use serde::{Deserialize, Serialize};
 use wgsl_syntax::Language;
 
+use crate::analysis::dialect::Dialect;
+
 /// Everything the server reads out of the client's configuration.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -67,11 +69,14 @@ impl Default for LanguageSettings {
 pub struct Validate {
     pub on_save: bool,
     pub on_type: bool,
+    /// Which GLSL to judge a source against. Carried on the shared struct like
+    /// everything else, and simply unread for WGSL, which has one dialect.
+    pub dialect: Dialect,
 }
 
 impl Default for Validate {
     fn default() -> Self {
-        Self { on_save: true, on_type: false }
+        Self { on_save: true, on_type: false, dialect: Dialect::default() }
     }
 }
 
@@ -141,6 +146,7 @@ mod tests {
         assert!(settings.wgsl.completion.enabled);
         assert!(settings.wgsl.validate.on_save);
         assert!(!settings.wgsl.validate.on_type);
+        assert_eq!(settings.glsl.validate.dialect, Dialect::Auto);
         assert!(settings.wgsl.semantic_tokens);
         assert!(!settings.wgsl.inlay_hints.enabled);
         assert!(!settings.glsl.format.enable);
@@ -167,6 +173,18 @@ mod tests {
         assert!(settings.either(|l| l.semantic_tokens));
         settings.glsl.semantic_tokens = false;
         assert!(!settings.either(|l| l.semantic_tokens));
+    }
+
+    #[test]
+    fn the_glsl_dialect_is_read_from_its_own_section() {
+        let settings: Settings = serde_json::from_value(
+            serde_json::json!({ "glsl": { "validate": { "dialect": "opengl" } } }),
+        )
+        .unwrap();
+        assert_eq!(settings.glsl.validate.dialect, Dialect::OpenGl);
+        // Sending one key must not disturb the triggers beside it.
+        assert!(settings.glsl.validate.on_save);
+        assert_eq!(settings.wgsl.validate.dialect, Dialect::Auto);
     }
 
     #[test]

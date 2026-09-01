@@ -472,9 +472,12 @@ pub fn type_of_chain(
 mod tests {
     use super::*;
     use crate::analysis::Analysis;
+    use crate::analysis::dialect::Dialect;
 
     fn module(source: &str, language: Language, extension: &str) -> std::rc::Rc<Module> {
-        let analysis = Analysis::run(source, language, extension);
+        // These fixtures exist to be parsed, so ask for the dialect naga
+        // implements rather than leaving it to a look at the source.
+        let analysis = Analysis::run(source, language, extension, Dialect::Vulkan);
         assert!(analysis.problems.is_empty(), "{:?}", analysis.problems);
         analysis.module.expect("naga parsed it")
     }

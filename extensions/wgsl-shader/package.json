@@ -2,7 +2,7 @@
   "name": "wx-vsce-wgsl-shader",
   "displayName": "WGSL / GLSL Shader",
   "description": "WGSL and GLSL shader language support: a real language server with completion, hover, go-to-definition, rename, semantic highlighting and naga validation — in shader files and in shaders embedded in Rust and TypeScript",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -227,6 +227,21 @@
           "type": "boolean",
           "default": false,
           "description": "Validate GLSL files while typing. Off by default: a file is invalid for most of the time it is being edited, and squiggling every keystroke is noise."
+        },
+        "glsl.validate.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "vulkan",
+            "opengl"
+          ],
+          "enumDescriptions": [
+            "Validate unless the file uses a construct only OpenGL GLSL has.",
+            "Always validate. Vulkan GLSL is the dialect naga implements.",
+            "Never validate. Everything else still works."
+          ],
+          "default": "auto",
+          "markdownDescription": "Which GLSL to validate against. naga implements **Vulkan GLSL**: every resource carries an explicit `layout(binding = …)`, and textures and samplers are separate objects combined at the call site with `sampler2D(texture, sampler)`. OpenGL GLSL — implicit bindings, `uniform sampler2D` — is valid GLSL that naga reports as errors.\n\n`auto` looks at the file and skips validation when it finds either OpenGL-only construct, on the same grounds as a `#version 300 es` source: the status bar says the file was not validated rather than squiggling code nobody got wrong. Set `vulkan` if you target Vulkan or `wgpu` and want to be told, or `opengl` to switch naga off for GLSL entirely."
         },
         "glsl.completion.enabled": {
           "type": "boolean",

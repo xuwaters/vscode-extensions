@@ -19,6 +19,7 @@ use lsp_types::{Position, Range, SemanticToken, Uri};
 use naga::{Function, Module};
 use wgsl_syntax::{Language, Parsed};
 
+use crate::analysis::dialect::Dialect;
 use crate::analysis::{Analysis, types};
 use crate::convert;
 
@@ -31,6 +32,8 @@ pub struct Document {
     /// The file's extension without the dot, which is where a GLSL source's
     /// stage comes from when no `#pragma shader_stage` says otherwise.
     extension: String,
+    /// The GLSL this document is judged against, from `glsl.validate.dialect`.
+    dialect: Dialect,
     lines: SpanTable,
     parsed: Parsed,
     analysis: OnceCell<Analysis>,
@@ -46,7 +49,13 @@ pub struct Document {
 }
 
 impl Document {
-    pub fn new(uri: Uri, language: Language, version: i32, text: String) -> Document {
+    pub fn new(
+        uri: Uri,
+        language: Language,
+        version: i32,
+        text: String,
+        dialect: Dialect,
+    ) -> Document {
         let extension = extension_of(&uri);
         let lines = SpanTable::new(&text);
         let parsed = wgsl_syntax::parse(&text, language);
@@ -56,6 +65,7 @@ impl Document {
             version,
             text,
             extension,
+            dialect,
             lines,
             parsed,
             analysis: OnceCell::new(),
@@ -76,6 +86,19 @@ impl Document {
 
     pub fn lines(&self) -> &SpanTable {
         &self.lines
+    }
+
+    /// Adopt a new dialect, throwing away an analysis made under the old one.
+    ///
+    /// The dialect decides whether naga runs at all, so a document that kept
+    /// its cached answer would go on reporting the previous setting until its
+    /// next edit.
+    pub fn set_dialect(&mut self, dialect: Dialect) {
+        if self.dialect == dialect {
+            return;
+        }
+        self.dialect = dialect;
+        self.analysis = OnceCell::new();
     }
 
     pub fn parsed(&self) -> &Parsed {
@@ -126,9 +149,10 @@ impl Document {
     /// does not parse right now, this says so.
     pub fn analysis(&self) -> &Analysis {
         let (text, language, extension) = (&self.text, self.language, &self.extension);
+        let dialect = self.dialect;
         let last_good = &self.last_good;
         self.analysis.get_or_init(|| {
-            let analysis = Analysis::run(text, language, extension);
+            let analysis = Analysis::run(text, language, extension, dialect);
             if let Some(module) = &analysis.module {
                 *last_good.borrow_mut() = Some(Rc::clone(module));
             }
@@ -243,7 +267,31 @@ mod tests {
     }
 
     fn document(text: &str) -> Document {
-        Document::new(uri("file:///shaders/test.wgsl"), Language::Wgsl, 1, text.to_string())
+        Document::new(
+            uri("file:///shaders/test.wgsl"),
+            Language::Wgsl,
+            1,
+            text.to_string(),
+            Dialect::Auto,
+        )
+    }
+
+    /// A dialect change has to invalidate the cached analysis, or switching the
+    /// setting does nothing until the file is next edited.
+    #[test]
+    fn changing_the_dialect_drops_the_cached_analysis() {
+        let mut document = Document::new(
+            uri("file:///shaders/test.frag"),
+            Language::Glsl,
+            1,
+            "#version 450\nuniform sampler2D albedo;\nvoid main() {}\n".to_string(),
+            Dialect::Auto,
+        );
+        assert!(document.analysis().skipped.is_some());
+
+        document.set_dialect(Dialect::Vulkan);
+        assert!(document.analysis().skipped.is_none());
+        assert!(!document.analysis().problems.is_empty());
     }
 
     #[test]
