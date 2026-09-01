@@ -2,7 +2,7 @@
   "name": "wx-vsce-wgsl-shader",
   "displayName": "WGSL / GLSL Shader",
   "description": "WGSL and GLSL shader language support: a real language server with completion, hover, go-to-definition, rename, semantic highlighting and diagnostics — WGSL validated by naga, GLSL by its own analyzer in every dialect — in shader files and in shaders embedded in Rust and TypeScript",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "publisher": "weixu",
   "engines": {

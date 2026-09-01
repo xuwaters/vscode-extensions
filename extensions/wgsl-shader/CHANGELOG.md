@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+- The third-party notices are reachable: `LICENSE.md` and the README's new
+  License section point at `THIRD-PARTY-NOTICES.md`, which shipped in the
+  package all along with nothing linking to it.
+
 ## 0.6.0
 
 **GLSL is analysed by an analyzer written for this extension.** Every dialect,

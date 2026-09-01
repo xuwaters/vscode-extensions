@@ -216,3 +216,10 @@ module costs a restart rather than every extension in the window.
 
 Analysis is Rust compiled to WebAssembly — one artifact for every platform VS
 Code runs on, with no toolchain to install and nothing to download on first use.
+
+## License
+
+`NO LICENSE`. The third-party notices — the Khronos Group GLSL reference prose
+embedded as hover documentation, and the Rust dependency graph linked into the
+WASM, naga included — are in `LICENSE.md` and `THIRD-PARTY-NOTICES.md`, both
+shipped in the package.
