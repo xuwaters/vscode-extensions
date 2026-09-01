@@ -1045,6 +1045,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "glsl-analysis"
+version = "0.1.0"
+dependencies = [
+ "analyzer-core",
+ "glsl-spec",
+ "glsl-syntax",
+ "pretty_assertions",
+]
+
+[[package]]
+name = "glsl-spec"
+version = "0.1.0"
+
+[[package]]
+name = "glsl-spec-gen"
+version = "0.1.0"
+dependencies = [
+ "roxmltree 0.21.1",
+]
+
+[[package]]
+name = "glsl-syntax"
+version = "0.1.0"
+dependencies = [
+ "analyzer-core",
+ "pretty_assertions",
+]
+
+[[package]]
 name = "guillotiere"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1876,7 +1905,6 @@ dependencies = [
  "naga-types",
  "num-traits",
  "once_cell",
- "pp-rs",
  "rustc-hash 1.1.0",
  "thiserror 2.0.18",
  "unicode-ident",
@@ -2215,15 +2243,6 @@ name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
-
-[[package]]
-name = "pp-rs"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb458bb7f6e250e6eb79d5026badc10a3ebb8f9a15d1fff0f13d17c71f4d6dee"
-dependencies = [
- "unicode-xid",
-]
 
 [[package]]
 name = "ppv-lite86"
@@ -4085,6 +4104,9 @@ name = "wgsl-lsp-core"
 version = "0.1.0"
 dependencies = [
  "analyzer-core",
+ "glsl-analysis",
+ "glsl-spec",
+ "glsl-syntax",
  "lsp-types",
  "naga",
  "pretty_assertions",

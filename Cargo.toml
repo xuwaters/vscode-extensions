@@ -1,11 +1,11 @@
 [workspace]
 members = [
   "crates/*",
-  # `crates/typst`, `crates/fast` and `crates/wgsl` are grouping directories
-  # with no manifest of their own, which the `crates/*` glob cannot express —
-  # hence the explicit entries plus the excludes below. Explicit members
-  # override `exclude`, so the glob keeps working for every other crate. New
-  # crates in those three directories go here by hand.
+  # `crates/typst`, `crates/fast` and `crates/wgsl-shader` are grouping
+  # directories with no manifest of their own, which the `crates/*` glob cannot
+  # express — hence the explicit entries plus the excludes below. Explicit
+  # members override `exclude`, so the glob keeps working for every other
+  # crate. New crates in those three directories go here by hand.
   "crates/typst/typst-session",
   "crates/typst/typst-lsp-core",
   "crates/typst/typst-preview-core",
@@ -14,11 +14,15 @@ members = [
   "crates/fast/fast-html-data",
   "crates/fast/fast-analyzer-core",
   "crates/fast/fast-analyzer-wasm",
-  "crates/wgsl/wgsl-syntax",
-  "crates/wgsl/wgsl-lsp-core",
-  "crates/wgsl/wgsl-lsp-wasm",
+  "crates/wgsl-shader/wgsl-syntax",
+  "crates/wgsl-shader/wgsl-lsp-core",
+  "crates/wgsl-shader/wgsl-lsp-wasm",
+  "crates/wgsl-shader/glsl-spec",
+  "crates/wgsl-shader/glsl-spec-gen",
+  "crates/wgsl-shader/glsl-syntax",
+  "crates/wgsl-shader/glsl-analysis",
 ]
-exclude = ["crates/typst", "crates/fast", "crates/wgsl"]
+exclude = ["crates/typst", "crates/fast", "crates/wgsl-shader"]
 resolver = "3"
 
 [workspace.package]

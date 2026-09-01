@@ -1,0 +1,15 @@
+[package]
+name = "glsl-syntax"
+version = "0.1.0"
+edition = { workspace = true }
+description = "GLSL lexer, preprocessor and recovering parser — a lossless syntax tree with macro expansion that remembers where every token came from."
+license = "MIT"
+
+[lints]
+workspace = true
+
+[dependencies]
+analyzer-core = { path = "../../analyzer-core" }
+
+[dev-dependencies]
+pretty_assertions = "1"

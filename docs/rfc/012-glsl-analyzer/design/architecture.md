@@ -61,3 +61,11 @@ Whole-file reparse per edit (matching the current server's model) with the budge
 and analysis are rebuilt per keystroke and must simply be fast enough. If P5-10's
 measurements break the budget, the recorded fallback order is: memoise preprocessing
 when no `#` appears in the edit range; then cheapen analysis, never features.
+
+**Outcome:** the budget was broken and neither fallback was needed. A 1,000-line
+shader rebuilds in 3.4 ms native and 4.9 ms in wasm, against 5 ms and 25 ms; the
+gap closed on linear table scans, per-character lexing and per-candidate work in
+overload resolution, none of which changed an answer. Nothing was memoised and no
+feature was cheapened, so the "rebuild everything per keystroke" model above still
+holds exactly as written. See
+[research/measurements.md §5](../research/measurements.md#5-closing-the-native-miss).

@@ -364,7 +364,8 @@ describe('GLSL grammar', () => {
   });
 
   it('tokenizes the example shaders without falling into a comment or string', async () => {
-    for (const file of ['test.vert', 'test.frag', 'test.comp']) {
+    const files = ['test.vert', 'test.frag', 'test.comp', 'test-es300.frag', 'test-opengl.frag'];
+    for (const file of files) {
       const source = fs.readFileSync(path.join(EXT_ROOT, 'examples', file), 'utf8');
       const tokenized = await tokenize(source, 'source.glsl');
       const lines = source.split('\n');

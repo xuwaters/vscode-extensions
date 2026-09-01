@@ -17,7 +17,7 @@ import {
  * to the OS once grown.
  *
  * Everything here is glue. The interesting parts are in Rust — in
- * `crates/wgsl/wgsl-lsp-core` — and are tested there, against the same three
+ * `crates/wgsl-shader/wgsl-lsp-core` — and are tested there, against the same three
  * entry points this file calls.
  */
 

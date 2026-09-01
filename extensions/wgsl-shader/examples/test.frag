@@ -3,8 +3,8 @@
 layout(location = 0) in vec3 v_normal;
 layout(location = 1) in vec2 v_uv;
 
-// naga's GLSL front end follows Vulkan GLSL: textures and samplers are separate
-// objects, combined at the call site with sampler2D(texture, sampler).
+// Vulkan GLSL keeps textures and samplers apart as separate objects, joined
+// at the call site with sampler2D(texture, sampler); see test-opengl.frag.
 layout(set = 0, binding = 1) uniform texture2D albedo;
 layout(set = 0, binding = 2) uniform sampler albedo_sampler;
 

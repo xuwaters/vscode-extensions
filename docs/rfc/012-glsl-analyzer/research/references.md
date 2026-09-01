@@ -44,8 +44,8 @@ language *is* and how others carved it up; write our own implementation.
 
 ## Existing in-repo prior art worth reading before writing code
 
-- `crates/wgsl/wgsl-syntax` — the house style for lexers/trees and the outline contract
+- `crates/wgsl-shader/wgsl-syntax` — the house style for lexers/trees and the outline contract
   features currently rely on.
-- `crates/wgsl/wgsl-lsp-core/src/features/` — what the integration must feed.
+- `crates/wgsl-shader/wgsl-lsp-core/src/features/` — what the integration must feed.
 - RFC 011 (`docs/rfc/011-fast-element-ultra/`) — the phase/task/decision conventions
   this RFC copies, and the corpus-gate pattern.

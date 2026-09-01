@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-wgsl-shader",
   "displayName": "WGSL / GLSL Shader",
-  "description": "WGSL and GLSL shader language support: a real language server with completion, hover, go-to-definition, rename, semantic highlighting and naga validation — in shader files and in shaders embedded in Rust and TypeScript",
-  "version": "0.5.1",
+  "description": "WGSL and GLSL shader language support: a real language server with completion, hover, go-to-definition, rename, semantic highlighting and diagnostics — WGSL validated by naga, GLSL by its own analyzer in every dialect — in shader files and in shaders embedded in Rust and TypeScript",
+  "version": "0.6.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -228,20 +228,12 @@
           "default": false,
           "description": "Validate GLSL files while typing. Off by default: a file is invalid for most of the time it is being edited, and squiggling every keystroke is noise."
         },
-        "glsl.validate.dialect": {
+        "glsl.defaultVersion": {
           "type": "string",
-          "enum": [
-            "auto",
-            "vulkan",
-            "opengl"
-          ],
-          "enumDescriptions": [
-            "Validate unless the file uses a construct only OpenGL GLSL has.",
-            "Always validate. Vulkan GLSL is the dialect naga implements.",
-            "Never validate. Everything else still works."
-          ],
-          "default": "auto",
-          "markdownDescription": "Which GLSL to validate against. naga implements **Vulkan GLSL**: every resource carries an explicit `layout(binding = …)`, and textures and samplers are separate objects combined at the call site with `sampler2D(texture, sampler)`. OpenGL GLSL — implicit bindings, `uniform sampler2D` — is valid GLSL that naga reports as errors.\n\n`auto` looks at the file and skips validation when it finds either OpenGL-only construct, on the same grounds as a `#version 300 es` source: the status bar says the file was not validated rather than squiggling code nobody got wrong. Set `vulkan` if you target Vulkan or `wgpu` and want to be told, or `opengl` to switch naga off for GLSL entirely."
+          "default": "",
+          "pattern": "^$|^[0-9]{3}( (core|compatibility|es))?$",
+          "patternErrorMessage": "Write it the way the directive is: `450`, `330 core`, `300 es`.",
+          "markdownDescription": "The `#version` to analyse a GLSL file that declares none as, written the way the directive is — `450`, `330 core`, `300 es`.\n\nA file with no `#version` line is GLSL 1.10 by the specification, and that is what an empty value means. It is often not what the author meant: shader fragments assembled at runtime, or compiled with the version supplied on the command line, are ordinary practice, and holding them to 1.10 reports every modern name as missing.\n\nThis replaces the former `glsl.validate.dialect`, which existed only to switch naga's Vulkan-only front end off for sources it could not read. GLSL is analysed by this extension's own analyzer now, in every dialect, so the question is no longer whether a file should be checked — it is which GLSL it is."
         },
         "glsl.completion.enabled": {
           "type": "boolean",
@@ -293,7 +285,7 @@
         "glsl.showStageInStatusBar": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show the shader stage a GLSL file is validated as in the status bar. GLSL has no in-file way to state its stage, so it is taken from `#pragma shader_stage(…)`, then the file extension, then the built-ins the source uses."
+          "markdownDescription": "Show the GLSL version and shader stage a file is analysed as in the status bar. GLSL has no in-file way to state its stage, so it is taken from `#pragma shader_stage(…)`, then the file extension, then the built-ins the source uses — and a stage that had to be guessed is marked with a `?`."
         },
         "wgsl.rust.highlightHint": {
           "type": "boolean",
@@ -315,9 +307,10 @@
     }
   },
   "scripts": {
-    "build:wasm": "cd ../../crates/wgsl/wgsl-lsp-wasm && wasm-pack build --target nodejs --out-dir ../../../extensions/wgsl-shader/wasm --out-name wgsl_lsp_wasm",
+    "build:wasm": "cd ../../crates/wgsl-shader/wgsl-lsp-wasm && wasm-pack build --target nodejs --out-dir ../../../extensions/wgsl-shader/wasm --out-name wgsl_lsp_wasm",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
+    "licenses": "cd ../../crates/wgsl-shader/wgsl-lsp-wasm && cargo about generate about.hbs -o ../../../extensions/wgsl-shader/THIRD-PARTY-NOTICES.md",
     "typecheck": "tsc --noEmit",
     "watch": "tsdown --watch",
     "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",

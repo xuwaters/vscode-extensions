@@ -21,5 +21,5 @@ builtin spec generated from docs.gl and embedded as Rust tables.
    tests are green, not when the code exists.
 3. House rules apply: no `cargo fmt` (crates are hand-formatted), tests live in-tree as
    real crate tests, generated files are committed with their generator.
-4. Work stays inside `crates/glsl/*` plus the named integration points in
-   `crates/wgsl/wgsl-lsp-core`; WGSL behaviour must not change.
+4. Work stays inside `crates/wgsl-shader/*` plus the named integration points in
+   `crates/wgsl-shader/wgsl-lsp-core`; WGSL behaviour must not change.

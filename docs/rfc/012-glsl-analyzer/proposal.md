@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Status** | Accepted — in execution |
+| **Status** | **Complete** — all six phases green, shipped in `wx-vsce-wgsl-shader` 0.6.0. Progress and the deferred list are in [tasks/](tasks/README.md) |
 | **Extension** | `extensions/wgsl-shader` |
-| **Crates** | `crates/glsl/*` (new), `crates/wgsl/wgsl-lsp-core` (integration) |
+| **Crates** | `crates/wgsl-shader/glsl-*` (new), `crates/wgsl-shader/wgsl-lsp-core` (integration) |
 | **References** | `temp/glslang` (Khronos reference compiler, C++), `temp/glsl_analyzer` (Zig LSP) — **read for understanding, never copy code** |
 | **Author** | PM/architect session, 2026-09-01 |
 
@@ -14,10 +14,10 @@
 
 The wgsl-shader extension analyses GLSL with two half-measures stapled together:
 
-- **A heuristic token walk** ([wgsl-syntax/src/parser/glsl.rs](../../../crates/wgsl/wgsl-syntax/src/parser/glsl.rs), 464 lines). It finds declarations by the "name followed by name" signal and produces an outline, scopes and references. It has no grammar, no types, no preprocessor — a `#ifdef` branch is walked as if both sides were live, a macro is a name and nothing more, and an expression is never typed.
-- **naga's GLSL front end** for validation. naga implements *Vulkan* GLSL at `#version 440/450/460` only, because it exists to feed wgpu. [analysis/dialect.rs](../../../crates/wgsl/wgsl-lsp-core/src/analysis/dialect.rs) exists solely to detect the sources naga would mangle — OpenGL combined samplers, implicit block bindings, every ES version — and switch validation *off* for them. Commit 64fc05c is the tombstone: "stop flagging OpenGL GLSL as broken" by not analysing it at all.
+- **A heuristic token walk** ([wgsl-syntax/src/parser/glsl.rs](../../../crates/wgsl-shader/wgsl-syntax/src/parser/glsl.rs), 464 lines). It finds declarations by the "name followed by name" signal and produces an outline, scopes and references. It has no grammar, no types, no preprocessor — a `#ifdef` branch is walked as if both sides were live, a macro is a name and nothing more, and an expression is never typed.
+- **naga's GLSL front end** for validation. naga implements *Vulkan* GLSL at `#version 440/450/460` only, because it exists to feed wgpu. [analysis/dialect.rs](../../../crates/wgsl-shader/wgsl-lsp-core/src/analysis/dialect.rs) exists solely to detect the sources naga would mangle — OpenGL combined samplers, implicit block bindings, every ES version — and switch validation *off* for them. Commit 64fc05c is the tombstone: "stop flagging OpenGL GLSL as broken" by not analysing it at all.
 
-So the majority of real-world GLSL — OpenGL desktop, WebGL/ES, anything below 440 — gets an outline and nothing else: no diagnostics, no type-aware hover, no real signature help. The builtin tables ([builtins/glsl.rs](../../../crates/wgsl/wgsl-syntax/src/builtins/glsl.rs), 407 lines) are hand-curated one-liners covering one signature per function, no overloads, no version gating, no stage awareness, and a fraction of the ~450 builtin functions and ~100 `gl_*` variables the language actually predeclares.
+So the majority of real-world GLSL — OpenGL desktop, WebGL/ES, anything below 440 — gets an outline and nothing else: no diagnostics, no type-aware hover, no real signature help. The builtin tables ([builtins/glsl.rs](../../../crates/wgsl-shader/wgsl-syntax/src/builtins/glsl.rs), 407 lines) are hand-curated one-liners covering one signature per function, no overloads, no version gating, no stage awareness, and a fraction of the ~450 builtin functions and ~100 `gl_*` variables the language actually predeclares.
 
 ### 1.2 What "full featured" means here
 
@@ -57,31 +57,33 @@ The LSP rewrite (commit bf4e84a) gave the extension a real server core with all 
 ## 3. Architecture
 
 ```
-                                extensions/wgsl-shader (client + server/main.ts)
-                                                 │ LSP over wasm boundary
-                                    crates/wgsl/wgsl-lsp-wasm
-                                                 │
-                                    crates/wgsl/wgsl-lsp-core
-                                   (dispatch, state, all features)
-                                      │                     │
-                        Language::Wgsl│                     │Language::Glsl
-                                      ▼                     ▼
-                          wgsl-syntax + naga        crates/glsl/glsl-analysis
-                          (unchanged)                 (scopes, types, overloads,
-                                                       diagnostics)
-                                                            │
-                                              ┌─────────────┴─────────────┐
-                                              ▼                           ▼
-                                   crates/glsl/glsl-syntax     crates/glsl/glsl-spec
-                                   (lexer, preprocessor,       (generated builtin tables
-                                    parser, lossless CST)       + keywords/types, embedded)
-                                                                          ▲
-                                                              generated offline by
-                                                       crates/glsl/glsl-spec-gen (native bin)
-                                                              from temp/docs.gl clone
+                  extensions/wgsl-shader (client + server/main.ts)
+                                   │ LSP over wasm boundary
+                              wgsl-lsp-wasm
+                                   │
+                              wgsl-lsp-core
+                     (dispatch, state, all features)
+                        │                     │
+          Language::Wgsl│                     │Language::Glsl
+                        ▼                     ▼
+            wgsl-syntax + naga          glsl-analysis
+            (unchanged)                 (scopes, types, overloads, diagnostics)
+                                              │
+                                ┌─────────────┴─────────────┐
+                                ▼                           ▼
+                          glsl-syntax                   glsl-spec
+                          (lexer, preprocessor,         (generated builtin tables
+                           parser, lossless CST)         + keywords/types, embedded)
+                                                            ▲
+                                                 generated offline by
+                                              glsl-spec-gen (native bin)
+                                              from temp/docs.gl clone
+
+          — every crate above lives in crates/wgsl-shader/ —
 ```
 
-Four new crates under `crates/glsl/` (workspace pattern follows `crates/wgsl/`):
+Four new crates joining the three wgsl ones in `crates/wgsl-shader/` (the extension's
+grouping directory — explicit workspace members + directory exclude in the root `Cargo.toml`):
 
 | Crate | Ships in wasm | Contents |
 | --- | --- | --- |

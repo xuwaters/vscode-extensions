@@ -66,7 +66,7 @@ spec text.
 - Markdown conversion: strip the boilerplate lead-ins, keep the first N meaningful
   paragraphs within a per-entry byte budget, convert the refpages' entity math and
   `<code>` spans, drop tables/images with a "see reference" ellipsis.
-- Output: `crates/glsl/glsl-spec/src/generated/functions.rs`, `variables.rs`,
+- Output: `crates/wgsl-shader/glsl-spec/src/generated/functions.rs`, `variables.rs`,
   `doc_pool.rs` (or one file — generator's choice, recorded here) with a header naming
   the tool, the docs.gl commit hash, and the attribution (q4).
 - **Determinism**: stable ordering, no timestamps, no HashMap iteration order leaks.

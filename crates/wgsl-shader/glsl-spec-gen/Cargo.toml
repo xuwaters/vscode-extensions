@@ -1,0 +1,16 @@
+[package]
+name = "glsl-spec-gen"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Native generator for glsl-spec's tables — parses a docs.gl checkout (temp/docs.gl) and emits deterministic Rust source. Never a dependency of anything that ships."
+license = "MIT"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# The docs.gl pages are well-formed XML fragments (research/docs-gl.md §2), so a
+# strict XML reader is the honest tool: it refuses malformed input loudly rather
+# than guessing, which is exactly the failure mode this generator wants.
+roxmltree = "0.21"

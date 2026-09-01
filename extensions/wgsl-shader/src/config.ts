@@ -7,14 +7,12 @@
 
 import * as vscode from 'vscode';
 
-/** Which GLSL the server judges a source against — `glsl.validate.dialect`. */
-export type Dialect = 'auto' | 'vulkan' | 'opengl';
-
 /** Everything the server reads, for one language. */
 export interface LanguageSettings {
-  // `dialect` is declared under `glsl.` only; WGSL has one dialect, so the
-  // server carries the field on the shared shape and never reads it there.
-  validate: { onSave: boolean; onType: boolean; dialect: Dialect };
+  validate: { onSave: boolean; onType: boolean };
+  // `defaultVersion` is declared under `glsl.` only; WGSL has one version, so
+  // the server carries the field on the shared shape and never reads it there.
+  defaultVersion: string;
   completion: { enabled: boolean };
   semanticTokens: boolean;
   inlayHints: { enabled: boolean; types: boolean; parameterNames: boolean };
@@ -40,8 +38,8 @@ function readSection(section: string, scope?: vscode.Uri): LanguageSettings {
     validate: {
       onSave: config.get<boolean>('validate.onSave', true),
       onType: config.get<boolean>('validate.onType', false),
-      dialect: config.get<Dialect>('validate.dialect', 'auto'),
     },
+    defaultVersion: config.get<string>('defaultVersion', ''),
     completion: { enabled: config.get<boolean>('completion.enabled', true) },
     semanticTokens: config.get<boolean>('semanticTokens', true),
     inlayHints: {

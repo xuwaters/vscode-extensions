@@ -1,9 +1,9 @@
 // The GLSL stage indicator.
 //
-// GLSL carries no record of its own stage, and naga needs one before it can
-// parse at all. Which stage was picked — and whether the file was validated
-// under it — is otherwise invisible, and a file silently checked as the wrong
-// stage produces errors that make no sense.
+// GLSL carries no record of its own stage, and the analyzer needs one before
+// it can decide which builtins a file has. Which stage was picked — and
+// whether it was *declared* or guessed — is otherwise invisible, and a file
+// silently checked as the wrong stage produces errors that make no sense.
 //
 // The answer comes from the server, over the one non-standard request in the
 // protocol: only the server knows what it actually did.
@@ -16,13 +16,17 @@ import type { Client } from './lsp/client.js';
 export interface ShaderInfo {
   language: 'wgsl' | 'glsl';
   stage?: string;
-  skipped?: string;
+  /** Whether the stage was guessed from the source rather than declared. */
+  stageGuessed: boolean;
+  /** The GLSL version in force, as the spec writes it: `4.50`, `3.00 es`. */
+  version?: string;
   ok: boolean;
   problems: number;
+  warnings: number;
+  /** Who did the checking — `glsl-analysis 0.1.0`, `naga 30.0.1`. */
+  validator: string;
   naga: string;
 }
-
-const UNSUPPORTED = 'unsupported';
 
 export function register(context: vscode.ExtensionContext, client: Client): void {
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -49,12 +53,24 @@ export function register(context: vscode.ExtensionContext, client: Client): void
       return;
     }
 
-    const label = info.stage === UNSUPPORTED ? 'stage unknown' : info.stage;
-    status.text = info.skipped ? `GLSL: ${label} (not validated)` : `GLSL: ${label}`;
-    status.tooltip = info.skipped
-      ? `${info.skipped}. This file is highlighted and analysed, but not validated.`
-      : `Validated as a ${info.stage} shader by naga ${info.naga}. ` +
-        'Add #pragma shader_stage(…) to override.';
+    // A guessed stage is worth flagging: it is the one input to the analysis
+    // that nothing in the file states, and a wrong guess is a wrong answer.
+    const version = info.version ? ` ${info.version}` : '';
+    status.text = info.stageGuessed
+      ? `GLSL${version}: ${info.stage}?`
+      : `GLSL${version}: ${info.stage}`;
+    status.tooltip = [
+      `Analysed as a ${info.stage} shader`,
+      info.version ? ` against GLSL ${info.version}` : '',
+      ` by ${info.validator}.`,
+      info.stageGuessed
+        ? ' The stage was guessed from the built-ins this file uses — add' +
+          ' #pragma shader_stage(…) to say for certain.'
+        : ' Add #pragma shader_stage(…) to override.',
+      info.version === undefined || info.stageGuessed
+        ? ''
+        : ' Set glsl.defaultVersion for files that declare no #version.',
+    ].join('');
     status.show();
   }
 

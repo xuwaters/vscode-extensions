@@ -1,0 +1,11 @@
+[package]
+name = "glsl-spec"
+version = "0.1.0"
+edition = { workspace = true }
+description = "GLSL's predeclared surface as embedded data — builtin functions, variables, keywords and types, with overloads, documentation and per-version availability generated from the reference pages."
+license = "MIT"
+
+[lints]
+workspace = true
+
+[dependencies]

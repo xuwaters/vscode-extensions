@@ -1,0 +1,17 @@
+[package]
+name = "glsl-analysis"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Semantic analysis over glsl-syntax trees — scopes, the type model, overload resolution against glsl-spec, and editor-grade diagnostics for every GLSL dialect."
+license = "MIT"
+
+[lints]
+workspace = true
+
+[dependencies]
+analyzer-core = { path = "../../analyzer-core" }
+glsl-syntax = { path = "../glsl-syntax" }
+glsl-spec = { path = "../glsl-spec" }
+
+[dev-dependencies]
+pretty_assertions = "1"

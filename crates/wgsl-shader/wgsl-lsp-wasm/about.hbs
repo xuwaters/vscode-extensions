@@ -1,0 +1,112 @@
+{{!--
+  Markdown output for cargo-about.
+
+  This extension redistributes two different kinds of other people's work, and
+  they need different treatment:
+
+  - **Documentation compiled in as data** — the Khronos reference-page prose in
+    `glsl-spec`. No dependency scanner can see it, so it is written out below by
+    hand, and it comes first because it is the one a reader is least likely to
+    expect. RFC 012 decision 0005.
+  - **The Rust dependency graph** — enumerated by cargo-about from
+    `about.toml`. The index answers "which crates are in the artifact and under
+    what terms", which is what a dependency-change diff should show; the texts
+    that follow are the notices themselves, long and rarely read and legally
+    necessary.
+
+  cargo-about groups by (licence, exact text), so a licence whose text differs
+  by a copyright line appears more than once below. That is intentional on its
+  part: those really are different notices.
+--}}
+<!--
+  GENERATED FILE — do not edit.
+
+  Regenerate with `pnpm run licenses` in extensions/wgsl-shader after any
+  dependency change. Configuration: crates/wgsl-shader/wgsl-lsp-wasm/about.toml;
+  the hand-written sections are in crates/wgsl-shader/wgsl-lsp-wasm/about.hbs.
+-->
+
+# Third-Party Notices
+
+Material from other parties that this extension redistributes. Each copyright
+holder retains their rights; nothing here grants any licence to this extension
+itself, whose terms are in [LICENSE.md](LICENSE.md).
+
+Two kinds of material, and they are not under the same terms: reference
+**documentation** compiled into the WASM binary as data, and the Rust
+**dependency graph** statically linked into it.
+
+## Khronos Group — OpenGL Shading Language reference pages
+
+`wasm/wgsl_lsp_wasm_bg.wasm` embeds documentation for GLSL's builtin functions
+and variables — the description shown on hover, and the note shown for each
+parameter. That prose is Khronos Group reference-page material, obtained from
+[docs.gl](https://docs.gl) ([github.com/BSVino/docs.gl](https://github.com/BSVino/docs.gl)),
+which republishes the Khronos OpenGL Shading Language reference pages.
+
+> Copyright © 2011-2014 Khronos Group. This material may be distributed subject
+> to the terms and conditions set forth in the Open Publication License, v 1.0,
+> 8 June 1999. <https://opencontent.org/openpub/>
+
+**Modified**, as the Open Publication License requires modified versions to say.
+The pages were converted from XHTML to Markdown, stripped of boilerplate,
+truncated to a per-entry budget, and had their formulas, tables and images
+replaced with a note pointing back at the reference page. The prototypes and
+version tables the same pages carry are the language's own syntax and facts
+about it, and are used as such.
+
+The original pages are at <https://docs.gl>; the conversion is
+`crates/wgsl-shader/glsl-spec-gen` in this repository, and the exact docs.gl
+commit it read is named in the header of every file under
+`crates/wgsl-shader/glsl-spec/src/generated/`.
+
+The docs.gl scaffolding that reshaped the Khronos pages is placed in the public
+domain by its author, per that repository's `readme.md`.
+
+The Open Publication License is a documentation licence, not an OSI-approved
+software licence. It covers the embedded prose only; the Rust crates that carry
+it are MIT, and are listed below with everything else.
+
+## Rust dependencies
+
+`wasm/wgsl_lsp_wasm_bg.wasm` statically links the crates listed here.
+[naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) is among them: it is the
+WGSL front end that produces this extension's WGSL diagnostics. Its GLSL front
+end is *not* linked in — the dependency is declared with the `wgsl-in` feature
+alone, because GLSL is analysed by this repository's own `glsl-analysis` crate.
+
+### Summary
+
+| License | Crates |
+| --- | --- |
+{{#each overview}}| {{name}} | {{count}} |
+{{/each}}
+
+### Crates by license
+
+{{#each overview}}
+#### {{name}}
+
+{{#each indices}}
+{{#with (lookup @root.licenses this)}}
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}
+{{/each}}
+{{/with}}
+{{/each}}
+
+{{/each}}
+
+### License texts
+
+{{#each licenses}}
+#### {{name}}
+
+Applies to:{{#each used_by}} `{{crate.name}}`{{/each}}
+
+
+```
+{{text}}
+```
+
+{{/each}}

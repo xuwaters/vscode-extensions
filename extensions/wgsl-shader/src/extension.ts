@@ -89,11 +89,9 @@ function registerCommands(context: vscode.ExtensionContext, client: Client): voi
     // like it had done nothing at all.
     const info = await statusBar.shaderInfo(client, document.uri);
     if (!info) return;
-    if (info.skipped) {
-      void vscode.window.showWarningMessage(`Not validated: ${info.skipped}.`);
-    } else if (info.ok) {
+    if (info.ok) {
       void vscode.window.showInformationMessage(
-        `No problems found by naga ${info.naga}.`,
+        `No problems found by ${info.validator}.`,
       );
     }
   };
@@ -112,11 +110,11 @@ function registerCommands(context: vscode.ExtensionContext, client: Client): voi
         return;
       }
       const stage = info.stage ?? 'unknown';
+      const how = info.stageGuessed ? 'guessed to be' : 'declared as';
+      const version = info.version ? ` against GLSL ${info.version}` : '';
       void vscode.window.showInformationMessage(
-        info.skipped
-          ? `Treated as a ${stage} shader, but not validated: ${info.skipped}.`
-          : `Validated as a ${stage} shader by naga ${info.naga}. ` +
-            `${info.problems === 0 ? 'No problems found.' : `${info.problems} problem(s) found.`}`,
+        `${how} a ${stage} shader, analysed${version} by ${info.validator}. ` +
+          `${info.problems === 0 ? 'No problems found.' : `${info.problems} problem(s) found.`}`,
       );
     }),
   );
