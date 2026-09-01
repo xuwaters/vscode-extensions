@@ -1,120 +1,38 @@
 # WGSL / GLSL Shader
 
-Shader language support for VS Code: syntax highlighting, completion, an outline,
-and real validation for **WGSL** and **GLSL**. The diagnostics come from
-[naga](https://github.com/gfx-rs/wgpu) 30 — the same parser and validator `wgpu`
-uses — compiled to WebAssembly and running in-process. No language server, no
-toolchain to install.
+A language server for WGSL and GLSL. Completion that knows what the cursor is
+pointing at, hover with real types, go-to-definition, rename, semantic
+highlighting, and validation by [naga] — the same front end `wgpu` uses.
 
-## File types
+It works in `.wgsl` and `.glsl` files, and inside shaders written in Rust and
+TypeScript string literals.
 
-| Language | Extensions |
+[naga]: https://github.com/gfx-rs/wgpu/tree/trunk/naga
+
+## What you get
+
+| | |
 | --- | --- |
-| WGSL | `.wgsl` |
-| GLSL | `.glsl`, `.vert`, `.frag`, `.comp`, `.geom`, `.tesc`, `.tese`, `.vsh`, `.fsh`, `.gsh`, `.vshader`, `.fshader`, `.gshader`, `.glslv`, `.glslf`, `.vertexshader`, `.fragmentshader` |
+| **Completion** | Members and swizzles after `.`, attributes after `@`, directives after `#`, address spaces inside `var<…>`, layout qualifiers inside `layout(…)`, and everything in scope everywhere else. Locals rank above file-scope names, which rank above the language's own. |
+| **Hover** | The declaration as written, the type naga inferred for it, and the `//` comment above it. Built-ins show their signature and what they do. |
+| **Go to definition** | Including `camera.view`, which resolves through the *type* of `camera` to the field's declaration in that struct. Reaches files you have not opened. |
+| **Find references, rename** | Across the file, with built-in names refused before the rename box opens. |
+| **Outline and symbol search** | Nested — a struct's fields and a function's parameters sit under it. Entry points get their own icon. `⌘T` searches every shader in the workspace, opened or not. |
+| **Semantic highlighting** | Colour by what a name *resolves to*: `Light` paints as a struct because a struct was declared under that name, `dot` as a library function because the language defines one. |
+| **Diagnostics** | Parse and validation errors from naga, on the token that caused them. |
+| **Signature help** | Parameter hints for every built-in and for your own functions. |
+| **Inlay hints** | Inferred types on bindings that declare none, and parameter names at call sites. Off by default. |
+| **Code actions** | Add a missing `#version`, pin a guessed GLSL stage with `#pragma shader_stage(…)`, switch a WGSL type between `vec4f` and `vec4<f32>`. |
+| **Folding** | Bodies and comment runs. |
+| **Formatting** | Re-indentation only. Off by default. |
 
-Anything else can be pointed at a language by hand with `files.associations`:
+## Shaders inside Rust and TypeScript
 
-```jsonc
-"files.associations": { "*.inc": "glsl" }
-```
-
-## Features
-
-- **Syntax highlighting** for both languages. WGSL: comments, attributes
-  (`@group`, `@workgroup_size`, …), declarations and control flow, function
-  definitions and calls, built-in and user types, numeric and boolean constants.
-  GLSL: preprocessor directives with their arguments, `layout(…)` qualifier
-  names, every built-in scalar, vector, matrix, sampler, texture and image type,
-  `gl_`-prefixed built-ins, built-in versus user function calls, and the
-  identifiers GLSL reserves for future use, flagged as invalid.
-
-- **Validation** with naga. The front end parses, then the full `Validator`
-  with all capabilities enabled runs, so both syntax errors and semantic ones —
-  type mismatches, bad bindings, invalid entry points — surface as diagnostics
-  at the reported line and column. Runs when a file is opened and, unless you
-  turn `…validate.onSave` off, on every save; `…validate.onType` adds a
-  300 ms-debounced pass while you type, and the **Validate Current File**
-  commands run it on demand.
-
-- **Completion**. WGSL: 100 built-in functions, 68 types including the `vec4f` /
-  `mat3x3h` short forms, 27 keywords, and 16 attributes offered as
-  `@attribute`. GLSL: 158 built-in functions, 156 types including the whole
-  `isampler2DArray` / `uimageCube` families, 43 keywords and qualifiers, 45
-  `layout(…)` qualifier names, 14 preprocessor directives offered as
-  `#directive`, and 37 `gl_` built-in variables — each labelled with the stages
-  it belongs to, so `gl_GlobalInvocationID` reads as *compute* at a glance.
-  Alongside those, the symbols naga finds in the file you are editing — your
-  functions, global variables and types.
-
-- **Outline and breadcrumbs**. WGSL publishes `fn` and `struct` declarations;
-  GLSL publishes function definitions, `struct`s, named interface blocks
-  (`uniform Camera { … }`) and qualified globals (`layout(location = 0) in vec3
-  position;`). Go to Symbol in File, the Outline view and breadcrumbs all work,
-  and they keep working while the file does not parse.
-
-- **Editing niceties** from the language configurations: `//` and `/* */`
-  comment toggling, bracket matching and auto-closing, indent on `{`, dedent on
-  `}`, and folding markers — `// region` / `// endregion` in both, plus
-  `#if` / `#endif` folding in GLSL.
-
-- **Embedded shaders** in Rust, JavaScript and TypeScript — see below.
-
-## The GLSL shader stage
-
-GLSL has no way to say inside the file which stage it is, and naga needs one
-before it can parse at all. The stage is worked out in this order, and shown in
-the status bar (**GLSL: fragment**); **GLSL: Show Shader Stage of Current File**
-spells out the same thing:
-
-1. `#pragma shader_stage(vertex|fragment|compute)`, the `glslc` directive — this
-   always wins, so it is the way to override the rest.
-2. The file extension: `.vert`, `.frag`, `.comp` and their long forms.
-3. What the source uses: `local_size_x` or `gl_GlobalInvocationID` means
-   compute, `gl_FragCoord` or `gl_FragColor` means fragment, `gl_Position`
-   means vertex. A file with none of those is treated as a fragment shader.
-
-So a bare `.glsl` file usually lands on the right stage by itself, and
-`#pragma shader_stage(…)` is there for when it does not.
-
-## What naga's GLSL front end does not cover
-
-naga implements a subset of GLSL, and a file outside it would otherwise report
-an error on nearly every line. Those files are **highlighted but not
-validated**, with no diagnostics at all; the status bar says
-**GLSL: … (not validated)** and its tooltip says why.
-
-- **Stages**: vertex, fragment and compute only. Geometry, tessellation, mesh
-  and ray tracing shaders are not validated.
-- **Versions**: `#version 440`, `450` and `460` core, or no `#version` line at
-  all. GLSL ES (`#version 300 es`, as WebGL uses) and older desktop versions
-  (`330` and below) are not validated.
-- **Textures and samplers**: naga follows Vulkan GLSL, where a texture and a
-  sampler are separate objects combined at the call site. A combined
-  `uniform sampler2D tex;` does not validate; the Vulkan spelling does:
-
-  ```glsl
-  layout(set = 0, binding = 1) uniform texture2D albedo;
-  layout(set = 0, binding = 2) uniform sampler albedo_sampler;
-  // ...
-  vec4 base = texture(sampler2D(albedo, albedo_sampler), uv);
-  ```
-
-Highlighting, completion and the outline are unaffected by all of this — they
-cover the whole language.
-
-## Embedded shaders
-
-Shader source written inside another language is highlighted when the string is
-tagged with a `/* wgsl */` or `/* glsl */` block comment. All spellings of the
-tag work (`/*wgsl*/`, `/*  glsl  */`).
-
-In Rust, on plain, byte and raw strings — including `r#"…"#` with any number of
-hashes, which is the usual way to write a shader since neither language needs
-escapes:
+Tag a string literal with a `/* wgsl */` or `/* glsl */` comment and it gets
+syntax highlighting **and** the language features above:
 
 ```rust
-const SHADER: &str = /* wgsl */ r#"
+let shader = /* wgsl */ r#"
     @fragment
     fn fs_main() -> @location(0) vec4f {
         return vec4f(1.0, 0.0, 0.0, 1.0);
@@ -122,63 +40,103 @@ const SHADER: &str = /* wgsl */ r#"
 "#;
 ```
 
-In JavaScript, JSX, TypeScript and TSX, on template literals, with `${…}`
-substitutions kept as host-language expressions:
-
 ```ts
-const shader = /* glsl */ `
-    #version 450
-    layout(local_size_x = ${size}) in;
-    void main() { }
+const frag = /* glsl */ `
+  #version 450
+  layout(location = 0) out vec4 colour;
+  void main() { colour = vec4(${red}, 0.0, 0.0, 1.0); }
 `;
 ```
 
-Escapes stay the host language's (`\n` in a Rust `"…"` is a Rust escape, not
-shader text), and the string delimiters keep their host scopes, so the rest of
-the file is unaffected. This is highlighting only: completion and validation
-apply to shader files, not to embedded strings.
+Interpolations and escape sequences are handled: `${red}` is treated as a value
+of the right shape rather than as a syntax error.
 
-### rust-analyzer hides it by default
+Diagnostics are **off** inside embedded blocks by default. A shader written in a
+string is often a fragment that gets concatenated with others at runtime, and
+validating it as a standalone module reports errors about code nobody wrote.
+Turn on `wgsl.embedded.diagnostics` (or `glsl.embedded.diagnostics`) if yours
+are complete programs.
 
-rust-analyzer emits a `string` semantic token covering the whole literal, and in
-VS Code semantic tokens override TextMate scopes — so the shader body stays one
-flat string colour. Turn the semantic token off:
+### If the colours are missing in Rust
 
-```jsonc
-"rust-analyzer.semanticHighlighting.strings.enable": false
-```
+rust-analyzer paints whole string literals with a `string` semantic token, and
+semantic tokens win over TextMate scopes. The extension offers, once, to turn
+off `rust-analyzer.semanticHighlighting.strings.enable`; Rust strings keep their
+colour from the grammar either way.
 
-This extension offers to do that the first time it sees a Rust file with a
-`/* wgsl */` or `/* glsl */` tag, preferring the workspace over user settings so
-the rest of your Rust keeps its semantic highlighting. Set
-`wgsl.rust.highlightHint` to `false` to stop it asking.
+## GLSL and its stages
 
-There is no way to disable the semantic token for one string: precedence is
-decided per token by VS Code, and rust-analyzer's setting is scoped per workspace
-folder at finest. The change is narrow, though — comparing rust-analyzer's
-semantic tokens for the same file with the setting on and off, the only tokens
-that disappear are `string` and `escapeSequence`, both of which the Rust TextMate
-grammar already colours. Keywords, macros, variables, types, numbers, operators
-and comments are unaffected.
+GLSL has no way to say, in the file, which stage it is — and naga needs to know
+before it can parse at all. The stage is taken from, in order:
+
+1. `#pragma shader_stage(vertex | fragment | compute)`, which `glslc` also reads;
+2. the file extension (`.vert`, `.frag`, `.comp`, and the usual variants);
+3. the stage-exclusive built-ins the source uses (`gl_FragColor` → fragment).
+
+The status bar shows which one was picked. `GLSL: Show Shader Stage of Current
+File` explains it in full, and a code action offers to write a guess down as a
+`#pragma`.
+
+### What naga does not validate
+
+naga's GLSL front end implements the vertex, fragment and compute stages at
+`#version 440`, `450` and `460 core`. Outside that — GLSL ES, geometry,
+tessellation, ray tracing — the file is **not validated**, and the status bar
+says so rather than pretending.
+
+Everything else still works there. Completion, hover, definition, rename,
+symbols and folding come from a parser of this extension's own, which covers
+every dialect and does not need the file to be valid. That parser is also why
+those features keep working mid-keystroke, when the file is temporarily
+nonsense — which is most of the time you are typing.
 
 ## Settings
 
-| Setting | Default | Description |
+Every setting exists under both `wgsl.` and `glsl.`.
+
+| Setting | Default | |
 | --- | --- | --- |
-| `wgsl.validate.onSave` | `true` | Validate WGSL files on save |
-| `wgsl.validate.onType` | `false` | Validate WGSL files while typing, debounced by 300 ms |
-| `wgsl.completion.enabled` | `true` | Enable WGSL code completion |
-| `glsl.validate.onSave` | `true` | Validate GLSL files on save |
-| `glsl.validate.onType` | `false` | Validate GLSL files while typing, debounced by 300 ms |
-| `glsl.completion.enabled` | `true` | Enable GLSL code completion |
-| `glsl.showStageInStatusBar` | `true` | Show the stage a GLSL file is validated as |
-| `wgsl.rust.highlightHint` | `true` | Offer the rust-analyzer fix above |
+| `validate.onSave` | `true` | Validate when the file is saved. |
+| `validate.onType` | `false` | Validate on every keystroke. Off because a file is invalid for most of the time it is being edited. |
+| `completion.enabled` | `true` | |
+| `semanticTokens` | `true` | Colour by resolved meaning. |
+| `inlayHints.enabled` | `false` | |
+| `inlayHints.types` | `true` | Inferred types on bindings that declare none. |
+| `inlayHints.parameterNames` | `true` | `mix(e1: a, e2: b, e3: t)`. |
+| `format.enable` | `false` | The re-indenter. |
+| `format.indentWidth` | `4` | |
+| `embedded.enabled` | `true` | Language features inside tagged string literals. |
+| `embedded.diagnostics` | `false` | Validate embedded shaders too. |
+
+Plus two of their own:
+
+| Setting | Default | |
+| --- | --- | --- |
+| `glsl.showStageInStatusBar` | `true` | |
+| `wgsl.rust.highlightHint` | `true` | Offer the rust-analyzer fix described above. |
 
 ## Commands
 
-- **WGSL: Validate Current File** (`wgsl.validateFile`) — validate the active
-  WGSL document now.
-- **GLSL: Validate Current File** (`glsl.validateFile`) — validate the active
-  GLSL document now.
-- **GLSL: Show Shader Stage of Current File** (`glsl.showShaderStage`) — say
-  which stage the active GLSL file is validated as, or why it is not validated.
+| Command | |
+| --- | --- |
+| `WGSL: Validate Current File` | Validate now, whatever `validate.onSave` says. |
+| `GLSL: Validate Current File` | The same. |
+| `GLSL: Show Shader Stage of Current File` | Which stage, and why. |
+| `WGSL / GLSL: Restart Language Server` | |
+
+## Languages and file types
+
+**WGSL** — `.wgsl`.
+
+**GLSL** — `.glsl`, `.vert`, `.frag`, `.comp`, `.geom`, `.tesc`, `.tese`,
+`.vsh`, `.fsh`, `.gsh`, `.vshader`, `.fshader`, `.gshader`, `.glslv`, `.glslf`,
+`.vertexshader`, `.fragmentshader`.
+
+## How it runs
+
+The server is a child process, not part of the extension host: a shader
+compiler is not the kind of thing to run in-process, and a panic on a malformed
+module costs a restart rather than every extension in the window.
+
+Analysis is Rust compiled to WebAssembly — one artifact for every platform VS
+Code runs on, with no toolchain to install and nothing to download on first use.

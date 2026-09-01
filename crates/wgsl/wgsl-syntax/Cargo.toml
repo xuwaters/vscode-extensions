@@ -1,0 +1,12 @@
+[package]
+name = "wgsl-syntax"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Resilient lexer, outline parser and builtin tables for WGSL and GLSL — the layer that keeps working when the source does not parse."
+license = "MIT"
+
+[lints]
+workspace = true
+
+[dependencies]
+analyzer-core = { path = "../../analyzer-core" }

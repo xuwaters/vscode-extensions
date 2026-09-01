@@ -2,7 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "."
   },
-  "include": ["src"]
+  // `server/` is the language server, built as its own bundle but typechecked
+  // with the rest — the two sides share the shape of every message they send.
+  "include": ["src", "server"]
 }

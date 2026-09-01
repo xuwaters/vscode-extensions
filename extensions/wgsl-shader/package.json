@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-wgsl-shader",
   "displayName": "WGSL / GLSL Shader",
-  "description": "WGSL and GLSL shader language support with syntax highlighting, code completion, and validation (via naga WASM)",
-  "version": "0.4.0",
+  "description": "WGSL and GLSL shader language support: a real language server with completion, hover, go-to-definition, rename, semantic highlighting and naga validation — in shader files and in shaders embedded in Rust and TypeScript",
+  "version": "0.5.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -12,7 +12,13 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:rust"
+    "onLanguage:wgsl",
+    "onLanguage:glsl",
+    "onLanguage:rust",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascript",
+    "onLanguage:javascriptreact"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -127,6 +133,10 @@
       {
         "command": "glsl.showShaderStage",
         "title": "GLSL: Show Shader Stage of Current File"
+      },
+      {
+        "command": "wgsl.restartServer",
+        "title": "WGSL / GLSL: Restart Language Server"
       }
     ],
     "menus": {
@@ -142,65 +152,167 @@
         {
           "command": "glsl.showShaderStage",
           "when": "editorLangId == glsl"
+        },
+        {
+          "command": "wgsl.restartServer"
         }
       ]
     },
     "configuration": {
       "title": "WGSL / GLSL Shader",
       "properties": {
+        "wgsl.validate.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate WGSL files on save."
+        },
+        "wgsl.validate.onType": {
+          "type": "boolean",
+          "default": false,
+          "description": "Validate WGSL files while typing. Off by default: a file is invalid for most of the time it is being edited, and squiggling every keystroke is noise."
+        },
+        "wgsl.completion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Offer completions in WGSL files."
+        },
+        "wgsl.semanticTokens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Colour WGSL by what each name resolves to, rather than by its shape alone."
+        },
+        "wgsl.inlayHints.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show inlay hints in WGSL files."
+        },
+        "wgsl.inlayHints.types": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the inferred type of a binding that declares none. Requires `#wgsl.inlayHints.enabled#`."
+        },
+        "wgsl.inlayHints.parameterNames": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show parameter names at call sites — `mix(e1: a, e2: b, e3: t)`. Requires `#wgsl.inlayHints.enabled#`."
+        },
+        "wgsl.format.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the WGSL formatter. It re-indents lines and changes nothing else, so it will not restyle a file written to a house style."
+        },
+        "wgsl.format.indentWidth": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 16,
+          "markdownDescription": "Spaces per indentation level. Requires `#wgsl.format.enable#`."
+        },
+        "wgsl.embedded.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Offer WGSL language features inside `/* wgsl */`-tagged string literals in Rust and TypeScript."
+        },
+        "wgsl.embedded.diagnostics": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Validate embedded WGSL too. Off by default: a shader inside a string is often a fragment assembled elsewhere, and checking it as a standalone module reports errors about code nobody wrote. Requires `#wgsl.embedded.enabled#`."
+        },
         "glsl.validate.onSave": {
           "type": "boolean",
           "default": true,
-          "description": "Validate GLSL files on save"
+          "description": "Validate GLSL files on save."
         },
         "glsl.validate.onType": {
           "type": "boolean",
           "default": false,
-          "description": "Validate GLSL files while typing"
+          "description": "Validate GLSL files while typing. Off by default: a file is invalid for most of the time it is being edited, and squiggling every keystroke is noise."
         },
         "glsl.completion.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable code completion for GLSL"
+          "description": "Offer completions in GLSL files."
+        },
+        "glsl.semanticTokens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Colour GLSL by what each name resolves to, rather than by its shape alone."
+        },
+        "glsl.inlayHints.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show inlay hints in GLSL files."
+        },
+        "glsl.inlayHints.types": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the inferred type of a binding that declares none. Requires `#glsl.inlayHints.enabled#`."
+        },
+        "glsl.inlayHints.parameterNames": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show parameter names at call sites — `mix(e1: a, e2: b, e3: t)`. Requires `#glsl.inlayHints.enabled#`."
+        },
+        "glsl.format.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the GLSL formatter. It re-indents lines and changes nothing else, so it will not restyle a file written to a house style."
+        },
+        "glsl.format.indentWidth": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 16,
+          "markdownDescription": "Spaces per indentation level. Requires `#glsl.format.enable#`."
+        },
+        "glsl.embedded.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Offer GLSL language features inside `/* glsl */`-tagged string literals in Rust and TypeScript."
+        },
+        "glsl.embedded.diagnostics": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Validate embedded GLSL too. Off by default: a shader inside a string is often a fragment assembled elsewhere, and checking it as a standalone module reports errors about code nobody wrote. Requires `#glsl.embedded.enabled#`."
         },
         "glsl.showStageInStatusBar": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Show the shader stage a GLSL file is validated as in the status bar. GLSL has no in-file way to state its stage, so it is taken from `#pragma shader_stage(…)`, then the file extension, then the built-ins the source uses."
         },
-        "wgsl.validate.onSave": {
-          "type": "boolean",
-          "default": true,
-          "description": "Validate WGSL files on save"
-        },
-        "wgsl.validate.onType": {
-          "type": "boolean",
-          "default": false,
-          "description": "Validate WGSL files while typing"
-        },
-        "wgsl.completion.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable code completion for WGSL"
-        },
         "wgsl.rust.highlightHint": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "When a Rust file embeds a shader with the `/* wgsl */` or `/* glsl */` tag, offer to turn off `#rust-analyzer.semanticHighlighting.strings.enable#`. rust-analyzer's semantic tokens override TextMate scopes, which hides the shader highlighting inside the string."
+          "markdownDescription": "When a Rust file embeds a shader with the `/* wgsl */` or `/* glsl */` tag, offer to turn off `#rust-analyzer.semanticHighlighting.strings.enable#`. rust-analyzer’s semantic tokens override TextMate scopes, which hides the shader highlighting inside the string."
+        },
+        "wgslShader.trace.server": {
+          "scope": "window",
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Log the traffic between VS Code and the shader language server, in the WGSL / GLSL Shader output channel."
         }
       }
     }
   },
   "scripts": {
-    "build:wasm": "cd ../../crates/wgsl-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/wgsl-shader/wasm --out-name wgsl_analyzer",
+    "build:wasm": "cd ../../crates/wgsl/wgsl-lsp-wasm && wasm-pack build --target nodejs --out-dir ../../../extensions/wgsl-shader/wasm --out-name wgsl_lsp_wasm",
     "build": "tsdown",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",
     "watch": "tsdown --watch",
     "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
-    "vscode:prepublish": "tsdown --minify",
+    "vscode:prepublish": "pnpm run build:wasm && tsdown --minify",
     "test": "vitest run",
     "test:watch": "vitest"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1"
   },
   "devDependencies": {
     "@types/node": "catalog:build",
