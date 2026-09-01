@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-wgsl-shader",
-  "displayName": "WGSL Shader",
-  "description": "WGSL shader language support with syntax highlighting, code completion, and validation (via naga WASM)",
-  "version": "0.3.1",
+  "displayName": "WGSL / GLSL Shader",
+  "description": "WGSL and GLSL shader language support with syntax highlighting, code completion, and validation (via naga WASM)",
+  "version": "0.4.0",
   "private": true,
   "publisher": "weixu",
   "engines": {
@@ -27,6 +27,34 @@
           ".wgsl"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "glsl",
+        "aliases": [
+          "GLSL",
+          "OpenGL Shading Language",
+          "glsl"
+        ],
+        "extensions": [
+          ".glsl",
+          ".vert",
+          ".frag",
+          ".comp",
+          ".geom",
+          ".tesc",
+          ".tese",
+          ".vsh",
+          ".fsh",
+          ".gsh",
+          ".vshader",
+          ".fshader",
+          ".gshader",
+          ".glslv",
+          ".glslf",
+          ".vertexshader",
+          ".fragmentshader"
+        ],
+        "configuration": "./glsl-language-configuration.json"
       }
     ],
     "grammars": [
@@ -57,17 +85,89 @@
         "embeddedLanguages": {
           "meta.embedded.block.wgsl": "wgsl"
         }
+      },
+      {
+        "language": "glsl",
+        "scopeName": "source.glsl",
+        "path": "./syntaxes/glsl.tmLanguage.json"
+      },
+      {
+        "scopeName": "inline.glsl",
+        "path": "./syntaxes/glsl-injection.tmLanguage.json",
+        "injectTo": [
+          "source.js",
+          "source.jsx",
+          "source.ts",
+          "source.tsx"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.glsl": "glsl"
+        }
+      },
+      {
+        "scopeName": "inline.rust.glsl",
+        "path": "./syntaxes/glsl-rust-injection.tmLanguage.json",
+        "injectTo": [
+          "source.rust"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.glsl": "glsl"
+        }
       }
     ],
     "commands": [
       {
         "command": "wgsl.validateFile",
         "title": "WGSL: Validate Current File"
+      },
+      {
+        "command": "glsl.validateFile",
+        "title": "GLSL: Validate Current File"
+      },
+      {
+        "command": "glsl.showShaderStage",
+        "title": "GLSL: Show Shader Stage of Current File"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "wgsl.validateFile",
+          "when": "editorLangId == wgsl"
+        },
+        {
+          "command": "glsl.validateFile",
+          "when": "editorLangId == glsl"
+        },
+        {
+          "command": "glsl.showShaderStage",
+          "when": "editorLangId == glsl"
+        }
+      ]
+    },
     "configuration": {
-      "title": "WGSL Shader",
+      "title": "WGSL / GLSL Shader",
       "properties": {
+        "glsl.validate.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate GLSL files on save"
+        },
+        "glsl.validate.onType": {
+          "type": "boolean",
+          "default": false,
+          "description": "Validate GLSL files while typing"
+        },
+        "glsl.completion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable code completion for GLSL"
+        },
+        "glsl.showStageInStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the shader stage a GLSL file is validated as in the status bar. GLSL has no in-file way to state its stage, so it is taken from `#pragma shader_stage(…)`, then the file extension, then the built-ins the source uses."
+        },
         "wgsl.validate.onSave": {
           "type": "boolean",
           "default": true,
@@ -86,7 +186,7 @@
         "wgsl.rust.highlightHint": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "When a Rust file embeds WGSL with the `/* wgsl */` tag, offer to turn off `#rust-analyzer.semanticHighlighting.strings.enable#`. rust-analyzer's semantic tokens override TextMate scopes, which hides the WGSL highlighting inside the string."
+          "markdownDescription": "When a Rust file embeds a shader with the `/* wgsl */` or `/* glsl */` tag, offer to turn off `#rust-analyzer.semanticHighlighting.strings.enable#`. rust-analyzer's semantic tokens override TextMate scopes, which hides the shader highlighting inside the string."
         }
       }
     }

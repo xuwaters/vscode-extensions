@@ -1,0 +1,449 @@
+{
+  "name": "GLSL",
+  "scopeName": "source.glsl",
+  "patterns": [
+    { "include": "#line_comments" },
+    { "include": "#block_comments" },
+    { "include": "#preprocessor" },
+    { "include": "#layout" },
+    { "include": "#keywords" },
+    { "include": "#functions" },
+    { "include": "#function_calls" },
+    { "include": "#constants" },
+    { "include": "#builtin_variables" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#variables" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "line_comments": {
+      "name": "comment.line.double-slash.glsl",
+      "match": "\\s*//.*"
+    },
+    "block_comments": {
+      "patterns": [
+        {
+          "name": "comment.block.glsl",
+          "match": "/\\*\\*/"
+        },
+        {
+          "name": "comment.block.documentation.glsl",
+          "begin": "/\\*\\*",
+          "end": "\\*/",
+          "patterns": [
+            { "include": "#block_comments" }
+          ]
+        },
+        {
+          "name": "comment.block.glsl",
+          "begin": "/\\*(?!\\*)",
+          "end": "\\*/",
+          "patterns": [
+            { "include": "#block_comments" }
+          ]
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "comment": "preprocessor directive, continued across escaped newlines",
+          "name": "meta.preprocessor.glsl",
+          "begin": "^\\s*((#)\\s*(version|extension|line|define|undef|ifdef|ifndef|if|elif|else|endif|error|pragma|include))\\b",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.directive.glsl" },
+            "2": { "name": "punctuation.definition.directive.glsl" }
+          },
+          "end": "(?<!\\\\)$",
+          "patterns": [
+            { "include": "#line_comments" },
+            { "include": "#block_comments" },
+            { "include": "#strings" },
+            {
+              "comment": "profile and extension behaviour words",
+              "name": "constant.language.glsl",
+              "match": "\\b(core|compatibility|es|require|enable|warn|disable)\\b"
+            },
+            {
+              "comment": "line continuation",
+              "name": "constant.character.escape.line-continuation.glsl",
+              "match": "\\\\$"
+            },
+            { "include": "#constants" },
+            { "include": "#builtin_variables" },
+            { "include": "#types" },
+            { "include": "#operators" },
+            { "include": "#variables" },
+            { "include": "#punctuation" }
+          ]
+        },
+        {
+          "comment": "a bare # is still a directive",
+          "name": "keyword.control.directive.glsl",
+          "match": "^\\s*#"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.glsl",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            { "name": "constant.character.escape.glsl", "match": "\\\\." }
+          ]
+        },
+        {
+          "comment": "system include path",
+          "name": "string.quoted.other.lt-gt.glsl",
+          "match": "<[^<>]*>"
+        }
+      ]
+    },
+    "layout": {
+      "patterns": [
+        {
+          "name": "meta.layout.glsl",
+          "begin": "\\b(layout)\\s*(\\()",
+          "beginCaptures": {
+            "1": { "name": "storage.modifier.glsl" },
+            "2": { "name": "punctuation.brackets.round.glsl" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.brackets.round.glsl" }
+          },
+          "patterns": [
+            { "include": "#line_comments" },
+            { "include": "#block_comments" },
+            {
+              "comment": "layout qualifier names",
+              "name": "entity.name.attribute.glsl",
+              "match": "\\b(location|binding|set|offset|align|component|index|input_attachment_index|push_constant|constant_id|std140|std430|packed|shared|row_major|column_major|local_size_x|local_size_y|local_size_z|local_size_x_id|local_size_y_id|local_size_z_id|points|lines|lines_adjacency|triangles|triangles_adjacency|line_strip|triangle_strip|max_vertices|invocations|stream|vertices|quads|isolines|equal_spacing|fractional_even_spacing|fractional_odd_spacing|cw|ccw|point_mode|origin_upper_left|pixel_center_integer|early_fragment_tests|depth_any|depth_greater|depth_less|depth_unchanged|rgba32f|rgba16f|rg32f|rg16f|r11f_g11f_b10f|r32f|r16f|rgba16|rgb10_a2|rgba8|rg16|rg8|r16|r8|rgba16_snorm|rgba8_snorm|rg16_snorm|rg8_snorm|r16_snorm|r8_snorm|rgba32i|rgba16i|rgba8i|rg32i|rg16i|rg8i|r32i|r16i|r8i|rgba32ui|rgba16ui|rgb10_a2ui|rgba8ui|rg32ui|rg16ui|rg8ui|r32ui|r16ui|r8ui)\\b"
+            },
+            { "include": "#constants" },
+            { "include": "#operators" },
+            { "include": "#punctuation" }
+          ]
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "comment": "control flow keywords",
+          "name": "keyword.control.glsl",
+          "match": "\\b(break|case|continue|default|discard|do|else|for|if|return|switch|while)\\b"
+        },
+        {
+          "comment": "struct keyword",
+          "name": "keyword.declaration.struct.glsl storage.type.glsl",
+          "match": "\\b(struct)\\b"
+        },
+        {
+          "comment": "interface and storage qualifiers",
+          "name": "storage.modifier.glsl",
+          "match": "\\b(attribute|varying|uniform|buffer|shared|const|in|out|inout|layout|subroutine)\\b"
+        },
+        {
+          "comment": "auxiliary, interpolation and memory qualifiers",
+          "name": "storage.modifier.glsl",
+          "match": "\\b(centroid|flat|smooth|noperspective|invariant|precise|patch|sample|coherent|volatile|restrict|readonly|writeonly)\\b"
+        },
+        {
+          "comment": "precision qualifiers",
+          "name": "storage.modifier.glsl",
+          "match": "\\b(precision|highp|mediump|lowp)\\b"
+        },
+        {
+          "comment": "reserved for future use",
+          "name": "invalid.illegal.reserved.glsl",
+          "match": "\\b(asm|class|union|enum|typedef|template|this|goto|extern|public|static|half|fixed|input|output|filter|sizeof|cast|namespace|using)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "comment": "function definition: a return type, a name, and a parameter list ending in a brace",
+          "name": "meta.function.definition.glsl",
+          "begin": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\()(?=[^;]*\\)\\s*\\{)",
+          "beginCaptures": {
+            "1": { "name": "storage.type.glsl" },
+            "2": { "name": "entity.name.function.glsl" },
+            "3": { "name": "punctuation.brackets.round.glsl" }
+          },
+          "end": "\\{",
+          "endCaptures": {
+            "0": { "name": "punctuation.brackets.curly.glsl" }
+          },
+          "patterns": [
+            { "include": "#line_comments" },
+            { "include": "#block_comments" },
+            { "include": "#keywords" },
+            { "include": "#constants" },
+            { "include": "#types" },
+            { "include": "#operators" },
+            { "include": "#variables" },
+            { "include": "#punctuation" }
+          ]
+        }
+      ]
+    },
+    "function_calls": {
+      "patterns": [
+        {
+          "comment": "built-in function call",
+          "name": "meta.function.call.glsl",
+          "begin": "\\b(radians|degrees|sin|cos|tan|asin|acos|atan|sinh|cosh|tanh|asinh|acosh|atanh|pow|exp2|exp|log2|log|inversesqrt|sqrt|abs|sign|floor|trunc|roundEven|round|ceil|fract|modf|mod|min|max|clamp|mix|step|smoothstep|isnan|isinf|floatBitsToInt|floatBitsToUint|intBitsToFloat|uintBitsToFloat|fma|frexp|ldexp|packUnorm2x16|packSnorm2x16|packUnorm4x8|packSnorm4x8|unpackUnorm2x16|unpackSnorm2x16|unpackUnorm4x8|unpackSnorm4x8|packHalf2x16|unpackHalf2x16|packDouble2x32|unpackDouble2x32|length|distance|dot|cross|normalize|faceforward|reflect|refract|matrixCompMult|outerProduct|transpose|determinant|inverse|lessThanEqual|lessThan|greaterThanEqual|greaterThan|notEqual|equal|any|all|not|uaddCarry|usubBorrow|umulExtended|imulExtended|bitfieldExtract|bitfieldInsert|bitfieldReverse|bitCount|findLSB|findMSB|textureSize|textureQueryLod|textureQueryLevels|textureSamples|textureProjGradOffset|textureProjGrad|textureProjLodOffset|textureProjLod|textureProjOffset|textureProj|textureGradOffset|textureGrad|textureGatherOffsets|textureGatherOffset|textureGather|textureLodOffset|textureLod|textureOffset|texelFetchOffset|texelFetch|texture|atomicCounterIncrement|atomicCounterDecrement|atomicCounter|atomicAdd|atomicMin|atomicMax|atomicAnd|atomicOr|atomicXor|atomicExchange|atomicCompSwap|imageSize|imageSamples|imageLoad|imageStore|imageAtomicAdd|imageAtomicMin|imageAtomicMax|imageAtomicAnd|imageAtomicOr|imageAtomicXor|imageAtomicExchange|imageAtomicCompSwap|dFdxFine|dFdyFine|dFdxCoarse|dFdyCoarse|dFdx|dFdy|fwidthFine|fwidthCoarse|fwidth|interpolateAtCentroid|interpolateAtSample|interpolateAtOffset|groupMemoryBarrier|memoryBarrierAtomicCounter|memoryBarrierBuffer|memoryBarrierShared|memoryBarrierImage|memoryBarrier|barrier|subpassLoad|EmitStreamVertex|EndStreamPrimitive|EmitVertex|EndPrimitive|texture1DProjLod|texture1DProj|texture1DLod|texture1D|texture2DProjLod|texture2DProj|texture2DLod|texture2D|texture3DProjLod|texture3DProj|texture3DLod|texture3D|textureCubeLod|textureCube|shadow1DProjLod|shadow1DProj|shadow1DLod|shadow1D|shadow2DProjLod|shadow2DProj|shadow2DLod|shadow2D)(\\()",
+          "beginCaptures": {
+            "1": { "name": "support.function.builtin.glsl" },
+            "2": { "name": "punctuation.brackets.round.glsl" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.brackets.round.glsl" }
+          },
+          "patterns": [
+            { "include": "#call_body" }
+          ]
+        },
+        {
+          "comment": "constructor call for a built-in type",
+          "name": "meta.function.call.constructor.glsl",
+          "begin": "\\b(void|bool|int|uint|float|double|[bidu]?vec[2-4]|d?mat[2-4](?:x[2-4])?)\\s*(\\()",
+          "beginCaptures": {
+            "1": { "name": "storage.type.glsl" },
+            "2": { "name": "punctuation.brackets.round.glsl" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.brackets.round.glsl" }
+          },
+          "patterns": [
+            { "include": "#call_body" }
+          ]
+        },
+        {
+          "comment": "user function call",
+          "name": "meta.function.call.glsl",
+          "begin": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(\\()",
+          "beginCaptures": {
+            "1": { "name": "entity.name.function.glsl" },
+            "2": { "name": "punctuation.brackets.round.glsl" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.brackets.round.glsl" }
+          },
+          "patterns": [
+            { "include": "#call_body" }
+          ]
+        }
+      ]
+    },
+    "call_body": {
+      "patterns": [
+        { "include": "#line_comments" },
+        { "include": "#block_comments" },
+        { "include": "#keywords" },
+        { "include": "#function_calls" },
+        { "include": "#constants" },
+        { "include": "#builtin_variables" },
+        { "include": "#types" },
+        { "include": "#operators" },
+        { "include": "#variables" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "comment": "float literal with an exponent or an f/lf suffix",
+          "name": "constant.numeric.float.glsl",
+          "match": "\\b[0-9][0-9]*\\.[0-9]*([eE][+-]?[0-9]+)?(lf|LF|f|F)?\\b"
+        },
+        {
+          "comment": "float literal with a leading dot",
+          "name": "constant.numeric.float.glsl",
+          "match": "(?<![0-9A-Za-z_.])\\.[0-9]+([eE][+-]?[0-9]+)?(lf|LF|f|F)?\\b"
+        },
+        {
+          "comment": "float literal with no dot but an exponent or suffix",
+          "name": "constant.numeric.float.glsl",
+          "match": "\\b[0-9]+(([eE][+-]?[0-9]+)(lf|LF|f|F)?|(lf|LF|f|F))\\b"
+        },
+        {
+          "comment": "hex int literal",
+          "name": "constant.numeric.hex.glsl",
+          "match": "\\b0[xX][0-9a-fA-F]+[uU]?\\b"
+        },
+        {
+          "comment": "octal int literal",
+          "name": "constant.numeric.octal.glsl",
+          "match": "\\b0[0-7]+[uU]?\\b"
+        },
+        {
+          "comment": "decimal int literal",
+          "name": "constant.numeric.decimal.glsl",
+          "match": "\\b[0-9]+[uU]?\\b"
+        },
+        {
+          "comment": "boolean constant",
+          "name": "constant.language.boolean.glsl",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "comment": "implementation-defined constant",
+          "name": "support.constant.glsl",
+          "match": "\\bgl_Max[A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "builtin_variables": {
+      "patterns": [
+        {
+          "comment": "gl_ prefixed built-ins are reserved for the language",
+          "name": "support.variable.builtin.glsl",
+          "match": "\\bgl_[A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "comment": "scalar types",
+          "name": "storage.type.glsl",
+          "match": "\\b(void|bool|int|uint|float|double|atomic_uint)\\b"
+        },
+        {
+          "comment": "vector types",
+          "name": "storage.type.glsl",
+          "match": "\\b[bidu]?vec[2-4]\\b"
+        },
+        {
+          "comment": "matrix types",
+          "name": "storage.type.glsl",
+          "match": "\\bd?mat[2-4](x[2-4])?\\b"
+        },
+        {
+          "comment": "sampler types",
+          "name": "storage.type.glsl",
+          "match": "\\b[iu]?sampler(1DArray|2DArray|CubeArray|2DRect|2DMSArray|2DMS|Buffer|1D|2D|3D|Cube)(Shadow)?\\b"
+        },
+        {
+          "comment": "bare sampler types (Vulkan-style separate samplers)",
+          "name": "storage.type.glsl",
+          "match": "\\b(sampler|samplerShadow)\\b"
+        },
+        {
+          "comment": "texture types (Vulkan-style separate textures)",
+          "name": "storage.type.glsl",
+          "match": "\\b[iu]?texture(1DArray|2DArray|CubeArray|2DRect|2DMSArray|2DMS|Buffer|1D|2D|3D|Cube)\\b"
+        },
+        {
+          "comment": "image types",
+          "name": "storage.type.glsl",
+          "match": "\\b[iu]?image(1DArray|2DArray|CubeArray|2DRect|2DMSArray|2DMS|Buffer|1D|2D|3D|Cube)\\b"
+        },
+        {
+          "comment": "subpass input types",
+          "name": "storage.type.glsl",
+          "match": "\\b(subpassInputMS|subpassInput)\\b"
+        },
+        {
+          "comment": "custom type (PascalCase)",
+          "name": "entity.name.type.glsl",
+          "match": "\\b([A-Z][A-Za-z0-9_]*)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "comment": "assignment operators",
+          "name": "keyword.operator.assignment.glsl",
+          "match": "(\\+=|-=|\\*=|/=|%=|\\^=|&=|\\|=|<<=|>>=)"
+        },
+        {
+          "comment": "comparison operators",
+          "name": "keyword.operator.comparison.glsl",
+          "match": "(==|!=|<=|>=)"
+        },
+        {
+          "comment": "single equal",
+          "name": "keyword.operator.assignment.equal.glsl",
+          "match": "(?<![=!<>+\\-*/%^&|])=(?!=)"
+        },
+        {
+          "comment": "logical and bitwise operators",
+          "name": "keyword.operator.logical.glsl",
+          "match": "(&&|\\|\\||\\^\\^|<<|>>|!(?!=)|~|\\^|\\||&)"
+        },
+        {
+          "comment": "increment and decrement",
+          "name": "keyword.operator.arithmetic.glsl",
+          "match": "(\\+\\+|--)"
+        },
+        {
+          "comment": "math operators",
+          "name": "keyword.operator.math.glsl",
+          "match": "(\\+|-|\\*|%|/(?![/*]))"
+        },
+        {
+          "comment": "ternary",
+          "name": "keyword.operator.ternary.glsl",
+          "match": "\\?"
+        },
+        {
+          "comment": "member access",
+          "name": "keyword.operator.access.dot.glsl",
+          "match": "\\.(?![0-9])"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "comment": "variables",
+          "name": "variable.other.glsl",
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.comma.glsl",
+          "match": ","
+        },
+        {
+          "name": "punctuation.brackets.curly.glsl",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.brackets.round.glsl",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.semi.glsl",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.brackets.square.glsl",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.colon.glsl",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.brackets.angle.glsl",
+          "match": "(?<![=<>!+\\-*/%^&|])[<>]"
+        }
+      ]
+    }
+  }
+}

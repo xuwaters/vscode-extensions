@@ -25,12 +25,12 @@ describe('rust-analyzer string token hint', () => {
   });
 
   it('accepts the tag spelling variations the grammar accepts', () => {
-    for (const tag of ['/*wgsl*/', '/*  wgsl  */', '/* wgsl */']) {
+    for (const tag of ['/*wgsl*/', '/*  wgsl  */', '/* wgsl */', '/*glsl*/', '/* glsl */']) {
       expect(shouldOfferStringTokenFix(state({ text: `let s = ${tag} r#""#;` })), tag).toBe(true);
     }
   });
 
-  it('stays quiet for Rust files with no embedded WGSL', () => {
+  it('stays quiet for Rust files with no embedded shader', () => {
     expect(shouldOfferStringTokenFix(state({ text: 'fn main() { println!("hi"); }' }))).toBe(false);
   });
 

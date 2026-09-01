@@ -1,0 +1,45 @@
+{
+  "scopeName": "inline.rust.glsl",
+  "injectionSelector": "L:source.rust",
+  "patterns": [
+    { "include": "#glsl-comment-tagged-raw-string" },
+    { "include": "#glsl-comment-tagged-string" }
+  ],
+  "repository": {
+    "glsl-comment-tagged-raw-string": {
+      "begin": "(/\\*\\s*glsl\\s*\\*/)\\s*(b?r(#*)\")",
+      "beginCaptures": {
+        "1": { "name": "comment.block.rust" },
+        "2": { "name": "punctuation.definition.string.raw.begin.rust" }
+      },
+      "end": "(\"\\3)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.raw.end.rust" }
+      },
+      "contentName": "meta.embedded.block.glsl",
+      "patterns": [
+        { "include": "source.glsl" }
+      ]
+    },
+    "glsl-comment-tagged-string": {
+      "begin": "(/\\*\\s*glsl\\s*\\*/)\\s*(b?\")",
+      "beginCaptures": {
+        "1": { "name": "comment.block.rust" },
+        "2": { "name": "punctuation.definition.string.begin.rust" }
+      },
+      "end": "(\")",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.end.rust" }
+      },
+      "contentName": "meta.embedded.block.glsl",
+      "patterns": [
+        { "include": "#glsl-escape-sequence" },
+        { "include": "source.glsl" }
+      ]
+    },
+    "glsl-escape-sequence": {
+      "name": "constant.character.escape.rust",
+      "match": "\\\\(x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\}|.|\\n)"
+    }
+  }
+}

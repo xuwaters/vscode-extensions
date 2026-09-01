@@ -1,5 +1,5 @@
 // rust-analyzer paints whole string literals with a `string` semantic token,
-// and semantic tokens win over TextMate scopes — so the WGSL colouring this
+// and semantic tokens win over TextMate scopes — so the shader colouring this
 // extension injects into tagged Rust strings stays invisible until
 // `rust-analyzer.semanticHighlighting.strings.enable` is turned off.
 //
@@ -9,9 +9,10 @@ export const RUST_ANALYZER_EXTENSION_ID = 'rust-lang.rust-analyzer';
 export const RUST_STRING_TOKENS_SETTING = 'rust-analyzer.semanticHighlighting.strings.enable';
 export const HINT_SETTING = 'rust.highlightHint';
 
-// The block-comment tag the injection grammar keys off, in its spelling
-// variants: slash-star, optional spaces, `wgsl`, optional spaces, star-slash.
-const WGSL_TAG = /\/\*\s*wgsl\s*\*\//;
+// The block-comment tags the injection grammars key off, in their spelling
+// variants: slash-star, optional spaces, `wgsl` or `glsl`, optional spaces,
+// star-slash.
+const SHADER_TAG = /\/\*\s*(?:wgsl|glsl)\s*\*\//;
 
 export interface RustHintState {
   languageId: string;
@@ -26,7 +27,7 @@ export interface RustHintState {
 
 /**
  * Whether to offer turning off rust-analyzer's string tokens. Only worth asking
- * when the file actually embeds WGSL and the setting is the thing hiding it.
+ * when the file actually embeds a shader and the setting is the thing hiding it.
  */
 export function shouldOfferStringTokenFix(state: RustHintState): boolean {
   return (
@@ -34,7 +35,7 @@ export function shouldOfferStringTokenFix(state: RustHintState): boolean {
     state.hasRustAnalyzer &&
     state.stringTokensEnabled &&
     state.languageId === 'rust' &&
-    WGSL_TAG.test(state.text)
+    SHADER_TAG.test(state.text)
   );
 }
 

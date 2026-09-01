@@ -1,0 +1,41 @@
+{
+  "scopeName": "inline.glsl",
+  "injectionSelector": "L:source.js, L:source.jsx, L:source.ts, L:source.tsx",
+  "patterns": [
+    { "include": "#glsl-comment-tagged-template" }
+  ],
+  "repository": {
+    "glsl-comment-tagged-template": {
+      "begin": "(/\\*\\s*glsl\\s*\\*/)\\s*(`)",
+      "beginCaptures": {
+        "1": { "name": "comment.block.js" },
+        "2": { "name": "punctuation.definition.string.template.begin.js" }
+      },
+      "end": "(`)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.template.end.js" }
+      },
+      "contentName": "meta.embedded.block.glsl",
+      "patterns": [
+        { "include": "#glsl-template-substitution" },
+        { "include": "#glsl-escape-sequence" },
+        { "include": "source.glsl" }
+      ]
+    },
+    "glsl-template-substitution": {
+      "name": "meta.template.expression.js",
+      "begin": "\\$\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.template-expression.begin.js" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.template-expression.end.js" }
+      }
+    },
+    "glsl-escape-sequence": {
+      "name": "constant.character.escape.js",
+      "match": "\\\\."
+    }
+  }
+}
