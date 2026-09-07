@@ -19,16 +19,16 @@ describe('catalogWithUserModels', () => {
   });
 
   it('does not duplicate a curated model the preset already wrote to settings', () => {
-    const merged = catalogWithUserModels([{ id: 'workers-ai/@cf/zai-org/glm-5.2', name: 'GLM 5.2 (Cloudflare)' }]);
-    expect(merged.filter(m => m.id === 'workers-ai/@cf/zai-org/glm-5.2')).toHaveLength(1);
+    const merged = catalogWithUserModels([{ id: 'workers-ai/@cf/zai-org/glm-5.3', name: 'GLM 5.3 (Cloudflare)' }]);
+    expect(merged.filter(m => m.id === 'workers-ai/@cf/zai-org/glm-5.3')).toHaveLength(1);
     expect(merged).toHaveLength(CURATED.length);
   });
 
   it('keeps curated metadata when the user entry omits it', () => {
     const [glm] = catalogWithUserModels([
-      { id: '@cf/zai-org/glm-5.2', name: undefined, family: undefined, toolCalling: undefined, url: 'https://alt/v1' },
-    ]).filter(m => m.id === 'workers-ai/@cf/zai-org/glm-5.2');
-    expect(glm.name).toBe('GLM 5.2 (Cloudflare)');
+      { id: '@cf/zai-org/glm-5.3', name: undefined, family: undefined, toolCalling: undefined, url: 'https://alt/v1' },
+    ]).filter(m => m.id === 'workers-ai/@cf/zai-org/glm-5.3');
+    expect(glm.name).toBe('GLM 5.3 (Cloudflare)');
     expect(glm.toolCalling).toBe(true);
     expect(glm.url).toBe('https://alt/v1');
   });
