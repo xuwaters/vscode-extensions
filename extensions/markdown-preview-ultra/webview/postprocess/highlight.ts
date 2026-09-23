@@ -3,10 +3,12 @@
 // still covering the languages most markdown authors reach for.
 import hljs from 'highlight.js/lib/common';
 import capnp from './capnp';
+import prisma from './prisma';
 
 // Languages the common bundle doesn't carry. Registered once at module load so
 // their fences highlight exactly like the built-in ones.
 hljs.registerLanguage('capnp', capnp);
+hljs.registerLanguage('prisma', prisma);
 
 /**
  * Highlight the engine-emitted `<pre><code class="language-…">` fences inside

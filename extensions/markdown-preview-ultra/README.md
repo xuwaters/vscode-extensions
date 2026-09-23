@@ -37,8 +37,9 @@ typing in a long document repaints only the paragraph you are editing.
   more than ten seconds is abandoned rather than allowed to wedge the preview.
 
 - **Syntax highlighting** for fenced code from highlight.js's `common` bundle
-  (about 40 languages), plus a Cap'n Proto grammar registered by this extension
-  since highlight.js ships none.
+  (about 40 languages), plus Cap'n Proto (```` ```capnp ````) and Prisma
+  (```` ```prisma ````) grammars registered by this extension since highlight.js
+  ships neither.
 
 - **Two-way scroll sync.** Scrolling the editor moves the preview and vice
   versa, using a source-position map built from the `data-sourcepos` attributes
