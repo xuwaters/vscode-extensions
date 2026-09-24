@@ -1,7 +1,11 @@
 import * as vscode from 'vscode';
 import { MarkdownEditorProvider, isPreviewable } from './customEditor';
 import { ModeManager } from './modes';
-import { createFontStore, createThemeStore } from './overrideStore';
+import {
+  CodeBlockStore,
+  createFontStore,
+  createThemeStore,
+} from './overrideStore';
 import { PreviewManager, canPreview } from './previewManager';
 import { PreviewRenderer } from './renderer';
 
@@ -14,19 +18,33 @@ export function activate(context: vscode.ExtensionContext): void {
     true,
   );
 
-  // The in-page switches — light/dark and prose/monospace — held for the window
+  // The in-page switches — light/dark, prose/monospace and the code-block ones —
+  // held for the window
   // rather than for one page: a webview's own state dies with the tab that
   // owned it.
   const themes = createThemeStore(context.globalState);
   const fonts = createFontStore(context.globalState);
+  const codeBlocks = new CodeBlockStore(context.globalState);
   // Shared by both surfaces, so the WASM engine is loaded at most once.
-  const renderer = new PreviewRenderer(context.extensionUri, themes, fonts);
+  const renderer = new PreviewRenderer(
+    context.extensionUri,
+    themes,
+    fonts,
+    codeBlocks,
+  );
   const manager = new PreviewManager(renderer);
   // The provider reads the panel's placement: a markdown file opened while the
   // reader is in Split belongs in the source column, not in a preview tab.
   const editors = new MarkdownEditorProvider(renderer, manager);
   const modes = new ModeManager(manager, editors);
-  context.subscriptions.push(themes, fonts, renderer, manager, modes);
+  context.subscriptions.push(
+    themes,
+    fonts,
+    codeBlocks,
+    renderer,
+    manager,
+    modes,
+  );
 
   /**
    * Resolve what to preview. The explorer and tab context menus pass the

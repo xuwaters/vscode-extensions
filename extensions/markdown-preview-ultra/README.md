@@ -57,7 +57,13 @@ typing in a long document repaints only the paragraph you are editing.
   `☰` for the contents sidebar. The two switches override the corresponding
   settings without writing them — see below.
 
-- **Reading conveniences**: a Copy button on every code fence, a hover `¶`
+- **Code-block buttons** on every fence, shown on hover: `Wrap` folds long
+  lines instead of scrolling them sideways, `Lines` shows line numbers, and
+  `Copy` copies the code (never the numbers). `Wrap` and `Lines` apply to every
+  code block at once and are remembered for the whole window, so the next file
+  opens the same way — across both preview surfaces and a window reload.
+
+- **Reading conveniences**: a hover `¶`
   anchor on every heading that copies its link, click-to-zoom lightbox on
   images, `ctrl`/`cmd` `+` / `-` / `0` to scale the page (0.5×–3×, remembered
   per tab), and a front-matter card that lists your YAML keys and values above

@@ -110,7 +110,7 @@ body.font-mono {
   line-height: 1.5;
   /* The long line scrolls, not the `<pre>`. An absolutely positioned child of
    * a scroll container is placed against the scrolled content and rides along
-   * with it; keeping `<pre>` itself unscrolled pins the copy button to the
+   * with it; keeping `<pre>` itself unscrolled pins the action buttons to the
    * block's visible corner. */
   display: block;
   overflow-x: auto;
@@ -428,13 +428,22 @@ body.toc-open {
   opacity: 1;
 }
 
-/* ── Copy-code button ──────────────────────────────────────────────── */
+/* ── Code-block actions (wrap, line numbers, copy) ─────────────────── */
 .markdown-preview pre { position: relative; }
 
-.markdown-preview .copy-code {
+.markdown-preview .code-actions {
   position: absolute;
   top: 6px;
   right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.1s ease-in-out;
+}
+
+.markdown-preview pre:hover .code-actions { opacity: 1; }
+
+.markdown-preview .code-action {
   border: 1px solid var(--vscode-panel-border, #444);
   border-radius: 4px;
   background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
@@ -442,14 +451,54 @@ body.toc-open {
   font-size: 0.75em;
   padding: 2px 8px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.1s ease-in-out;
+  opacity: 0.85;
 }
 
-.markdown-preview pre:hover .copy-code { opacity: 0.85; }
-.markdown-preview .copy-code:hover { opacity: 1; }
-.markdown-preview .copy-code.copied {
+.markdown-preview .code-action:hover { opacity: 1; }
+.markdown-preview .code-action-copy.copied {
   color: var(--vscode-testing-iconPassed, #3fb950);
+}
+
+/* A switch that is on says so, the way the toolbar marks an override. */
+body.code-wrap .markdown-preview .code-action-wrap,
+body.code-line-numbers .markdown-preview .code-action-lines {
+  border-color: var(--vscode-textLink-foreground, #4493f8);
+  color: var(--vscode-textLink-foreground, #4493f8);
+}
+
+/* Soft wrap: long lines fold instead of scrolling the block sideways. */
+body.code-wrap .markdown-preview pre code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Line numbers: a counter over the `.code-line` spans the page splits every
+ * fence into. Each line is its own block with a hanging indent, so a wrapped
+ * line continues past the gutter rather than under its number. The number is
+ * generated content — never selected, never copied. */
+body.code-line-numbers .markdown-preview pre code {
+  counter-reset: code-line;
+  --line-gutter: calc(var(--line-digits, 2) * 1ch + 1.5ch);
+}
+
+body.code-line-numbers .markdown-preview .code-line {
+  display: block;
+  padding-left: var(--line-gutter);
+  text-indent: calc(-1 * var(--line-gutter));
+}
+
+body.code-line-numbers .markdown-preview .code-line::before {
+  counter-increment: code-line;
+  content: counter(code-line);
+  display: inline-block;
+  box-sizing: border-box;
+  width: var(--line-gutter);
+  padding-right: 1.5ch;
+  text-align: right;
+  text-indent: 0;
+  color: var(--vscode-editorLineNumber-foreground, var(--vscode-descriptionForeground));
+  opacity: 0.8;
+  user-select: none;
 }
 
 /* ── Lightbox ──────────────────────────────────────────────────────── */

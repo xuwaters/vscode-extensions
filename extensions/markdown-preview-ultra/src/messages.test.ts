@@ -17,6 +17,12 @@ describe('isWebviewToHost', () => {
     );
     expect(isWebviewToHost({ type: 'setFont', font: 'monospace' })).toBe(true);
     expect(
+      isWebviewToHost({
+        type: 'setCodeBlocks',
+        codeBlocks: { wrap: true, lineNumbers: false },
+      }),
+    ).toBe(true);
+    expect(
       isWebviewToHost({ type: 'toggleTask', line: 4, checked: true }),
     ).toBe(true);
     expect(
@@ -41,6 +47,16 @@ describe('isWebviewToHost', () => {
     );
     expect(isWebviewToHost({ type: 'setFont' })).toBe(false);
     expect(isWebviewToHost({ type: 'setFont', font: 'comic-sans' })).toBe(false);
+    expect(isWebviewToHost({ type: 'setCodeBlocks' })).toBe(false);
+    expect(
+      isWebviewToHost({ type: 'setCodeBlocks', codeBlocks: { wrap: true } }),
+    ).toBe(false);
+    expect(
+      isWebviewToHost({
+        type: 'setCodeBlocks',
+        codeBlocks: { wrap: 'yes', lineNumbers: false },
+      }),
+    ).toBe(false);
     expect(isWebviewToHost({ type: 'toggleTask', line: 1 })).toBe(false);
     expect(isWebviewToHost({ type: 'error', message: 'm' })).toBe(false);
   });

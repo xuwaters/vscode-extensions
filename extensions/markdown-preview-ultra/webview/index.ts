@@ -8,6 +8,7 @@ import './styles/themes/github-dark.css';
 import 'katex/dist/katex.min.css';
 
 import type {
+  CodeBlockPrefs,
   HostToWebview,
   PreviewFont,
   PreviewOverrides,
@@ -27,7 +28,12 @@ import {
 import { highlightCode } from './postprocess/highlight';
 import { renderMath } from './postprocess/katex';
 import { renderMermaid, type ResolvedMermaidTheme } from './postprocess/mermaid';
-import { addCopyButtons, installCopyHandler } from './ui/copyCode';
+import {
+  addCodeActions,
+  applyCodeBlockPrefs,
+  installCodeActions,
+  readStampedCodeBlockPrefs,
+} from './ui/codeBlocks';
 import { installEditButton } from './ui/editButton';
 import { FontToggle } from './ui/fontToggle';
 import { renderFrontmatter } from './ui/frontmatter';
@@ -263,13 +269,19 @@ function applyFontClass(): void {
   const mono = font === 'monospace';
   fontToggle.update(font, fontOverride !== null);
   if (mono === document.body.classList.contains('font-mono')) return;
-  // Every offset on the page is measured against the font it is set in, and
-  // swapping the font moves all of them: hold the line being read across the
-  // reflow rather than letting the page slide out from under it.
+  holdLineAcross(() => document.body.classList.toggle('font-mono', mono));
+}
+
+/**
+ * Every offset on the page is measured against how it is laid out, and a
+ * restyle that reflows the page moves all of them: hold the line being read
+ * across the reflow rather than letting the page slide out from under it.
+ */
+function holdLineAcross(restyle: () => void): void {
   const line = hostVisible
     ? lineForOffset(getScrollMap(), window.scrollY + 8)
     : null;
-  document.body.classList.toggle('font-mono', mono);
+  restyle();
   invalidateScrollMap();
   if (line !== null) queueScroll(() => scrollToLine(line, 0));
 }
@@ -298,6 +310,31 @@ function setFontOverride(font: PreviewFont | null): void {
 function setOverrides(overrides: PreviewOverrides): void {
   setThemeOverride(overrides.theme);
   setFontOverride(overrides.font);
+}
+
+// ── Code blocks ──────────────────────────────────────────────────────
+
+/**
+ * Soft wrap and line numbers for every fence. Held by the host for the window
+ * like the switches above, so the next file opens the way this one was left.
+ */
+let codeBlocks: CodeBlockPrefs = readStampedCodeBlockPrefs();
+
+function setCodeBlocks(prefs: CodeBlockPrefs): void {
+  if (
+    prefs.wrap === codeBlocks.wrap &&
+    prefs.lineNumbers === codeBlocks.lineNumbers
+  ) {
+    return;
+  }
+  codeBlocks = prefs;
+  holdLineAcross(() => applyCodeBlockPrefs(prefs));
+}
+
+/** A fence's Wrap or Lines button: paint it now, and let the host record it. */
+function toggleCodeBlocks(next: CodeBlockPrefs): void {
+  setCodeBlocks(next);
+  vscode.postMessage({ type: 'setCodeBlocks', codeBlocks: next });
 }
 
 // ── Document chrome (base href, custom styles) ───────────────────────
@@ -361,7 +398,7 @@ const toc = new TocSidebar(
 );
 if (state.tocWidth !== undefined) toc.setWidth(state.tocWidth);
 
-installCopyHandler(content);
+installCodeActions(content, () => codeBlocks, toggleCodeBlocks);
 installLightbox(content);
 installZoom(content, state.zoom ?? 1, (zoom) => {
   saveState({ zoom });
@@ -380,6 +417,7 @@ function handleUpdate(msg: UpdateMessage): void {
   lastSeq = msg.seq;
   settings = msg.settings;
   setOverrides(msg.overrides);
+  setCodeBlocks(msg.codeBlocks);
 
   ensureBase(msg.baseHref);
   ensureCustomStyles(msg.customStyles);
@@ -441,7 +479,7 @@ function postprocess(changed: Element[]): void {
   if (changed.length === 0) return;
   if (settings?.math) renderMath(changed);
   highlightCode(changed);
-  addCopyButtons(changed);
+  addCodeActions(changed);
   addHeadingAnchors(changed);
   enableTaskCheckboxes(changed);
   if (settings?.mermaid) {
@@ -503,6 +541,7 @@ window.addEventListener('message', (event) => {
       break;
     case 'overrides':
       setOverrides(msg.overrides);
+      setCodeBlocks(msg.codeBlocks);
       break;
     case 'noEngine':
       showNoEngine();

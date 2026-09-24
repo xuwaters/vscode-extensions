@@ -342,6 +342,9 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       case 'setFont':
         this.renderer.setFontOverride(msg.font);
         break;
+      case 'setCodeBlocks':
+        this.renderer.setCodeBlocks(msg.codeBlocks);
+        break;
       case 'toggleTask':
         await applyTaskToggle(document, msg);
         break;

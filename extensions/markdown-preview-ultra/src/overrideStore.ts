@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
-import type { PreviewFont, PreviewTheme } from './messages';
+import {
+  isCodeBlockPrefs,
+  type CodeBlockPrefs,
+  type PreviewFont,
+  type PreviewTheme,
+} from './messages';
 import {
   chooseOverride,
   reconcileOverride,
@@ -109,4 +114,44 @@ export function createFontStore(
     'markdownPreviewUltra.font',
     configuredFont,
   );
+}
+
+/**
+ * The code-block switches (soft wrap, line numbers), held for the window like
+ * the switches above. With no setting beneath them there is nothing to deviate
+ * from and nothing to retire them: they simply stand where they were last left.
+ */
+export class CodeBlockStore implements vscode.Disposable {
+  private static readonly key = 'markdownPreviewUltra.codeBlocks';
+  private state: CodeBlockPrefs;
+  private readonly emitter = new vscode.EventEmitter<void>();
+  /** Fires when either switch is flipped; pages are told to restyle. */
+  public readonly onDidChange = this.emitter.event;
+
+  constructor(private readonly memento: vscode.Memento) {
+    const stored = memento.get<unknown>(CodeBlockStore.key);
+    this.state = isCodeBlockPrefs(stored)
+      ? stored
+      : { wrap: false, lineNumbers: false };
+  }
+
+  public get value(): CodeBlockPrefs {
+    return this.state;
+  }
+
+  public set(next: CodeBlockPrefs): void {
+    if (
+      next.wrap === this.state.wrap &&
+      next.lineNumbers === this.state.lineNumbers
+    ) {
+      return;
+    }
+    this.state = { wrap: next.wrap, lineNumbers: next.lineNumbers };
+    void this.memento.update(CodeBlockStore.key, this.state);
+    this.emitter.fire();
+  }
+
+  public dispose(): void {
+    this.emitter.dispose();
+  }
 }

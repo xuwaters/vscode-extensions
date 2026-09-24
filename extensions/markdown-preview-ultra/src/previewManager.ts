@@ -608,6 +608,9 @@ export class PreviewManager implements vscode.Disposable {
       case 'setFont':
         this.renderer.setFontOverride(msg.font);
         break;
+      case 'setCodeBlocks':
+        this.renderer.setCodeBlocks(msg.codeBlocks);
+        break;
       case 'toggleTask':
         void applyTaskToggle(preview.document, msg);
         break;

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { EngineBridge, EngineSession, type EngineOptions } from './engine';
 import type {
+  CodeBlockPrefs,
   HostToWebview,
   PreviewFont,
   PreviewOverrides,
@@ -10,6 +11,7 @@ import type {
 import {
   configuredFont,
   configuredTheme,
+  type CodeBlockStore,
   type OverrideStore,
 } from './overrideStore';
 import { getNonce } from './util';
@@ -34,7 +36,7 @@ export const NO_HISTORY: NavState = { canGoBack: false, canGoForward: false };
 export class PreviewRenderer implements vscode.Disposable {
   private readonly engine: EngineBridge;
   private readonly emitter = new vscode.EventEmitter<void>();
-  /** Fires when either in-page switch is flipped or retired. */
+  /** Fires when any in-page switch is flipped or retired. */
   public readonly onDidChangeOverrides = this.emitter.event;
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -42,14 +44,16 @@ export class PreviewRenderer implements vscode.Disposable {
     private readonly extensionUri: vscode.Uri,
     private readonly themes: OverrideStore<PreviewTheme>,
     private readonly fonts: OverrideStore<PreviewFont>,
+    private readonly codeBlocks: CodeBlockStore,
   ) {
     this.engine = new EngineBridge(extensionUri.fsPath);
-    // Both switches mean the same thing to a page — restyle — so the surfaces
+    // Every switch means the same thing to a page — restyle — so the surfaces
     // watching them get one event rather than one each.
     this.disposables.push(
       this.emitter,
       themes.onDidChange(() => this.emitter.fire()),
       fonts.onDidChange(() => this.emitter.fire()),
+      codeBlocks.onDidChange(() => this.emitter.fire()),
     );
   }
 
@@ -90,9 +94,18 @@ export class PreviewRenderer implements vscode.Disposable {
     this.fonts.set(font);
   }
 
-  /** Hand a page where both switches currently stand. */
+  /** Flip the window-wide code-block switches (soft wrap, line numbers). */
+  public setCodeBlocks(prefs: CodeBlockPrefs): void {
+    this.codeBlocks.set(prefs);
+  }
+
+  /** Hand a page where every switch currently stands. */
   public postOverrides(webview: vscode.Webview): void {
-    this.post(webview, { type: 'overrides', overrides: this.overrides() });
+    this.post(webview, {
+      type: 'overrides',
+      overrides: this.overrides(),
+      codeBlocks: this.codeBlocks.value,
+    });
   }
 
   private overrides(): PreviewOverrides {
@@ -130,6 +143,7 @@ export class PreviewRenderer implements vscode.Disposable {
       customStyles: this.customStyles(webview, document),
       settings: this.readSettings(),
       overrides: this.overrides(),
+      codeBlocks: this.codeBlocks.value,
       canGoBack: nav.canGoBack,
       canGoForward: nav.canGoForward,
     });
@@ -232,15 +246,18 @@ export class PreviewRenderer implements vscode.Disposable {
     const styleUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'style.css'),
     );
-    // Stamp the theme and the font onto <body> up front so the preview doesn't
-    // flash the editor's colors, or a page of the wrong font, before the first
-    // settings message reaches the webview. The switches are part of that: a
+    // Stamp the theme, the font and the code-block switches onto <body> up
+    // front so the preview doesn't flash the editor's colors, a page of the
+    // wrong font, or unwrapped code, before the first settings message reaches
+    // the webview. The switches are part of that: a
     // page that opens while one is flipped is painted the way it is about to be
     // told to show anyway.
     const theme = this.themes.value;
     const classes: string[] = [];
     if (theme !== 'auto') classes.push(`theme-${theme}`);
     if (this.fonts.value === 'monospace') classes.push('font-mono');
+    if (this.codeBlocks.value.wrap) classes.push('code-wrap');
+    if (this.codeBlocks.value.lineNumbers) classes.push('code-line-numbers');
     const bodyClass = classes.length ? ` class="${classes.join(' ')}"` : '';
     const nonce = getNonce();
     const csp = [

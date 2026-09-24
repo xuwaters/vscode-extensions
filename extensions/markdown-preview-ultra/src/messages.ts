@@ -43,6 +43,16 @@ export interface PreviewOverrides {
   font: PreviewFont | null;
 }
 
+/**
+ * The code-block switches on every fence (soft wrap, line numbers). There is
+ * no setting under them: the host just remembers them for the window, so the
+ * next file opens the way the last one was left.
+ */
+export interface CodeBlockPrefs {
+  wrap: boolean;
+  lineNumbers: boolean;
+}
+
 /** Presentation settings forwarded to the webview. */
 export interface PreviewSettings {
   scrollSync: boolean;
@@ -80,6 +90,8 @@ export interface UpdateMessage {
   settings: PreviewSettings;
   /** The in-page switches, each `null` while its setting is in force. */
   overrides: PreviewOverrides;
+  /** The code-block switches, as the host holds them. */
+  codeBlocks: CodeBlockPrefs;
   /** Preview-local link history (drives the toolbar's ← / → buttons). */
   canGoBack: boolean;
   canGoForward: boolean;
@@ -115,6 +127,7 @@ export interface VisibilityMessage {
 export interface OverridesMessage {
   type: 'overrides';
   overrides: PreviewOverrides;
+  codeBlocks: CodeBlockPrefs;
 }
 
 /** The WASM engine is not built; show a friendly hint instead of content. */
@@ -188,6 +201,12 @@ export interface SetFontMessage {
   font: PreviewFont;
 }
 
+/** A code-block switch was flipped; held by the host for the window. */
+export interface SetCodeBlocksMessage {
+  type: 'setCodeBlocks';
+  codeBlocks: CodeBlockPrefs;
+}
+
 /** Task checkbox clicked (only when `taskLists.toggleFromPreview` is on). */
 export interface ToggleTaskMessage {
   type: 'toggleTask';
@@ -211,6 +230,7 @@ export type WebviewToHost =
   | OpenLinkMessage
   | SetThemeMessage
   | SetFontMessage
+  | SetCodeBlocksMessage
   | ToggleTaskMessage
   | ErrorMessage;
 
@@ -226,6 +246,12 @@ function isPreviewTheme(v: unknown): v is PreviewTheme {
 
 function isPreviewFont(v: unknown): v is PreviewFont {
   return v === 'proportional' || v === 'monospace';
+}
+
+export function isCodeBlockPrefs(v: unknown): v is CodeBlockPrefs {
+  if (typeof v !== 'object' || v === null) return false;
+  const p = v as Record<string, unknown>;
+  return typeof p.wrap === 'boolean' && typeof p.lineNumbers === 'boolean';
 }
 
 /**
@@ -250,6 +276,8 @@ export function isWebviewToHost(msg: unknown): msg is WebviewToHost {
       return isPreviewTheme(m.theme);
     case 'setFont':
       return isPreviewFont(m.font);
+    case 'setCodeBlocks':
+      return isCodeBlockPrefs(m.codeBlocks);
     case 'toggleTask':
       return (
         isFiniteNumber(m.line) && m.line >= 0 && typeof m.checked === 'boolean'
