@@ -762,7 +762,7 @@ Applies to: `cli-completions`
 ```
 MIT License
 
-Copyright (c) 2026 Wei Xu
+Copyright (c) 2026 Wei Xu (https://github.com/xuwaters)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
