@@ -5,6 +5,7 @@
   "version": "0.3.4",
   "private": true,
   "publisher": "weixu",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/xuwaters/vscode-extensions.git",
@@ -80,6 +81,7 @@
   },
   "scripts": {
     "build:wasm": "cd ../../crates/capnp-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/capnproto/wasm --out-name capnp_analyzer",
+    "licenses": "cd ../../crates/capnp-analyzer && cargo about generate about.hbs -o ../../extensions/capnproto/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",

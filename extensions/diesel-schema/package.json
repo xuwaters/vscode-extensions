@@ -55,6 +55,7 @@
   },
   "scripts": {
     "build:wasm": "cd ../../crates/diesel-schema-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/diesel-schema/wasm --out-name diesel_schema_analyzer",
+    "licenses": "cd ../../crates/diesel-schema-analyzer && cargo about generate about.hbs -o ../../extensions/diesel-schema/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",

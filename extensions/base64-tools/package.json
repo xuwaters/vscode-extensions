@@ -5,6 +5,7 @@
   "version": "0.1.2",
   "private": true,
   "publisher": "weixu",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/xuwaters/vscode-extensions.git",

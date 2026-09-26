@@ -191,6 +191,7 @@
   "scripts": {
     "build": "tsdown",
     "build:wasm": "cd ../../crates/json-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/json-ultra/wasm --out-name json_analyzer",
+    "licenses": "cd ../../crates/json-analyzer && cargo about generate about.hbs -o ../../extensions/json-ultra/THIRD-PARTY-NOTICES.md",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit && tsc -p webview --noEmit",
     "watch": "tsdown --watch",

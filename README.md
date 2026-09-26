@@ -105,6 +105,12 @@ sources or how to regenerate their notices.
 
 ## License
 
-Each extension is licensed separately; see the `LICENSE.md` in its folder.
-Third-party material that an extension redistributes is listed in its
-`THIRD-PARTY-NOTICES.md`.
+[MIT](LICENSE), with two exceptions:
+
+- **Makefile** is GPL-2.0-or-later as a whole, because its binary embeds
+  completion data from fish-shell, which is GPL-2.0-or-later.
+- **Typst Ultra Fonts** is nothing but typst's bundled fonts, each under its
+  own license (OFL, GUST, Bitstream Vera and others).
+
+Each extension's `LICENSE.md` states its terms, and the third-party material
+it redistributes is listed there or in its `THIRD-PARTY-NOTICES.md`.

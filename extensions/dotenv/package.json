@@ -117,6 +117,7 @@
   },
   "scripts": {
     "build:wasm": "cd ../../crates/dotenv-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/dotenv/wasm --out-name dotenv_analyzer",
+    "licenses": "cd ../../crates/dotenv-analyzer && cargo about generate about.hbs -o ../../extensions/dotenv/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",

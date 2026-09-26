@@ -1,12 +1,34 @@
-`NO LICENSE`
+MIT License
+
+Copyright (c) 2026 Wei Xu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 
 # Third-Party Notices
 
 This extension is **nothing but redistributed third-party fonts**. It carries no
-code of its own. Each copyright holder retains their rights; nothing here grants
-any license to the Typst Ultra extension that reads these files.
+code of its own, so the MIT License above covers only the few files that are
+this project's — the package manifest and README. It does not apply to the
+fonts: each copyright holder retains their rights, and each font stays under
+the license listed below.
 
 ## 1. Bundled fonts
 

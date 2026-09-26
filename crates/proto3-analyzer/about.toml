@@ -1,0 +1,32 @@
+# cargo-about configuration for the Protocol Buffers (proto3) WASM artifact.
+#
+# `pnpm run licenses` (in extensions/protobuf) regenerates
+# `extensions/protobuf/THIRD-PARTY-NOTICES.md` from this; the output is committed so
+# the diff is reviewable when a dependency changes.
+
+# Only the target the artifact is actually built for. Without this, cargo-about
+# walks every platform's dependency tree and reports crates that are never
+# linked in.
+targets = ["wasm32-unknown-unknown"]
+
+# Build-time-only crates contribute nothing to the shipped bytes.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# Every licence in the graph must be one we have explicitly accounted for; a new
+# one is something a person should look at, not something to absorb silently.
+accepted = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+]

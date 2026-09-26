@@ -31,6 +31,9 @@ accepted = [
   "MIT",
   "MIT-0",
   "MPL-2.0",
+  # glsl-spec: the Khronos reference-page prose it embeds, described by hand in
+  # about.hbs. SPDX "MIT AND OPUBL-1.0" — MIT for the code, OPUBL for the data.
+  "OPUBL-1.0",
   "Unicode-3.0",
   "Unicode-DFS-2016",
   "Zlib",

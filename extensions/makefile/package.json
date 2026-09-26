@@ -84,6 +84,7 @@
   },
   "scripts": {
     "build:wasm": "cd ../../crates/makefile-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/makefile/wasm --out-name makefile_analyzer",
+    "licenses": "cd ../../crates/makefile-analyzer && cargo about generate about.hbs -o ../../extensions/makefile/THIRD_PARTY_NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",

@@ -21,11 +21,16 @@
 # Third-Party Rust Notices
 
 `wasm/fast_analyzer_wasm_bg.wasm` statically links the crates listed here. Each
-copyright holder retains their rights; nothing in this file grants any license
-to this extension itself.
+copyright holder retains their rights, and each crate stays under its own
+license, reproduced below. This extension's own code is MIT-licensed, per
+[LICENSE.md](LICENSE.md); that license does not replace these terms or extend
+to them. Crates from this repository appear in the lists below as MIT, with the
+license template's placeholder copyright line; their holder is Wei Xu.
 
-Fonts, the typst compiler's own notice, and the acknowledgement of prior art are
-in [LICENSE.md](LICENSE.md); this file covers the Rust dependency graph only.
+The JavaScript libraries bundled into the TypeScript server plugin, and the
+HTML, SVG and MathML data embedded in the WASM — `@vscode/web-custom-data` and
+the MDN Web Docs prose it and this repository draw on — are in
+[LICENSE.md](LICENSE.md); this file covers the Rust dependency graph only.
 
 ## Summary
 
@@ -58,7 +63,7 @@ Applies to:{{#each used_by}} `{{crate.name}}`{{/each}}
 
 
 ```
-{{text}}
+{{{text}}}
 ```
 
 {{/each}}

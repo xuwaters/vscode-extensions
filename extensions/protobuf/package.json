@@ -5,6 +5,7 @@
   "version": "0.5.7",
   "private": true,
   "publisher": "weixu",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/xuwaters/vscode-extensions.git",
@@ -133,6 +134,7 @@
   },
   "scripts": {
     "build:wasm": "cd ../../crates/proto3-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/protobuf/wasm --out-name proto3_analyzer",
+    "licenses": "cd ../../crates/proto3-analyzer && cargo about generate about.hbs -o ../../extensions/protobuf/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",

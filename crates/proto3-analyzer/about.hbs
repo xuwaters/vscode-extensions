@@ -1,0 +1,121 @@
+{{!--
+  Markdown output for cargo-about.
+
+  Two sections, because they answer different questions. The index answers
+  "which crates are in the artifact and under what terms", which is what a
+  reviewer wants and what a dependency-change diff should show. The texts that
+  follow are the notices themselves, which are long and rarely read but legally
+  necessary.
+
+  Material that is not a crate dependency — and so invisible to cargo-about —
+  is written out by hand in this template, above the generated sections.
+
+  cargo-about groups by (licence, exact text), so a licence whose text differs
+  by a copyright line appears more than once below. That is intentional on its
+  part: those really are different notices.
+--}}
+<!--
+  GENERATED FILE — do not edit.
+
+  Regenerate with `pnpm run licenses` in extensions/protobuf after any
+  dependency change. Configuration: crates/proto3-analyzer/about.toml;
+  the template, including any hand-written sections, is crates/proto3-analyzer/about.hbs.
+-->
+
+# Third-Party Notices
+
+Material from other parties that this extension redistributes. This
+extension's own code is under the MIT License in [LICENSE.md](LICENSE.md); that
+license does not replace the terms below or extend to them. Each copyright
+holder retains their rights, and each item here stays under its own license.
+
+## Google — Protocol Buffers well-known types
+
+`wasm/proto3_analyzer_bg.wasm` embeds the eleven well-known type definitions
+that ship with [Protocol Buffers](https://github.com/protocolbuffers/protobuf) —
+`any.proto`, `api.proto`, `descriptor.proto`, `duration.proto`, `empty.proto`,
+`field_mask.proto`, `source_context.proto`, `struct.proto`, `timestamp.proto`,
+`type.proto` and `wrappers.proto`, all under `google/protobuf/` — so that
+`import "google/protobuf/…"` resolves, and hover and go-to-definition work on
+the types they declare, with nothing else installed. The files are vendored at
+`crates/proto3-analyzer/src/well_known/protos/` in this repository and are
+compiled in with `include_str!`, their license headers intact.
+
+They are not a crate dependency, so cargo-about cannot see them; this section is
+written by hand, in `crates/proto3-analyzer/about.hbs`. They are distributed
+under the BSD 3-Clause License:
+
+```
+Protocol Buffers - Google's data interchange format
+Copyright 2008 Google Inc.  All rights reserved.
+https://developers.google.com/protocol-buffers/
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+## Rust dependencies
+
+`wasm/proto3_analyzer_bg.wasm` statically links the crates listed here.
+Crates from this repository appear among them as MIT, with the license
+template's placeholder copyright line; their holder is Wei Xu, and their terms
+are those in [LICENSE.md](LICENSE.md).
+
+### Summary
+
+| License | Crates |
+| --- | --- |
+{{#each overview}}| {{name}} | {{count}} |
+{{/each}}
+
+### Crates by license
+
+{{#each overview}}
+#### {{name}}
+
+{{#each indices}}
+{{#with (lookup @root.licenses this)}}
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}
+{{/each}}
+{{/with}}
+{{/each}}
+
+{{/each}}
+
+### License texts
+
+{{#each licenses}}
+#### {{name}}
+
+Applies to:{{#each used_by}} `{{crate.name}}`{{/each}}
+
+
+```
+{{{text}}}
+```
+
+{{/each}}

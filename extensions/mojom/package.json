@@ -5,6 +5,7 @@
   "version": "0.1.1",
   "private": true,
   "publisher": "weixu",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/xuwaters/vscode-extensions.git",
@@ -79,6 +80,7 @@
   },
   "scripts": {
     "build:wasm": "cd ../../crates/mojom-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/mojom/wasm --out-name mojom_analyzer",
+    "licenses": "cd ../../crates/mojom-analyzer && cargo about generate about.hbs -o ../../extensions/mojom/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",

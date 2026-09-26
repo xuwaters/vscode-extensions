@@ -5,6 +5,7 @@
   "version": "0.4.8",
   "private": true,
   "publisher": "weixu",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/xuwaters/vscode-extensions.git",
@@ -325,6 +326,7 @@
   },
   "scripts": {
     "build:wasm": "cd ../../crates/log-parser && wasm-pack build --target nodejs --out-dir ../../extensions/log-viewer/wasm --out-name log_parser",
+    "licenses": "cd ../../crates/log-parser && cargo about generate about.hbs -o ../../extensions/log-viewer/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",

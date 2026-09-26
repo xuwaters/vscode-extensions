@@ -5,6 +5,7 @@
   "version": "0.8.1",
   "private": true,
   "publisher": "weixu",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/xuwaters/vscode-extensions.git",
@@ -210,6 +211,7 @@
   "scripts": {
     "build": "tsdown",
     "build:wasm": "cd ../../crates/vim-engine && wasm-pack build --target nodejs --out-dir ../../extensions/vim-ultra/wasm --out-name vim_engine",
+    "licenses": "cd ../../crates/vim-engine && cargo about generate about.hbs -o ../../extensions/vim-ultra/THIRD-PARTY-NOTICES.md",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",
     "watch": "tsdown --watch",

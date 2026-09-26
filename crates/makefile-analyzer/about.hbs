@@ -1,0 +1,129 @@
+{{!--
+  Markdown output for cargo-about.
+
+  Two sections, because they answer different questions. The index answers
+  "which crates are in the artifact and under what terms", which is what a
+  reviewer wants and what a dependency-change diff should show. The texts that
+  follow are the notices themselves, which are long and rarely read but legally
+  necessary.
+
+  Material that is not a crate dependency — and so invisible to cargo-about —
+  is written out by hand in this template, above the generated sections.
+
+  cargo-about groups by (licence, exact text), so a licence whose text differs
+  by a copyright line appears more than once below. That is intentional on its
+  part: those really are different notices.
+--}}
+<!--
+  GENERATED FILE — do not edit.
+
+  Regenerate with `pnpm run licenses` in extensions/makefile after any
+  dependency change. Configuration: crates/makefile-analyzer/about.toml;
+  the template, including any hand-written sections, is crates/makefile-analyzer/about.hbs.
+-->
+
+# Third-Party Notices
+
+Material from other parties that this extension redistributes. Unlike this
+repository's other extensions, this VSIX as a whole is distributed under the
+**GNU General Public License, version 2 or later**, because of the fish-shell
+data described next; [LICENSE.md](LICENSE.md) explains why. Each copyright
+holder retains their rights, and each item here also stays under its own
+license: the Rust crates listed below keep the licenses reproduced with them.
+
+## fish-shell
+
+The `cli-completions-data-fish` crate embeds a snapshot of completion
+data extracted from [fish-shell](https://github.com/fish-shell/fish-shell).
+fish-shell is licensed under the **GNU General Public License, version
+2 or later (GPL-2.0-or-later)**.
+
+- Copyright © 2005–2009 Axel Liljencrantz
+- Copyright © 2009– fish-shell contributors
+
+The full text of the GPL-2.0 is reproduced in the license texts at the end of
+this file, under `cli-completions-data-fish`. fish-shell's own COPYING notice,
+kept with the data crate as `crates/cli-completions-data-fish/LICENSE-fish`,
+reads:
+
+```
+Fish is a smart and user-friendly command line shell.
+
+Copyright (C) 2005-2009 Axel Liljencrantz
+Copyright (C) 2009- fish-shell contributors
+
+fish is free software.
+
+Most of fish is licensed under the GNU General Public License version 2, and
+you can redistribute it and/or modify it under the terms of the GNU GPL as
+published by the Free Software Foundation.
+
+fish also includes software licensed under the Python Software Foundation License version 2, the MIT
+license, and the GNU Library General Public License version 2.
+
+Full licensing information is contained in doc_src/license.rst.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+more details.
+```
+
+Source for fish-shell is publicly available at the upstream URL above.
+The exact snapshot commit and date are recorded in
+`crates/cli-completions-data-fish/data/fish-snapshot.toml` (when the
+snapshot is vendored locally).
+
+Because the compiled VSIX includes data derived from fish-shell, the
+combined work is itself distributed under GPL-2.0-or-later. See
+[LICENSE.md](LICENSE.md), and §11 "License: GPL-2 Compatibility" of RFC 005 —
+[`docs/rfc/_archive/005-cli-completions-crate.md`](https://github.com/xuwaters/vscode-extensions/blob/main/docs/rfc/_archive/005-cli-completions-crate.md#11-license-gpl-2-compatibility)
+in this repository — for the design rationale.
+
+This section is written by hand, in `crates/makefile-analyzer/about.hbs`:
+cargo-about reports the data crate's licence, below, but cannot know where its
+data came from or whose it is.
+
+## Rust dependencies
+
+`wasm/makefile_analyzer_bg.wasm` statically links the crates listed here.
+Crates from this repository are among them, and their holder is Wei Xu; those
+without a license file of their own show the license template's placeholder
+copyright line. They are MIT, except `cli-completions-data-fish`, which is
+GPL-2.0-or-later because of the data it carries.
+
+### Summary
+
+| License | Crates |
+| --- | --- |
+{{#each overview}}| {{name}} | {{count}} |
+{{/each}}
+
+### Crates by license
+
+{{#each overview}}
+#### {{name}}
+
+{{#each indices}}
+{{#with (lookup @root.licenses this)}}
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}
+{{/each}}
+{{/with}}
+{{/each}}
+
+{{/each}}
+
+### License texts
+
+{{#each licenses}}
+#### {{name}}
+
+Applies to:{{#each used_by}} `{{crate.name}}`{{/each}}
+
+
+```
+{{{text}}}
+```
+
+{{/each}}

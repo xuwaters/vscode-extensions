@@ -5,6 +5,7 @@
   "version": "0.1.3",
   "private": true,
   "publisher": "weixu",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/xuwaters/vscode-extensions.git",
@@ -76,6 +77,7 @@
   },
   "scripts": {
     "build:wasm": "cd ../../crates/cargo-make-analyzer && wasm-pack build --target nodejs --out-dir ../../extensions/cargo-make/wasm --out-name cargo_make_analyzer",
+    "licenses": "cd ../../crates/cargo-make-analyzer && cargo about generate about.hbs -o ../../extensions/cargo-make/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",

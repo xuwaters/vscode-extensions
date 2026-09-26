@@ -1,13 +1,18 @@
 {{!--
   Markdown output for cargo-about.
 
-  This extension redistributes two different kinds of other people's work, and
-  they need different treatment:
+  This extension redistributes several different kinds of other people's work,
+  and they need different treatment:
 
   - **Documentation compiled in as data** — the Khronos reference-page prose in
     `glsl-spec`. No dependency scanner can see it, so it is written out below by
     hand, and it comes first because it is the one a reader is least likely to
     expect. RFC 012 decision 0005.
+  - **Grammars and JavaScript** — the TextMate grammars adapted from
+    vscode-wgsl, and the npm packages the bundler inlines into `dist/`. Neither
+    is a crate, so cargo-about cannot see them either; they are written out by
+    hand too. Re-check the package table when the language-client dependency
+    moves.
   - **The Rust dependency graph** — enumerated by cargo-about from
     `about.toml`. The index answers "which crates are in the artifact and under
     what terms", which is what a dependency-change diff should show; the texts
@@ -28,13 +33,15 @@
 
 # Third-Party Notices
 
-Material from other parties that this extension redistributes. Each copyright
-holder retains their rights; nothing here grants any licence to this extension
-itself, whose terms are in [LICENSE.md](LICENSE.md).
+Material from other parties that this extension redistributes. This
+extension's own code is under the MIT License in [LICENSE.md](LICENSE.md); that
+licence does not replace the terms below or extend to them. Each copyright
+holder retains their rights, and each item here stays under its own licence.
 
-Two kinds of material, and they are not under the same terms: reference
-**documentation** compiled into the WASM binary as data, and the Rust
-**dependency graph** statically linked into it.
+Four kinds of material, and they are not all under the same terms: reference
+**documentation** compiled into the WASM binary as data, the **TextMate
+grammars** under `syntaxes/`, the **JavaScript** bundled into `dist/`, and the
+Rust **dependency graph** statically linked into the WASM binary.
 
 ## Khronos Group — OpenGL Shading Language reference pages
 
@@ -64,8 +71,78 @@ The docs.gl scaffolding that reshaped the Khronos pages is placed in the public
 domain by its author, per that repository's `readme.md`.
 
 The Open Publication License is a documentation licence, not an OSI-approved
-software licence. It covers the embedded prose only; the Rust crates that carry
-it are MIT, and are listed below with everything else.
+software licence. It covers the embedded prose only. That is why `glsl-spec`, the
+crate that carries it, is declared `MIT AND OPUBL-1.0` — MIT for its code, the
+Open Publication License for this prose — and why the licence's full text is
+among those reproduced below.
+
+## TextMate grammars — vscode-wgsl and rust-syntax
+
+`syntaxes/wgsl.tmLanguage.json` is adapted from the WGSL grammar in
+[vscode-wgsl](https://github.com/PolyMeilex/vscode-wgsl), which is itself built
+on the Rust grammar in
+[rust-syntax](https://github.com/dustypomerleau/rust-syntax): the comment and
+block-comment rules, the operator patterns and their comments, and the order in
+which the top-level rules are tried come from there.
+`syntaxes/glsl.tmLanguage.json` was written on the same scaffold, and shares
+those rules. Both upstream projects are distributed under the MIT License:
+
+> Copyright (c) 2021 Bartłomiej Maryńczak
+
+> Copyright (c) 2020 Dustin Pomerleau
+
+```
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Bundled JavaScript (`dist/`)
+
+The extension host bundle (`dist/extension.js`) and the language server bundle
+(`dist/server.js`) include these npm packages:
+
+| Package | Bundle | License | Copyright |
+| --- | --- | --- | --- |
+| `vscode-languageclient` 9.0.1 | `dist/extension.js` | MIT | Copyright (c) Microsoft Corporation |
+| `vscode-languageserver` 9.0.1 | `dist/server.js` | MIT | Copyright (c) Microsoft Corporation |
+| `vscode-languageserver-protocol` 3.17.5, `vscode-languageserver-types` 3.17.5, `vscode-jsonrpc` 8.2.0 | both | MIT | Copyright (c) Microsoft Corporation |
+| `minimatch` 5.1.9 | `dist/extension.js` | ISC | Copyright (c) 2011-2023 Isaac Z. Schlueter and Contributors |
+| `semver` 7.7.4 | `dist/extension.js` | ISC | Copyright (c) Isaac Z. Schlueter and Contributors |
+| `brace-expansion` 2.1.4 | `dist/extension.js` | MIT | Copyright (c) 2013 Julian Gruber |
+| `balanced-match` 1.0.2 | `dist/extension.js` | MIT | Copyright (c) 2013 Julian Gruber |
+
+The MIT packages carry the permission notice reproduced in the previous section,
+each with its own copyright line from the table. `minimatch` and `semver` are
+under the ISC License:
+
+```
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
+IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
 
 ## Rust dependencies
 
@@ -74,6 +151,10 @@ it are MIT, and are listed below with everything else.
 WGSL front end that produces this extension's WGSL diagnostics. Its GLSL front
 end is *not* linked in — the dependency is declared with the `wgsl-in` feature
 alone, because GLSL is analysed by this repository's own `glsl-analysis` crate.
+
+Crates from this repository appear in the lists below as MIT, with the licence
+template's placeholder copyright line; their holder is Wei Xu, and their terms
+are those in [LICENSE.md](LICENSE.md).
 
 ### Summary
 
@@ -106,7 +187,7 @@ Applies to:{{#each used_by}} `{{crate.name}}`{{/each}}
 
 
 ```
-{{text}}
+{{{text}}}
 ```
 
 {{/each}}
