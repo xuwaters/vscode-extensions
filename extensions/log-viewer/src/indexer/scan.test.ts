@@ -185,6 +185,11 @@ describe('scanIndex', () => {
       read: (offset, buf) => {
         reads.push(offset);
         if (chunksReturned >= totalChunks) return 0;
+        // scanIndex's buffer comes from Buffer.allocUnsafe, which for a
+        // 4-byte buffer is a slice of Node's shared pool holding whatever
+        // other code left there; a stray 0x0a in bytes 1–3 would count as an
+        // extra line. A real read fills what it reports, so fill it all.
+        buf.fill(0x20);
         buf[0] = 0x0a; // '\n' at local byte 0
         chunksReturned += 1;
         return Number(hugeChunk);
