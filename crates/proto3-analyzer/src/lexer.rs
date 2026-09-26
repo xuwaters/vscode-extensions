@@ -408,11 +408,12 @@ impl<'s> Lexer<'s> {
                         }
                         buf.push(char::from_u32(v).unwrap_or('\u{FFFD}'));
                     }
-                    Some(c) => {
-                        let ch = c as char;
+                    Some(_) => {
+                        // A whole char, not a byte: `\é` must not leave `pos`
+                        // inside the é.
+                        let ch = self.bump_char();
                         error.get_or_insert(LexErrorKind::InvalidEscape(ch));
                         buf.push(ch);
-                        self.pos += 1;
                     }
                     None => break,
                 }
@@ -533,6 +534,13 @@ mod tests {
             TokenKind::StringLit(s) => assert_eq!(s, "hello\nworld"),
             t => panic!("unexpected {:?}", t),
         }
+    }
+
+    #[test]
+    fn invalid_escape_of_multibyte_char() {
+        let toks = lex(r#""\é""#);
+        assert!(matches!(toks[0].kind, TokenKind::LexError(LexErrorKind::InvalidEscape('é'))));
+        assert_eq!(toks[0].span.end as usize, r#""\é""#.len());
     }
 
     #[test]

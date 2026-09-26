@@ -47,8 +47,10 @@ pub fn analyze(source: &str) -> Analysis {
         .collect();
 
     if parsed.file.file_id.is_none() && !parsed.file.decls.is_empty() {
-        // Report at the start of the file.
-        let span = ByteSpan::new(0, 1.min(source.len() as u32));
+        // Report at the start of the file, over its first char (which may be
+        // wider than a byte).
+        let first = source.chars().next().map_or(0, char::len_utf8);
+        let span = ByteSpan::new(0, first as u32);
         diagnostics.push(CapnpDiagnostic {
             code: "CAPNP0002",
             severity: Severity::Error,
@@ -281,6 +283,15 @@ mod tests {
     fn reports_missing_file_id() {
         let a = analyze("struct X { id @0 :UInt32; }");
         assert!(a.diagnostics.iter().any(|d| d.code == "CAPNP0002"));
+    }
+
+    #[test]
+    fn missing_file_id_span_covers_a_multibyte_first_char() {
+        let src = "é;struct A {}";
+        let a = analyze(src);
+        let d = a.diagnostics.iter().find(|d| d.code == "CAPNP0002").unwrap();
+        assert!(src.is_char_boundary(d.span.end as usize));
+        assert_eq!(d.span.end, 2);
     }
 
     #[test]

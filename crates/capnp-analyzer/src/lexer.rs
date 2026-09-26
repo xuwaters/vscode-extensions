@@ -334,10 +334,12 @@ impl<'s> Lexer<'s> {
                         Some(b'"') => { value.push('"'); self.pos += 1; }
                         Some(b'\\') => { value.push('\\'); self.pos += 1; }
                         Some(b'0') => { value.push('\0'); self.pos += 1; }
-                        Some(other) => {
-                            let ch = other as char;
-                            let esc_span = ByteSpan::from_usize(self.pos - 1, self.pos + 1);
-                            self.pos += 1;
+                        Some(_) => {
+                            // A whole char, not a byte: `\é` must not leave
+                            // `pos` or the span inside the é.
+                            let esc_start = self.pos - 1;
+                            let ch = self.bump_char();
+                            let esc_span = ByteSpan::from_usize(esc_start, self.pos);
                             // record escape error token but still keep the char raw
                             self.out.push(Token {
                                 kind: TokenKind::LexError(LexErrorKind::InvalidEscape(ch)),
@@ -350,8 +352,8 @@ impl<'s> Lexer<'s> {
                     }
                 }
                 _ => {
-                    value.push(b as char);
-                    self.pos += 1;
+                    let ch = self.bump_char();
+                    value.push(ch);
                 }
             }
         }
@@ -433,6 +435,23 @@ mod tests {
 
     fn kinds(s: &str) -> Vec<TokenKind> {
         lex(s).into_iter().map(|t| t.kind).collect()
+    }
+
+    #[test]
+    fn invalid_escape_of_multibyte_char() {
+        let src = r#""\é""#;
+        let toks = lex(src);
+        let esc = toks
+            .iter()
+            .find(|t| matches!(t.kind, TokenKind::LexError(LexErrorKind::InvalidEscape('é'))))
+            .unwrap();
+        assert_eq!((esc.span.start, esc.span.end), (1, 4));
+    }
+
+    #[test]
+    fn string_keeps_multibyte_chars() {
+        let k = kinds(r#""café""#);
+        assert!(matches!(k[0], TokenKind::StringLit(ref s) if s == "café"), "{:?}", k[0]);
     }
 
     #[test]

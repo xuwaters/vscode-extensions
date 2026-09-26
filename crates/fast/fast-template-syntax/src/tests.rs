@@ -420,3 +420,19 @@ fn non_ascii_text_keeps_byte_spans_consistent() {
     };
     assert_eq!(t.text(&text), "✕");
 }
+
+// ---------------------------------------------------------- multibyte input
+
+#[test]
+fn attribute_starting_with_a_multibyte_char() {
+    let (text, doc) = parse_source("<a é>");
+    let el = first_element(&doc);
+    assert_eq!(el.attributes[0].name.text(&text), "é");
+}
+
+#[test]
+fn markup_declaration_followed_by_a_multibyte_char() {
+    // `<!` then a check for `<!--` / `<!doctype` that reaches into the `中`.
+    parse_source("<!中");
+    parse_source("<div></中");
+}

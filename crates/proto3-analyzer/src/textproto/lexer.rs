@@ -319,11 +319,12 @@ impl<'s> Lexer<'s> {
                             error.get_or_insert(LexErrorKind::InvalidEscape('U'));
                         }
                     }
-                    Some(c) => {
-                        let ch = c as char;
+                    Some(_) => {
+                        // A whole char, not a byte: `\é` must not leave `pos`
+                        // inside the é.
+                        let ch = self.bump_char();
                         error.get_or_insert(LexErrorKind::InvalidEscape(ch));
                         buf.push(ch);
-                        self.pos += 1;
                     }
                     None => break,
                 }
@@ -399,6 +400,14 @@ mod tests {
         assert_eq!(res.comments[1].text.as_str(), "# two");
         // First real token after trivia is `foo`.
         assert!(matches!(res.tokens[0].kind, TokenKind::Ident(ref s) if s == "foo"));
+    }
+
+    #[test]
+    fn invalid_escape_of_multibyte_char() {
+        let src = r#"a: "\é""#;
+        let toks = lex(src).tokens;
+        assert!(matches!(toks[2].kind, TokenKind::LexError(LexErrorKind::InvalidEscape('é'))));
+        assert_eq!(toks[2].span.end as usize, src.len());
     }
 
     #[test]

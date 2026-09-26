@@ -211,9 +211,10 @@ pub fn tokenize(source: &str) -> Vec<Token> {
             i += 1;
             continue;
         }
-        // Number / unknown punctuation — opaque.
+        // Number / unknown punctuation — opaque. One whole char, so a
+        // non-ASCII one (`中`, a BOM) never leaves a span inside it.
         let start = i;
-        i += 1;
+        i += source[start..].chars().next().map_or(1, char::len_utf8);
         out.push(Token { kind: TokenKind::Other, span: ByteSpan::from_usize(start, i) });
     }
     out
@@ -239,6 +240,16 @@ mod tests {
         assert_eq!(toks[1].kind, TokenKind::ColonColon);
         assert!(matches!(toks[2].kind, TokenKind::Ident(ref s) if s == "table"));
         assert_eq!(toks[3].kind, TokenKind::Bang);
+    }
+
+    #[test]
+    fn unknown_multibyte_char_is_one_token() {
+        let src = "diesel::table! { 中 }";
+        let toks = tokenize(src);
+        let other = toks.iter().find(|t| t.kind == TokenKind::Other).unwrap();
+        assert_eq!(&src[other.span.start as usize..other.span.end as usize], "中");
+        assert!(toks.iter().all(|t| src.is_char_boundary(t.span.start as usize)
+            && src.is_char_boundary(t.span.end as usize)));
     }
 
     #[test]

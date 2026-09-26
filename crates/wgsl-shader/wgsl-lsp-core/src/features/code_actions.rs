@@ -148,8 +148,9 @@ const SUFFIXES: [(char, &str); 4] =
 
 /// `vec4f` → `("vec4", "f32")`.
 fn expand(name: &str) -> Option<(&str, &'static str)> {
-    let (base, last) = name.split_at(name.len().checked_sub(1)?);
-    let suffix = last.chars().next()?;
+    // Split off the last char, not the last byte: `café` ends in two bytes.
+    let suffix = name.chars().next_back()?;
+    let base = &name[..name.len() - suffix.len_utf8()];
     let scalar = SUFFIXES.iter().find(|(c, _)| *c == suffix).map(|(_, s)| *s)?;
     is_parameterised(base).then_some((base, scalar))
 }
@@ -196,5 +197,11 @@ mod tests {
         assert_eq!(expand("f32"), None);
         // A user's own type ending in `f` must not be mistaken for one.
         assert_eq!(expand("Stuff"), None);
+    }
+
+    #[test]
+    fn names_ending_in_a_multibyte_char() {
+        assert_eq!(expand("café"), None);
+        assert_eq!(expand("中"), None);
     }
 }

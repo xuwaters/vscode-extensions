@@ -387,8 +387,11 @@ impl<'a> Parser<'a> {
     }
 
     fn starts_with_ci(&self, pos: usize, prefix: &str) -> bool {
-        let end = pos + prefix.len();
-        end <= self.bytes.len() && self.text[pos..end].eq_ignore_ascii_case(prefix)
+        // Bytes, not `str`: `pos + len` may land inside a multibyte char
+        // (`<!中`), where slicing the text would panic.
+        self.bytes
+            .get(pos..pos + prefix.len())
+            .is_some_and(|b| b.eq_ignore_ascii_case(prefix.as_bytes()))
     }
 
     fn skip_whitespace(&mut self) {
@@ -659,9 +662,10 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         if self.pos == name_start && self.pos < self.bytes.len() && limit != self.pos {
-            // Not a name character at all — swallow one byte so the attribute
-            // loop cannot spin.
-            self.pos += 1;
+            // Not a name character at all — swallow one char so the attribute
+            // loop cannot spin. A whole char: `<a é>` must not leave the name
+            // span inside the é.
+            self.pos += self.text[self.pos..].chars().next().map_or(1, char::len_utf8);
         }
         let name = Span::new(name_start, self.pos);
 
