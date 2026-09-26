@@ -5,6 +5,15 @@
   "version": "0.4.0",
   "private": true,
   "publisher": "weixu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xuwaters/vscode-extensions.git",
+    "directory": "extensions/csv-ultra"
+  },
+  "bugs": {
+    "url": "https://github.com/xuwaters/vscode-extensions/issues"
+  },
+  "homepage": "https://github.com/xuwaters/vscode-extensions/tree/main/extensions/csv-ultra#readme",
   "engines": {
     "vscode": "^1.100.0"
   },

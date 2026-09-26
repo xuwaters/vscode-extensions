@@ -5,6 +5,15 @@
   "version": "0.9.0",
   "private": true,
   "publisher": "weixu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xuwaters/vscode-extensions.git",
+    "directory": "extensions/markdown-preview-ultra"
+  },
+  "bugs": {
+    "url": "https://github.com/xuwaters/vscode-extensions/issues"
+  },
+  "homepage": "https://github.com/xuwaters/vscode-extensions/tree/main/extensions/markdown-preview-ultra#readme",
   "engines": {
     "vscode": "^1.100.0"
   },

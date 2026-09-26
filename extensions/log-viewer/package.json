@@ -5,6 +5,15 @@
   "version": "0.4.8",
   "private": true,
   "publisher": "weixu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xuwaters/vscode-extensions.git",
+    "directory": "extensions/log-viewer"
+  },
+  "bugs": {
+    "url": "https://github.com/xuwaters/vscode-extensions/issues"
+  },
+  "homepage": "https://github.com/xuwaters/vscode-extensions/tree/main/extensions/log-viewer#readme",
   "engines": {
     "vscode": "^1.96.0"
   },

@@ -6,6 +6,15 @@
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xuwaters/vscode-extensions.git",
+    "directory": "extensions/claude-usage-ultra"
+  },
+  "bugs": {
+    "url": "https://github.com/xuwaters/vscode-extensions/issues"
+  },
+  "homepage": "https://github.com/xuwaters/vscode-extensions/tree/main/extensions/claude-usage-ultra#readme",
   "engines": {
     "vscode": "^1.96.0"
   },

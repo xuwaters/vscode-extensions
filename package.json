@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "Monorepo for VS Code extensions",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xuwaters/vscode-extensions.git"
+  },
   "scripts": {
     "build": "pnpm -r run build",
     "clean": "pnpm -r run clean",

@@ -5,6 +5,15 @@
   "version": "0.3.5",
   "private": true,
   "publisher": "weixu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xuwaters/vscode-extensions.git",
+    "directory": "extensions/pdf-ultra"
+  },
+  "bugs": {
+    "url": "https://github.com/xuwaters/vscode-extensions/issues"
+  },
+  "homepage": "https://github.com/xuwaters/vscode-extensions/tree/main/extensions/pdf-ultra#readme",
   "engines": {
     "vscode": "^1.100.0"
   },

@@ -5,6 +5,15 @@
   "version": "0.6.1",
   "private": true,
   "publisher": "weixu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xuwaters/vscode-extensions.git",
+    "directory": "extensions/wgsl-shader"
+  },
+  "bugs": {
+    "url": "https://github.com/xuwaters/vscode-extensions/issues"
+  },
+  "homepage": "https://github.com/xuwaters/vscode-extensions/tree/main/extensions/wgsl-shader#readme",
   "engines": {
     "vscode": "^1.96.0"
   },
