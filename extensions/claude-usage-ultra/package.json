@@ -2,7 +2,7 @@
   "name": "wx-vsce-claude-usage-ultra",
   "displayName": "Claude Usage Ultra",
   "description": "Show Claude Code plan usage — 5-hour session window, weekly all-models and per-model windows, reset countdowns and extra-usage spend — in the VS Code status bar.",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -18,6 +18,9 @@
   "engines": {
     "vscode": "^1.96.0"
   },
+  "extensionDependencies": [
+    "anthropic.claude-code"
+  ],
   "categories": [
     "Other"
   ],
@@ -142,11 +145,6 @@
           "default": 45,
           "minimum": 5,
           "description": "Give up on a refresh if the Claude Code CLI has not answered within this many seconds."
-        },
-        "claudeUsageUltra.claudePath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the `claude` executable. Leave empty to use the CLI bundled with the Claude Code extension, then `~/.claude/local/claude`, then `claude` from PATH."
         },
         "claudeUsageUltra.alignment": {
           "type": "string",

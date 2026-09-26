@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as vscode from 'vscode';
-import { bundledCliPath, fetchUsage, localCliPath, UsageCliError } from './cli';
+import { bundledCliPath, fetchUsage, UsageCliError } from './cli';
 import {
   LOADING_TEXT,
   formatStatusText,
@@ -81,28 +81,23 @@ function criticalAtPercent(settings: vscode.WorkspaceConfiguration): number {
 }
 
 /**
- * Find a Claude Code CLI to query.
+ * The Claude Code CLI to query: only ever the binary shipped inside the
+ * installed Claude Code extension.
  *
- * The binary shipped inside the Claude Code extension is preferred: it is the
- * one the user is actually running, and it exists even when nothing is on PATH.
+ * Nothing a workspace controls can choose the executable — no setting, no
+ * PATH lookup — so opening a repository can never make this extension run a
+ * program that repository supplied.
  */
-function resolveCli(log: vscode.LogOutputChannel): string {
-  const configured = config().get<string>('claudePath', '').trim();
-  if (configured) return configured;
-
+function resolveCli(log: vscode.LogOutputChannel): string | undefined {
   const claudeCode = vscode.extensions.getExtension(CLAUDE_CODE_EXTENSION_ID);
-  if (claudeCode) {
-    const bundled = bundledCliPath(claudeCode.extensionUri.fsPath);
-    if (fs.existsSync(bundled)) return bundled;
-    log.debug(`Claude Code extension found but no bundled CLI at ${bundled}`);
-  }
-
-  const local = localCliPath();
-  if (fs.existsSync(local)) return local;
-
-  // Last resort: let the OS resolve it, which works when `claude` is on PATH.
-  return 'claude';
+  if (!claudeCode) return undefined;
+  const bundled = bundledCliPath(claudeCode.extensionUri.fsPath);
+  if (fs.existsSync(bundled)) return bundled;
+  log.debug(`Claude Code extension found but no bundled CLI at ${bundled}`);
+  return undefined;
 }
+
+const MISSING_CLI = 'Could not find the Claude Code CLI. Install the Claude Code extension.';
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel('Claude Usage Ultra', { log: true });
@@ -172,9 +167,15 @@ export function activate(context: vscode.ExtensionContext): void {
     const started = Date.now();
 
     try {
+      if (!command) throw new UsageCliError(MISSING_CLI, true);
+      // Run outside any workspace: a repository's own `.claude/settings.json`
+      // (hooks, env, apiKeyHelper) must not load into a background query.
+      // Global storage is private to this extension and holds no project.
+      const cwd = context.globalStorageUri.fsPath;
+      await fs.promises.mkdir(cwd, { recursive: true });
       const response = await fetchUsage({
         command,
-        cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        cwd,
         timeoutMs: config().get<number>('timeoutSeconds', 45) * 1000,
         log: (message) => log.debug(message),
       });
@@ -195,9 +196,9 @@ export function activate(context: vscode.ExtensionContext): void {
       failures += 1;
       problem =
         error instanceof UsageCliError && error.missingCli
-          ? `Could not find the Claude Code CLI. Install the Claude Code extension, or set \`claudeUsageUltra.claudePath\`.`
+          ? MISSING_CLI
           : `Last refresh failed: ${describe(error)}`;
-      log.warn(`${problem} (attempt ${failures}, ${command})`);
+      log.warn(`${problem} (attempt ${failures}, ${command ?? 'no CLI'})`);
     } finally {
       inFlight = false;
       render();

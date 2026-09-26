@@ -1,5 +1,4 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
@@ -38,7 +37,7 @@ const MAX_STDOUT_BYTES = 8 * 1024 * 1024;
 const KILL_GRACE_MS = 2_000;
 
 export interface FetchUsageOptions {
-  /** Executable to run — a bundled binary path, or `claude` from PATH. */
+  /** Executable to run: the binary the Claude Code extension bundles. */
   command: string;
   /** Prepended to {@link CLI_ARGS}; tests use it to point node at a stub. */
   argsPrefix?: readonly string[];
@@ -73,15 +72,6 @@ interface ControlResponse {
 export function bundledCliPath(extensionPath: string, platform: string = process.platform): string {
   const binary = platform === 'win32' ? 'claude.exe' : 'claude';
   return path.join(extensionPath, 'resources', 'native-binary', binary);
-}
-
-/** The CLI a `claude` install puts in the user's home directory. */
-export function localCliPath(
-  platform: string = process.platform,
-  homedir: string = os.homedir(),
-): string {
-  const binary = platform === 'win32' ? 'claude.exe' : 'claude';
-  return path.join(homedir, '.claude', 'local', binary);
 }
 
 /**

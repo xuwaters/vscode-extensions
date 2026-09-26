@@ -82,24 +82,22 @@ session is written. It never runs a turn, and it is terminated as soon as the
 usage response arrives. A refresh normally takes about a second; if the CLI has
 not answered within `timeoutSeconds`, it is given up on.
 
-The CLI it runs is found in this order:
+The CLI it runs is always the binary bundled inside the official Claude Code
+extension (`Anthropic.claude-code`), at `resources/native-binary/claude` —
+`claude.exe` on Windows. There is no setting to point it elsewhere and no
+`PATH` lookup, so a repository you open can never choose the program this
+extension runs. It also runs from this extension's own storage folder rather
+than your workspace, so a repository's `.claude/settings.json` is never
+loaded into it.
 
-1. `claudeUsageUltra.claudePath`, if you set it.
-2. The binary bundled inside the official Claude Code extension
-   (`Anthropic.claude-code`), at `resources/native-binary/claude` —
-   `claude.exe` on Windows. This is preferred because it is the CLI you are
-   actually running, and it exists even when nothing is on `PATH`.
-3. `~/.claude/local/claude`, where a `claude` install puts it.
-4. `claude`, resolved from `PATH`.
-
-If none of those work, the tooltip says so and suggests installing the Claude
-Code extension or setting `claudeUsageUltra.claudePath`. Diagnostics go to the
-**Claude Usage Ultra** output channel.
+If the Claude Code extension is not installed, the tooltip says so. Diagnostics
+go to the **Claude Usage Ultra** output channel.
 
 ## Requirements
 
-A working Claude Code CLI — most easily the official Claude Code extension,
-which ships one — logged in with an account that has plan limits. Logins
+The official Claude Code extension, which ships the CLI this extension runs.
+It is declared as a dependency, so VS Code installs it alongside this one. It
+must be logged in with an account that has plan limits. Logins
 without them (API key, Bedrock, Vertex) make the item read
 `Claude usage n/a`, because there is no plan usage to report.
 
@@ -117,7 +115,6 @@ without them (API key, Bedrock, Vertex) make the item read
 | `claudeUsageUltra.pollIntervalSeconds` | `300` | How often to ask the CLI for usage. Minimum 30. Failed refreshes back off automatically. |
 | `claudeUsageUltra.refreshOnFocus` | `true` | Refresh when the window regains focus and the reading is over a minute old. |
 | `claudeUsageUltra.timeoutSeconds` | `45` | Give up on a refresh if the CLI has not answered in this long. |
-| `claudeUsageUltra.claudePath` | `""` | Path to the `claude` executable. Empty uses the discovery order above. |
 | `claudeUsageUltra.alignment` | `"right"` | Which side of the status bar the item sits on. `left` or `right`. |
 | `claudeUsageUltra.priority` | `100` | Status bar priority. Higher values sit further left within the chosen alignment. |
 

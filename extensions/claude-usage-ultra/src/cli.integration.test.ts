@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { bundledCliPath, fetchUsage, localCliPath } from './cli';
+import { bundledCliPath, fetchUsage } from './cli';
 import { formatStatusText, formatTooltip, type FormatOptions } from './format';
 import { toSnapshot } from './usage';
 
@@ -18,7 +18,7 @@ import { toSnapshot } from './usage';
  */
 const enabled = process.env.CLAUDE_USAGE_ULTRA_E2E === '1';
 
-/** The same search order `resolveCli` uses, minus the VS Code lookup. */
+/** The CLI `resolveCli` would pick, found without the VS Code API. */
 function findCli(): string | undefined {
   const configured = process.env.CLAUDE_USAGE_ULTRA_CLI;
   if (configured) return configured;
@@ -33,10 +33,7 @@ function findCli(): string | undefined {
         .map((name) => bundledCliPath(path.join(extensionsDir, name)))
         .find((candidate) => fs.existsSync(candidate))
     : undefined;
-  if (claudeCode) return claudeCode;
-
-  const local = localCliPath();
-  return fs.existsSync(local) ? local : undefined;
+  return claudeCode;
 }
 
 const OPTIONS: FormatOptions = {

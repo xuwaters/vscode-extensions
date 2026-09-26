@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { bundledCliPath, CLI_ARGS, fetchUsage, localCliPath, UsageCliError } from './cli';
+import { bundledCliPath, CLI_ARGS, fetchUsage, UsageCliError } from './cli';
 
 // Vitest runs with the package as its working directory.
 const STUB = path.resolve('src/testdata/stub-cli.mjs');
@@ -79,10 +79,5 @@ describe('cli path helpers', () => {
 
   it('adds the extension on Windows', () => {
     expect(bundledCliPath('C:\\ext', 'win32')).toContain('claude.exe');
-    expect(localCliPath('win32', 'C:\\Users\\me')).toContain('claude.exe');
-  });
-
-  it('finds a local install under the home directory', () => {
-    expect(localCliPath('linux', '/home/me')).toBe('/home/me/.claude/local/claude');
   });
 });
