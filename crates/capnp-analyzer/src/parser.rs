@@ -21,6 +21,17 @@ pub struct ParseError {
     pub span: ByteSpan,
 }
 
+/// Deepest allowed nesting of declarations (struct / group / union / enum /
+/// interface bodies) and type-argument lists, counted together. Real schemas
+/// stay in single digits; capnp's own `schema.capnp` nests about 4 deep.
+/// Every later pass (resolve, symbols, diagnostics, even `Drop`) walks the
+/// AST recursively, so this bounds their stack use as well as the parser's.
+/// Unguarded, the full pipeline in a debug build (whose frames are larger
+/// than the release WASM ones) overflowed a 1 MB stack at about 209 nested
+/// groups, the costliest construct, so 64 leaves over 3x headroom there and
+/// more in WASM. The `deep_nesting_*` tests check this on a 1 MB stack.
+pub const MAX_NESTING: usize = 64;
+
 pub struct ParseResult {
     pub file: File,
     pub errors: Vec<ParseError>,
@@ -37,11 +48,13 @@ struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     errors: Vec<ParseError>,
+    /// Current nesting of guarded constructs; see [`MAX_NESTING`].
+    depth: usize,
 }
 
 impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, pos: 0, errors: Vec::new() }
+        Parser { tokens, pos: 0, errors: Vec::new(), depth: 0 }
     }
 
     fn peek(&self) -> &Token {
@@ -71,6 +84,44 @@ impl Parser {
             let span = self.peek().span;
             self.error(span, format!("expected {} in {}", describe(want), ctx));
             None
+        }
+    }
+
+    /// Enter one level of a nested construct whose opening token is at
+    /// `open`. Past [`MAX_NESTING`] this reports the error and returns
+    /// `false`; the caller must then skip the construct without recursing
+    /// (and not call [`leave_nesting`](Self::leave_nesting)).
+    fn enter_nesting(&mut self, open: ByteSpan) -> bool {
+        if self.depth >= MAX_NESTING {
+            self.error(open, format!("nesting too deep (limit {})", MAX_NESTING));
+            return false;
+        }
+        self.depth += 1;
+        true
+    }
+
+    fn leave_nesting(&mut self) {
+        self.depth -= 1;
+    }
+
+    /// Skip the rest of a too-deep declaration: everything up to and
+    /// including its `{ … }` body, or up to a `;` when it has no body.
+    /// Stops before a close bracket that belongs to the enclosing
+    /// construct. Iterative, so input depth can't exhaust the stack.
+    fn skip_block(&mut self) {
+        let mut depth = 0usize;
+        while !self.at_eof() {
+            match self.peek().kind {
+                TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => { depth += 1; self.bump(); }
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
+                    if depth == 0 { return; }
+                    depth -= 1;
+                    let closed_body = matches!(self.bump().kind, TokenKind::RBrace);
+                    if depth == 0 && closed_body { return; }
+                }
+                TokenKind::Semi if depth == 0 => { self.bump(); return; }
+                _ => { self.bump(); }
+            }
         }
     }
 
@@ -326,9 +377,17 @@ impl Parser {
     fn parse_struct(&mut self) -> Struct {
         let start = self.bump().span; // 'struct'
         let name = self.parse_ident();
+        if !self.enter_nesting(start) {
+            // Too deep: keep the name (so the symbol still exists) and skip
+            // the rest of the declaration.
+            self.skip_block();
+            let span = start.join(self.prev_span());
+            return Struct { name, type_params: Vec::new(), members: Vec::new(), annotations: Vec::new(), span };
+        }
         let type_params = self.parse_type_params();
         let annotations = self.parse_annotations();
         let members = self.parse_struct_body();
+        self.leave_nesting();
         let end = self.prev_span();
         Struct { name, type_params, members, annotations, span: start.join(end) }
     }
@@ -379,6 +438,10 @@ impl Parser {
 
     fn parse_anon_union(&mut self) -> UnionBlock {
         let start = self.bump().span; // 'union'
+        if !self.enter_nesting(start) {
+            self.skip_block();
+            return UnionBlock { members: Vec::new(), span: start.join(self.prev_span()) };
+        }
         self.expect(&TokenKind::LBrace, "union body");
         let mut members = Vec::new();
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
@@ -395,6 +458,7 @@ impl Parser {
             }
         }
         self.expect(&TokenKind::RBrace, "union body");
+        self.leave_nesting();
         let end = self.prev_span();
         UnionBlock { members, span: start.join(end) }
     }
@@ -458,7 +522,12 @@ impl Parser {
 
     fn parse_group(&mut self) -> GroupBlock {
         let start = self.bump().span; // 'group'
+        if !self.enter_nesting(start) {
+            self.skip_block();
+            return GroupBlock { members: Vec::new(), span: start.join(self.prev_span()) };
+        }
         let members = self.parse_struct_body();
+        self.leave_nesting();
         let end = self.prev_span();
         GroupBlock { members, span: start.join(end) }
     }
@@ -519,6 +588,11 @@ impl Parser {
         }
         let mut args = Vec::new();
         if matches!(self.peek().kind, TokenKind::LParen) {
+            if !self.enter_nesting(self.peek().span) {
+                self.skip_parenthesised();
+                let end = self.prev_span();
+                return TypeRef { import_path, path, args, span: start.join(end) };
+            }
             self.bump();
             loop {
                 match self.peek().kind {
@@ -534,6 +608,7 @@ impl Parser {
                     }
                 }
             }
+            self.leave_nesting();
         }
         let end = self.prev_span();
         TypeRef { import_path, path, args, span: start.join(end) }
@@ -550,6 +625,11 @@ impl Parser {
     fn parse_enum(&mut self) -> EnumDecl {
         let start = self.bump().span; // 'enum'
         let name = self.parse_ident();
+        if !self.enter_nesting(start) {
+            self.skip_block();
+            let span = start.join(self.prev_span());
+            return EnumDecl { name, enumerants: Vec::new(), annotations: Vec::new(), span };
+        }
         let annotations = self.parse_annotations();
         self.expect(&TokenKind::LBrace, "enum body");
         let mut enumerants = Vec::new();
@@ -567,6 +647,7 @@ impl Parser {
             }
         }
         self.expect(&TokenKind::RBrace, "enum body");
+        self.leave_nesting();
         let end = self.prev_span();
         EnumDecl { name, enumerants, annotations, span: start.join(end) }
     }
@@ -588,6 +669,19 @@ impl Parser {
     fn parse_interface(&mut self) -> Interface {
         let start = self.bump().span; // 'interface'
         let name = self.parse_ident();
+        if !self.enter_nesting(start) {
+            self.skip_block();
+            let span = start.join(self.prev_span());
+            return Interface {
+                name,
+                type_params: Vec::new(),
+                superclasses: Vec::new(),
+                methods: Vec::new(),
+                nested: Vec::new(),
+                annotations: Vec::new(),
+                span,
+            };
+        }
         let type_params = self.parse_type_params();
         let mut superclasses = Vec::new();
         if matches!(self.peek().kind, TokenKind::KwExtends) {
@@ -637,6 +731,7 @@ impl Parser {
             }
         }
         self.expect(&TokenKind::RBrace, "interface body");
+        self.leave_nesting();
         let end = self.prev_span();
         Interface { name, type_params, superclasses, methods, nested, annotations, span: start.join(end) }
     }
@@ -1077,5 +1172,229 @@ interface Sink {
         assert_eq!(u.import_path.as_ref().map(|p| p.value.as_str()), Some("types.capnp"));
         let target: Vec<&str> = u.import_target.iter().map(|i| i.text.as_str()).collect();
         assert_eq!(target, vec!["Tag"]);
+    }
+
+    // ---- nesting-depth limit ------------------------------------------
+    //
+    // Each case nests one construct on line 1 (line 0 is the file id) and
+    // puts a top-level `After` struct on line 2. The whole WASM pipeline
+    // then runs on a 1 MB stack, the size the WASM build gets. Tests run in
+    // debug, whose frames are bigger than release / WASM ones, so passing
+    // here is the conservative check.
+
+    const DEEP: usize = 100_000;
+
+    struct NestCase {
+        /// Builds line 1 holding `levels` guarded constructs in total.
+        build: fn(usize) -> String,
+        /// Text of each guarded opening token on line 1, plus the offset of
+        /// the token within that text; used to find the one past the limit.
+        markers: &'static [(&'static str, usize)],
+        /// Each declaration level holds one member named `x` after its
+        /// nested child. Counting them proves parsing carried on inside the
+        /// enclosing body after the too-deep construct was skipped.
+        has_x: bool,
+    }
+
+    fn nest(prefix: &str, open: &str, core: &str, close: &str, suffix: &str, n: usize) -> String {
+        let mut s = String::with_capacity(prefix.len() + core.len() + suffix.len() + n * (open.len() + close.len()));
+        s.push_str(prefix);
+        for _ in 0..n { s.push_str(open); }
+        s.push_str(core);
+        for _ in 0..n { s.push_str(close); }
+        s.push_str(suffix);
+        s
+    }
+
+    /// Run every WASM entry point over `line` on a 1 MB stack: update
+    /// (lex, parse, per-file checks, import graph), diagnostics, symbols,
+    /// folding, workspace symbols, and the cursor queries (each of which
+    /// rebuilds the workspace index), then drop it all. Returns the
+    /// diagnostics and document-symbol JSON.
+    fn run_pipeline(line: String) -> (String, String) {
+        std::thread::Builder::new()
+            .stack_size(1 << 20)
+            .spawn(move || {
+                use crate::wasm_api::Analyzer;
+                let uri = "file:///deep.capnp";
+                let src = format!("@0x1;\n{}\nstruct After {{ tail :Text; }}\n", line);
+                let a = Analyzer::new();
+                a.update_file(uri, &src);
+                let diags = a.diagnostics(uri);
+                let symbols = a.document_symbols(uri);
+                a.folding_ranges(uri);
+                a.workspace_symbols("");
+                let len = line.len() as u32;
+                for (l, c) in [(1, 0), (1, len / 2), (1, len.saturating_sub(2)), (2, 8)] {
+                    a.hover(uri, l, c);
+                    a.definition(uri, l, c);
+                    a.completion(uri, l, c);
+                }
+                (diags, symbols)
+            })
+            .unwrap()
+            .join()
+            .expect("pipeline panicked on a 1 MB stack")
+    }
+
+    fn check_nesting(case: &NestCase, levels: usize) {
+        let line = (case.build)(levels);
+        let expected_col = (levels > MAX_NESTING).then(|| {
+            let mut opens: Vec<usize> = case
+                .markers
+                .iter()
+                .flat_map(|&(m, k)| line.match_indices(m).map(move |(i, _)| i + k))
+                .collect();
+            opens.sort_unstable();
+            opens[MAX_NESTING]
+        });
+        let (diags, symbols) = run_pipeline(line);
+
+        let diags: Vec<serde_json::Value> = serde_json::from_str(&diags).unwrap();
+        let parse_errors: Vec<&serde_json::Value> =
+            diags.iter().filter(|d| d["code"] == "CAPNP0001").collect();
+        match expected_col {
+            None => assert!(parse_errors.is_empty(), "levels {}: {:?}", levels, parse_errors),
+            Some(col) => {
+                // Exactly one error: the skip consumed the whole construct
+                // and nothing around it.
+                assert_eq!(parse_errors.len(), 1, "levels {}: {:?}", levels, parse_errors);
+                let e = parse_errors[0];
+                assert_eq!(e["message"], format!("nesting too deep (limit {})", MAX_NESTING));
+                assert_eq!(e["start"]["line"], 1);
+                assert_eq!(e["start"]["col"], col as u64, "levels {}", levels);
+            }
+        }
+        assert!(symbols.contains(r#""name":"After""#), "levels {}: After missing", levels);
+        assert!(symbols.contains(r#""name":"tail""#), "levels {}: After.tail missing", levels);
+        if case.has_x {
+            let xs = symbols.matches(r#""name":"x""#).count();
+            assert_eq!(xs, levels.min(MAX_NESTING), "levels {}", levels);
+        }
+    }
+
+    fn check_nesting_case(case: &NestCase) {
+        for levels in [MAX_NESTING, MAX_NESTING + 1, DEEP] {
+            check_nesting(case, levels);
+        }
+    }
+
+    #[test]
+    fn deep_nesting_struct() {
+        check_nesting_case(&NestCase {
+            build: |n| nest("", "struct S { ", "", "x :Text; } ", "", n),
+            markers: &[("struct", 0)],
+            has_x: true,
+        });
+    }
+
+    #[test]
+    fn deep_nesting_group() {
+        check_nesting_case(&NestCase {
+            build: |n| nest("struct T { ", "g :group { ", "", "x :Text; } ", "x :Text; } ", n - 1),
+            markers: &[("struct", 0), ("group", 0)],
+            has_x: true,
+        });
+    }
+
+    #[test]
+    fn deep_nesting_union() {
+        check_nesting_case(&NestCase {
+            build: |n| nest("struct T { ", "u :union { ", "", "x :Text; } ", "x :Text; } ", n - 1),
+            markers: &[("struct", 0), ("union", 0)],
+            has_x: true,
+        });
+    }
+
+    #[test]
+    fn deep_nesting_enum() {
+        // Enums can't nest in each other, so the enum is the innermost
+        // level under a stack of structs.
+        check_nesting_case(&NestCase {
+            build: |n| nest("", "struct S { ", "enum E { x; } ", "x :Text; } ", "", n - 1),
+            markers: &[("struct", 0), ("enum", 0)],
+            has_x: true,
+        });
+    }
+
+    #[test]
+    fn deep_nesting_interface() {
+        check_nesting_case(&NestCase {
+            build: |n| nest("", "interface I { ", "", "x (); } ", "", n),
+            markers: &[("interface", 0)],
+            has_x: true,
+        });
+    }
+
+    #[test]
+    fn deep_nesting_list_type() {
+        check_nesting_case(&NestCase {
+            build: |n| nest("const c :", "List(", "Int32", ")", "; ", n),
+            markers: &[("(", 0)],
+            has_x: false,
+        });
+    }
+
+    #[test]
+    fn deep_nesting_generic_type_args() {
+        check_nesting_case(&NestCase {
+            build: |n| nest("const c :", "Map(Text, ", "Text", ")", "; ", n),
+            markers: &[("(", 0)],
+            has_x: false,
+        });
+    }
+
+    #[test]
+    fn deep_nesting_counts_structs_and_types_together() {
+        // One counter covers every construct: a type nested inside a struct
+        // gets only the levels the struct left over.
+        check_nesting_case(&NestCase {
+            build: |n| {
+                let field = nest("f :", "List(", "Text", ")", "; ", n / 2);
+                nest("", "struct S { ", &field, "x :Text; } ", "", n - n / 2)
+            },
+            markers: &[("struct", 0), ("(", 0)],
+            has_x: false,
+        });
+    }
+
+    #[test]
+    fn deep_nesting_superclass_type() {
+        check_nesting_case(&NestCase {
+            build: |n| nest("interface I extends (", "List(", "Text", ")", ") { } ", n - 1),
+            markers: &[("interface", 0), ("List(", 4)],
+            has_x: false,
+        });
+    }
+
+    #[test]
+    fn deep_nesting_method_param_type() {
+        check_nesting_case(&NestCase {
+            build: |n| nest("interface I { m (a :", "List(", "Text", ")", ") -> (); } ", n - 1),
+            markers: &[("interface", 0), ("List(", 4)],
+            has_x: false,
+        });
+    }
+
+    #[test]
+    fn deep_values_are_skipped_iteratively() {
+        // Values, annotation arguments and `using` right-hand sides are kept
+        // as token spans and skipped by iterative depth-counting loops, so
+        // they have no limit: deep ones are neither an error nor a crash.
+        let builds: [fn(usize) -> String; 6] = [
+            |n| nest("const c :Int32 = ", "(", "1", ")", "; ", n),
+            |n| nest("const c :List(Int32) = ", "[", "1", "]", "; ", n),
+            |n| nest("struct T { f :T = ", "(a = ", "1", ")", "; } ", n),
+            |n| nest("interface I { m (a :Int32 = ", "(", "1", ")", ") -> (); } ", n),
+            |n| nest("struct T $ann", "(", "1", ")", " { } ", n),
+            |n| nest("using M = ", "List(", "Text", ")", "; ", n),
+        ];
+        for build in builds {
+            for n in [MAX_NESTING + 1, DEEP] {
+                let (diags, symbols) = run_pipeline(build(n));
+                assert!(!diags.contains("CAPNP0001"), "depth {}: {}", n, diags);
+                assert!(symbols.contains(r#""name":"After""#), "depth {}", n);
+            }
+        }
     }
 }
