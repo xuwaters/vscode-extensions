@@ -15,6 +15,14 @@ use crate::lexer::{lex, Token, TokenKind};
 use crate::spans::ByteSpan;
 use smol_str::SmolStr;
 
+/// Deepest `array<…>` / `map<…, …>` nesting the parser descends into. The
+/// type grammar is the parser's only recursion (declarations, attributes and
+/// values are walked by iterative skip loops, and `TypeRef` is flat), so this
+/// bounds the whole pipeline's stack use. Real files nest 2–3 deep. On a 1 MB
+/// stack, the unguarded parser overflowed at ~450 levels in debug and ~3000
+/// in release, so 64 keeps a 7x margin even in debug.
+pub const MAX_NESTING_DEPTH: u32 = 64;
+
 #[derive(Debug, Clone)]
 pub struct ParseError {
     pub message: String,
@@ -37,11 +45,13 @@ struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     errors: Vec<ParseError>,
+    /// Current generic-type nesting; see [`MAX_NESTING_DEPTH`].
+    depth: u32,
 }
 
 impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, pos: 0, errors: Vec::new() }
+        Parser { tokens, pos: 0, errors: Vec::new(), depth: 0 }
     }
 
     fn peek(&self) -> &Token {
@@ -547,9 +557,12 @@ impl Parser {
         };
         match head.as_str() {
             "array" => {
-                self.bump();
+                let head_span = self.bump().span;
                 label.push_str("array");
                 if matches!(self.peek().kind, TokenKind::Langle) {
+                    if !self.enter_nested(head_span, label) {
+                        return;
+                    }
                     self.bump();
                     label.push('<');
                     let inner = self.parse_type();
@@ -565,12 +578,16 @@ impl Parser {
                     }
                     self.expect(&TokenKind::Rangle, "array type");
                     label.push('>');
+                    self.depth -= 1;
                 }
             }
             "map" => {
-                self.bump();
+                let head_span = self.bump().span;
                 label.push_str("map");
                 if matches!(self.peek().kind, TokenKind::Langle) {
+                    if !self.enter_nested(head_span, label) {
+                        return;
+                    }
                     self.bump();
                     label.push('<');
                     self.parse_named_or_builtin(label, refs);
@@ -583,6 +600,7 @@ impl Parser {
                     refs.extend(val.refs);
                     self.expect(&TokenKind::Rangle, "map type");
                     label.push('>');
+                    self.depth -= 1;
                 }
             }
             "handle" => {
@@ -628,6 +646,45 @@ impl Parser {
                     self.bump();
                     label.push('&');
                 }
+            }
+        }
+    }
+
+    /// Step into the `<` of a recursive generic type whose head token is
+    /// `head`. Past [`MAX_NESTING_DEPTH`] this reports the construct at
+    /// `head`, skips its `<…>` without recursing, and returns `false`;
+    /// otherwise it bumps the depth, which the caller drops after its `>`.
+    fn enter_nested(&mut self, head: ByteSpan, label: &mut String) -> bool {
+        if self.depth >= MAX_NESTING_DEPTH {
+            self.error(head, format!("nesting too deep (limit {})", MAX_NESTING_DEPTH));
+            self.skip_angles();
+            label.push_str("<…>");
+            return false;
+        }
+        self.depth += 1;
+        true
+    }
+
+    /// Skip a `<…>` run starting at its `<` by counting angle brackets, in a
+    /// loop rather than by recursion. Stops, without consuming, at a token
+    /// that cannot occur inside a type, so an unclosed run cannot swallow
+    /// the enclosing declaration.
+    fn skip_angles(&mut self) {
+        let mut depth = 0i32;
+        while !self.at_eof() {
+            match self.peek().kind {
+                TokenKind::Langle => { depth += 1; self.bump(); }
+                TokenKind::Rangle => {
+                    depth -= 1;
+                    self.bump();
+                    if depth <= 0 { return; }
+                }
+                TokenKind::Semi
+                | TokenKind::LBrace
+                | TokenKind::RBrace
+                | TokenKind::LParen
+                | TokenKind::RParen => return,
+                _ => { self.bump(); }
             }
         }
     }
@@ -822,6 +879,216 @@ mod tests {
         ];
         for s in snippets {
             let _ = parse(s); // must not hang
+        }
+    }
+
+    // ── Nesting-depth limit ──────────────────────────────────────────
+    //
+    // Each case runs everything the WASM host drives after `update_file`,
+    // on a 1 MB thread like the WASM stack. Debug frames are bigger than
+    // release / WASM ones, so passing here is the conservative check.
+
+    const LIMIT: usize = MAX_NESTING_DEPTH as usize;
+
+    struct Pipeline {
+        /// `MOJOM0001` parse-error diagnostics as (message, line, col).
+        parse_errors: Vec<(String, u64, u64)>,
+        /// Every document-symbol name, children included.
+        symbol_names: Vec<String>,
+    }
+
+    fn run_pipeline(src: String) -> Pipeline {
+        std::thread::Builder::new()
+            .stack_size(1 << 20)
+            .spawn(move || {
+                let a = crate::wasm_api::Analyzer::new();
+                let uri = "file:///deep.mojom";
+                a.update_file(uri, &src);
+                let diags = a.diagnostics(uri);
+                let symbols = a.document_symbols(uri);
+                let _ = a.folding_ranges(uri);
+                for col in [0, 20, 400] {
+                    let _ = a.hover(uri, 0, col);
+                    let _ = a.definition(uri, 0, col);
+                    let _ = a.completion(uri, 0, col);
+                }
+                let _ = a.workspace_symbols("");
+                a.remove_file(uri);
+                drop(a);
+                (diags, symbols)
+            })
+            .expect("spawn pipeline thread")
+            .join()
+            .map(|(diags, symbols)| {
+                let diags: Vec<serde_json::Value> = serde_json::from_str(&diags).unwrap();
+                let parse_errors = diags
+                    .iter()
+                    .filter(|d| d["code"] == "MOJOM0001")
+                    .map(|d| {
+                        let msg = d["message"].as_str().unwrap().to_string();
+                        (msg, d["start"]["line"].as_u64().unwrap(), d["start"]["col"].as_u64().unwrap())
+                    })
+                    .collect();
+                let mut symbol_names = Vec::new();
+                let mut stack: Vec<serde_json::Value> = serde_json::from_str(&symbols).unwrap();
+                while let Some(s) = stack.pop() {
+                    symbol_names.push(s["name"].as_str().unwrap().to_string());
+                    stack.extend(s["children"].as_array().cloned().unwrap_or_default());
+                }
+                Pipeline { parse_errors, symbol_names }
+            })
+            .expect("pipeline panicked")
+    }
+
+    /// A recursive type shape: `open(i)` opens level `i`, `inner` sits at
+    /// the bottom, `close` ends each level.
+    struct Shape {
+        name: &'static str,
+        open: fn(usize) -> &'static str,
+        inner: &'static str,
+        close: &'static str,
+    }
+
+    impl Shape {
+        fn nested(&self, n: usize) -> String {
+            let mut s: String = (0..n).map(self.open).collect();
+            s.push_str(self.inner);
+            s.push_str(&self.close.repeat(n));
+            s
+        }
+
+        /// Byte length of the first `n` openers.
+        fn open_len(&self, n: usize) -> usize {
+            (0..n).map(|i| (self.open)(i).len()).sum()
+        }
+    }
+
+    const SHAPES: &[Shape] = &[
+        Shape { name: "array", open: |_| "array<", inner: "int32", close: ">" },
+        Shape { name: "fixed array", open: |_| "array<", inner: "int32", close: ", 4>" },
+        Shape { name: "map value", open: |_| "map<string, ", inner: "Foo", close: ">" },
+        Shape { name: "nullable", open: |_| "array<", inner: "int32?", close: ">?" },
+        Shape {
+            name: "array/map mix",
+            open: |i| if i % 2 == 0 { "array<" } else { "map<int32, " },
+            inner: "pending_remote<Foo>",
+            close: ">?",
+        },
+    ];
+
+    /// Declaration contexts a type can sit in. `{T}` marks the deep type;
+    /// everything it contains is on line 0. The names must still come out
+    /// as symbols, proving parsing carried on past the deep construct.
+    const CONTEXTS: &[(&str, &str, &[&str])] = &[
+        (
+            "struct field",
+            "struct S { {T} deep; int32 kept; };\nstruct After { int32 tail; };",
+            &["S", "deep", "kept", "After", "tail"],
+        ),
+        (
+            "union field",
+            "union U { {T} deep; int32 kept; };\nstruct After { int32 tail; };",
+            &["U", "deep", "kept", "After", "tail"],
+        ),
+        (
+            "method params and response",
+            "interface I { M({T} deep, int32 kept) => ({T} r); Kept(); };\nstruct After { int32 tail; };",
+            &["I", "M", "Kept", "After", "tail"],
+        ),
+        (
+            "const type",
+            "const {T} deep = 1;\nconst int32 kept = 2;\nstruct After { int32 tail; };",
+            &["deep", "kept", "After", "tail"],
+        ),
+    ];
+
+    const FOO: &str = "\nstruct Foo {};";
+
+    #[test]
+    fn nested_types_are_capped_at_the_limit() {
+        for shape in SHAPES {
+            for (ctx, template, names) in CONTEXTS {
+                for depth in [LIMIT, LIMIT + 1, 100_000] {
+                    let case = format!("{} in {} at depth {}", shape.name, ctx, depth);
+                    let src = template.replace("{T}", &shape.nested(depth)) + FOO;
+                    let first_col = template.find("{T}").unwrap() + shape.open_len(LIMIT);
+                    let occurrences = template.matches("{T}").count();
+                    let r = run_pipeline(src);
+
+                    let msg = format!("nesting too deep (limit {})", MAX_NESTING_DEPTH);
+                    let too_deep: Vec<_> = r.parse_errors.iter().filter(|e| e.0 == msg).collect();
+                    let others: Vec<_> = r.parse_errors.iter().filter(|e| e.0 != msg).collect();
+                    assert!(others.is_empty(), "{case}: unexpected errors {others:?}");
+                    if depth <= LIMIT {
+                        assert!(too_deep.is_empty(), "{case}: {too_deep:?}");
+                    } else {
+                        assert_eq!(too_deep.len(), occurrences, "{case}: {too_deep:?}");
+                        // Reported at the opening token of level LIMIT + 1.
+                        assert_eq!((too_deep[0].1, too_deep[0].2), (0, first_col as u64), "{case}");
+                    }
+                    for name in *names {
+                        assert!(r.symbol_names.iter().any(|n| n == name), "{case}: {name} missing");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Nesting that the parser walks with iterative skip loops rather than
+    /// recursion: it must survive 100 000 levels and recover afterwards.
+    #[test]
+    fn deep_non_type_nesting_is_skipped_iteratively() {
+        const N: usize = 100_000;
+        let decl_kw = |i: usize| ["struct", "union", "interface", "enum"][i % 4];
+        let cases: Vec<(&str, String)> = vec![
+            (
+                "nested declarations in a struct",
+                format!(
+                    "struct S {{ {}{} int32 kept; }};",
+                    (0..N).map(|i| format!("{} N{} {{ ", decl_kw(i), i)).collect::<String>(),
+                    "}; ".repeat(N),
+                ),
+            ),
+            (
+                "nested interfaces",
+                format!("interface S {{ {}{} Kept(); }};", "interface J { ".repeat(N), "}; ".repeat(N)),
+            ),
+            (
+                "attribute lists",
+                format!("{}A{} struct S {{ int32 kept; }};", "[".repeat(N), "]".repeat(N)),
+            ),
+            (
+                "attribute arguments",
+                format!("[A{}1{}] struct S {{ int32 kept; }};", "(".repeat(N), ")".repeat(N)),
+            ),
+            (
+                "const value",
+                format!("const int32 S = {}1{};\nconst int32 kept = 2;", "(".repeat(N), ")".repeat(N)),
+            ),
+            (
+                "field default value",
+                format!("struct S {{ array<int32> v = {}{}; int32 kept; }};", "{".repeat(N), "}".repeat(N)),
+            ),
+            (
+                "handle chain",
+                format!("struct S {{ {}x{} h; int32 kept; }};", "handle<".repeat(N), ">".repeat(N)),
+            ),
+            (
+                "pending_remote chain",
+                format!("struct S {{ {}Foo{} r; int32 kept; }};", "pending_remote<".repeat(N), ">".repeat(N)),
+            ),
+            (
+                "unclosed angles",
+                format!("struct S {{ {}int32 x; int32 kept; }};", "array<".repeat(N)),
+            ),
+        ];
+        for (case, src) in cases {
+            let r = run_pipeline(src + "\nstruct After { int32 tail; };" + FOO);
+            for name in ["S", "After", "tail"] {
+                assert!(r.symbol_names.iter().any(|n| n == name), "{case}: {name} missing");
+            }
+            let kept = if case == "nested interfaces" { "Kept" } else { "kept" };
+            assert!(r.symbol_names.iter().any(|n| n == kept), "{case}: {kept} missing");
         }
     }
 }
