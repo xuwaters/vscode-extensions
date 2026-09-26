@@ -41,7 +41,7 @@ Each extension has its own README with the full feature list and settings.
 | Extension | What it does |
 | --- | --- |
 | [Git Compare](extensions/git-compare) | Compare the working copy with any branch, tag or commit as a file tree in Source Control |
-| [Cloudflare AI Models](extensions/cloudflare-ai-models) | Use Cloudflare Workers AI and AI Gateway models (or any OpenAI-compatible endpoint) as chat models in VS Code |
+| [Cloudflare AI Models](extensions/cloudflare-ai-models) | Use Cloudflare Workers AI and AI Gateway models as chat models in VS Code |
 | [Claude Usage Ultra](extensions/claude-usage-ultra) | Claude Code plan usage and reset countdowns in the status bar |
 | [Gitignore Generator Ultra](extensions/gitignore-generator) | Generate or extend `.gitignore` from bundled templates |
 | [Base64 Tools](extensions/base64-tools) | Base64-encode and -decode the selected text |

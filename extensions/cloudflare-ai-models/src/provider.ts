@@ -11,7 +11,7 @@ import {
 import { buildRequestBody, ToolCallAccumulator, tryParseJson } from './openai.js';
 import { isSSEDone, parseSSE } from './sse.js';
 import { estimateMessageTokens, estimateTokens } from './tokens.js';
-import { resolveChatCompletionsUrl } from './url.js';
+import { cloudflareUrlProblem, resolveChatCompletionsUrl } from './url.js';
 
 export const VENDOR = 'wx-cloudflare-ai';
 
@@ -69,6 +69,13 @@ export class CloudflareAIChatProvider implements vscode.LanguageModelChatProvide
       throw new Error('Cloudflare AI: no URL configured for this model.');
     }
     const endpoint = resolveChatCompletionsUrl(baseUrl);
+    // Checked on the final endpoint, before the API key is attached to anything.
+    const problem = cloudflareUrlProblem(endpoint);
+    if (problem) {
+      throw new Error(
+        `Cloudflare AI: ${endpoint} is not a Cloudflare AI URL (${problem}), so no request was sent.`,
+      );
+    }
     const headers: Record<string, string> = {
       ...mergeHeaders(cfg.requestHeaders, model._config.requestHeaders),
       Authorization: `Bearer ${apiKey}`,

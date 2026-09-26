@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-cloudflare-ai-models",
   "displayName": "Cloudflare AI Models",
-  "description": "Registers Cloudflare Workers AI / AI Gateway models as VS Code chat language models, so GitHub Copilot Chat and any other LM-aware extension can call them. Streams chat completions over the OpenAI-compatible API with tool calling, ships a guided setup preset for curated models (DeepSeek V4, GLM 5.3, Kimi K2.6/K2.7, Qwen3) plus any custom model id, keeps the API key in SecretStorage, and supports per-model URL and header overrides — so self-hosted vLLM/LiteLLM/Together/Groq endpoints work too.",
-  "version": "0.3.9",
+  "description": "Registers Cloudflare Workers AI / AI Gateway models as VS Code chat language models, so GitHub Copilot Chat and any other LM-aware extension can call them. Streams chat completions over the OpenAI-compatible API with tool calling, ships a guided setup preset for curated models (DeepSeek V4, GLM 5.3, Kimi K2.6/K2.7, Qwen3) plus any custom model id, keeps the API key in SecretStorage, and supports per-model URL and header overrides within your Cloudflare account.",
+  "version": "0.4.0",
   "private": true,
   "publisher": "weixu",
   "repository": {
@@ -58,23 +58,30 @@
       "title": "Cloudflare AI Models",
       "properties": {
         "wxCloudflareAi.url": {
+          "scope": "application",
           "type": "string",
           "default": "",
-          "markdownDescription": "Cloudflare AI Gateway endpoint URL.\n\n- AI Gateway (recommended): `https://gateway.ai.cloudflare.com/v1/<ACCOUNT_ID>/<GATEWAY_ID>/compat`\n- Workers AI direct: `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`\n- Self-hosted vLLM/LiteLLM: `https://your-host/v1`\n\nIf the URL ends in `/v\\d+` (e.g. `/v1`, `/v2`), `/chat/completions` is appended. If the URL already contains `/chat/completions` or `/responses`, it is used as-is."
+          "markdownDescription": "Cloudflare AI Gateway endpoint URL.\n\n- AI Gateway (recommended): `https://gateway.ai.cloudflare.com/v1/<ACCOUNT_ID>/<GATEWAY_ID>/compat`\n- Workers AI direct: `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`\n\nOnly these two Cloudflare hosts are accepted, over https: the API token is never sent anywhere else. User settings only, so a workspace cannot redirect it.\n\nIf the URL ends in `/v\\d+` (e.g. `/v1`, `/v2`), `/chat/completions` is appended. If the URL already contains `/chat/completions` or `/responses`, it is used as-is."
         },
         "wxCloudflareAi.requestHeaders": {
+          "scope": "application",
           "type": "object",
           "default": {},
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "markdownDescription": "Additional HTTP headers to include with every request. Per-model `requestHeaders` override these. `Authorization` and `Content-Type` are always managed by the extension and cannot be overridden."
         },
         "wxCloudflareAi.models": {
+          "scope": "application",
           "type": "array",
           "default": [],
           "markdownDescription": "Extra models served by the configured endpoint. Optional: the curated Cloudflare presets are always offered once `wxCloudflareAi.url` is set — use this to add other model ids, or to override a preset's metadata by repeating its id. The API key is stored in VS Code's SecretStorage — set it with the `Cloudflare AI: Set API Key` command.",
           "items": {
             "type": "object",
-            "required": ["id"],
+            "required": [
+              "id"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -110,7 +117,9 @@
               },
               "requestHeaders": {
                 "type": "object",
-                "additionalProperties": { "type": "string" },
+                "additionalProperties": {
+                  "type": "string"
+                },
                 "description": "Per-model HTTP headers, merged on top of wxCloudflareAi.requestHeaders."
               }
             }

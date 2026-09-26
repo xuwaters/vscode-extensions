@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasExplicitApiPath, resolveChatCompletionsUrl, resolveModelsUrl } from './url.js';
+import { cloudflareUrlProblem, hasExplicitApiPath, resolveChatCompletionsUrl, resolveModelsUrl } from './url.js';
 
 describe('hasExplicitApiPath', () => {
   it('returns true when /chat/completions is present', () => {
@@ -58,5 +58,47 @@ describe('resolveModelsUrl', () => {
     expect(resolveModelsUrl('https://api.openai.com/v1/chat/completions')).toBe(
       'https://api.openai.com/v1/models',
     );
+  });
+});
+
+describe('cloudflareUrlProblem', () => {
+  it('accepts AI Gateway and Workers AI URLs', () => {
+    for (const u of [
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/compat',
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/compat/chat/completions',
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/workers-ai/v1',
+      'https://api.cloudflare.com/client/v4/accounts/acct/ai/v1',
+      'https://api.cloudflare.com/client/v4/accounts/acct/ai/v1/chat/completions',
+      '  https://api.cloudflare.com/client/v4/accounts/acct/ai/v1/  ',
+    ]) {
+      expect(cloudflareUrlProblem(u), u).toBeUndefined();
+    }
+  });
+
+  it('refuses other hosts, including look-alikes', () => {
+    for (const u of [
+      'https://api.openai.com/v1',
+      'https://gateway.ai.cloudflare.com.evil.example/v1/a/g/compat',
+      'https://evil.example/gateway.ai.cloudflare.com/v1/a/g/compat',
+      'https://evil.example#@gateway.ai.cloudflare.com/v1/a/g/compat',
+      'https://cloudflare.com/client/v4/accounts/acct/ai/v1',
+    ]) {
+      expect(cloudflareUrlProblem(u), u).toMatch(/only gateway\.ai\.cloudflare\.com/);
+    }
+  });
+
+  it('refuses plain http, user info and ports', () => {
+    expect(cloudflareUrlProblem('http://api.cloudflare.com/client/v4/accounts/a/ai/v1')).toMatch(/https/);
+    expect(cloudflareUrlProblem('https://u:p@api.cloudflare.com/client/v4/accounts/a/ai/v1')).toMatch(/port/);
+    expect(cloudflareUrlProblem('https://api.cloudflare.com:8443/client/v4/accounts/a/ai/v1')).toMatch(/port/);
+  });
+
+  it('refuses Cloudflare hosts outside the AI paths', () => {
+    expect(cloudflareUrlProblem('https://api.cloudflare.com/client/v4/user/tokens')).toMatch(/Workers AI/);
+    expect(cloudflareUrlProblem('https://gateway.ai.cloudflare.com/other')).toMatch(/AI Gateway/);
+  });
+
+  it('refuses what is not a URL', () => {
+    expect(cloudflareUrlProblem('not a url')).toBe('not a valid URL');
   });
 });

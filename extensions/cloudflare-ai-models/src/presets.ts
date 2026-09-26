@@ -6,9 +6,9 @@ import {
   type CuratedModel,
 } from "./catalog.js";
 import { CONFIG_SECTION, setApiKey, type ModelConfig } from "./config.js";
+import { cloudflareUrlProblem, GATEWAY_URL_FORM } from "./url.js";
 
-const CLOUDFLARE_URL_PLACEHOLDER =
-  "https://gateway.ai.cloudflare.com/v1/<ACCOUNT_ID>/<GATEWAY_ID>/compat";
+const CLOUDFLARE_URL_PLACEHOLDER = GATEWAY_URL_FORM;
 
 const FREEFORM_DEFAULTS = {
   maxInputTokens: 128_000,
@@ -60,16 +60,8 @@ export async function runCloudflarePreset(
 function validateGatewayUrl(value: string): string | undefined {
   const v = value.trim();
   if (!v) return "Gateway URL is required";
-  let parsed: URL;
-  try {
-    parsed = new URL(v);
-  } catch {
-    return "Enter a valid URL (https://…)";
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    return "URL must start with http(s)://";
-  }
-  return undefined;
+  const problem = cloudflareUrlProblem(v);
+  return problem ? `Not a Cloudflare AI URL: ${problem}` : undefined;
 }
 
 async function pickModels(): Promise<ModelConfig[] | undefined> {

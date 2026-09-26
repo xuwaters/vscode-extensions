@@ -65,16 +65,16 @@ SecretStorage, never in settings.
   `Content-Length`, `Host` and `Connection` are managed by the extension and are
   silently dropped from your header overrides.
 
-- **Works against non-Cloudflare endpoints too.** Nothing in the request path is
-  Cloudflare-specific beyond the default URLs and model ids, so a self-hosted
-  vLLM or LiteLLM server, or any other OpenAI-compatible endpoint, works by
-  pointing `wxCloudflareAi.url` at it and listing its model ids in
-  `wxCloudflareAi.models`.
+- **Your token only ever goes to Cloudflare.** Every request URL, including a
+  model's own `url`, must be an https AI Gateway URL on
+  `gateway.ai.cloudflare.com` or a Workers AI URL on `api.cloudflare.com`;
+  anything else is refused before a request is made. The URL, model and header
+  settings are read from user settings only, so a repository you open cannot
+  redirect your token or your prompts through its workspace settings.
 
 ## Requirements
 
-- An OpenAI-compatible endpoint URL. For Cloudflare that is either an AI Gateway
-  compatibility endpoint,
+- A Cloudflare endpoint URL: either an AI Gateway compatibility endpoint,
   `https://gateway.ai.cloudflare.com/v1/<ACCOUNT_ID>/<GATEWAY_ID>/compat`, or
   Workers AI directly,
   `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`. Your
@@ -97,8 +97,8 @@ at all until a chat model is actually invoked.
 1. Run **Cloudflare AI: Add Cloudflare AI Gateway Preset** from the Command
    Palette. (It is also wired up as the manage action next to **Cloudflare AI**
    in VS Code's language model management UI.)
-2. Paste your endpoint URL. It must be a valid `http://` or `https://` URL;
-   trailing slashes are stripped.
+2. Paste your endpoint URL. It must be an `https://` AI Gateway or Workers AI
+   URL of one of the two forms above; trailing slashes are stripped.
 3. Paste your Cloudflare API token. The input is masked.
 4. Tick the models you want — Space toggles, Enter confirms — and optionally
    add a custom model id. Custom ids default to 128000 input tokens, 8192
@@ -123,12 +123,19 @@ endpoint by these rules, in order:
   segment such as `/v1` or `/v2`, `/chat/completions` is appended.
 - Otherwise `/v1/chat/completions` is appended.
 
-So `https://your-host/v1` becomes `https://your-host/v1/chat/completions`, and
-`https://your-host` becomes `https://your-host/v1/chat/completions` as well. If
-your endpoint does not follow that shape, give the full URL including
-`/chat/completions` and it will be used untouched.
+So `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1` becomes
+`…/ai/v1/chat/completions`. If your endpoint does not follow that shape, give
+the full URL including `/chat/completions` and it will be used untouched.
+
+Whatever the rules produce must still be a Cloudflare AI URL — https, on
+`gateway.ai.cloudflare.com` (`/v1/<ACCOUNT_ID>/<GATEWAY_ID>/…`) or
+`api.cloudflare.com` (`/client/v4/accounts/<ACCOUNT_ID>/ai/…`), with no user
+name, password or port. Anything else fails with an error and nothing is sent.
 
 ## Settings
+
+All three are user settings: values in a workspace's `.vscode/settings.json`
+are ignored.
 
 | Setting | Default | Description |
 | --- | --- | --- |
