@@ -197,6 +197,10 @@ impl<'s> Parser<'s> {
     }
 
     pub(crate) fn parse_extend(&mut self) -> Option<ast::Extend> {
+        self.nested(TokenKind::LBrace, TokenKind::RBrace, Self::parse_extend_decl).flatten()
+    }
+
+    fn parse_extend_decl(&mut self) -> Option<ast::Extend> {
         let start = self.bump().span.start; // extend
         let ty = self.parse_qualified_name()?;
         self.expect(&TokenKind::LBrace, "`{`");

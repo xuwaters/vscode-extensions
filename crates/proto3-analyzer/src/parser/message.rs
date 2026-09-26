@@ -8,6 +8,10 @@ use crate::spans::ByteSpan;
 
 impl<'s> Parser<'s> {
     pub(crate) fn parse_message(&mut self) -> Option<ast::Message> {
+        self.nested(TokenKind::LBrace, TokenKind::RBrace, Self::parse_message_decl).flatten()
+    }
+
+    fn parse_message_decl(&mut self) -> Option<ast::Message> {
         let leading = self.peek().leading.comments.clone();
         let start = self.bump().span.start; // `message`
         let name = self.expect_ident("message name")?;
@@ -185,7 +189,11 @@ impl<'s> Parser<'s> {
             TokenKind::TyBool => { let sp = self.bump().span; Some(ast::TypeRef::Scalar(S::Bool, sp)) }
             TokenKind::TyString => { let sp = self.bump().span; Some(ast::TypeRef::Scalar(S::String, sp)) }
             TokenKind::TyBytes => { let sp = self.bump().span; Some(ast::TypeRef::Scalar(S::Bytes, sp)) }
-            TokenKind::KwMap => Some(self.parse_map_type()),
+            TokenKind::KwMap => {
+                let sp = self.peek().span;
+                let map = self.nested(TokenKind::LAngle, TokenKind::RAngle, Self::parse_map_type);
+                Some(map.unwrap_or_else(|| ast::TypeRef::Missing(self.span_since(sp))))
+            }
             TokenKind::Dot | TokenKind::Ident(_) => {
                 let q = self.parse_qualified_name()?;
                 Some(ast::TypeRef::Named(q))
@@ -218,6 +226,10 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_oneof(&mut self) -> Option<ast::Oneof> {
+        self.nested(TokenKind::LBrace, TokenKind::RBrace, Self::parse_oneof_decl).flatten()
+    }
+
+    fn parse_oneof_decl(&mut self) -> Option<ast::Oneof> {
         let start = self.bump().span.start; // oneof
         let name = self.expect_ident("oneof name")?;
         self.expect(&TokenKind::LBrace, "`{`");

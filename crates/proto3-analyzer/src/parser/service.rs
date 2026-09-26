@@ -2,11 +2,15 @@
 
 use super::{Parser, TokenKindTag};
 use crate::ast;
-use crate::lexer::TokenKind;
+use crate::lexer::{Token, TokenKind};
 use crate::spans::ByteSpan;
 
 impl<'s> Parser<'s> {
     pub(crate) fn parse_service(&mut self) -> Option<ast::Service> {
+        self.nested(TokenKind::LBrace, TokenKind::RBrace, Self::parse_service_decl).flatten()
+    }
+
+    fn parse_service_decl(&mut self) -> Option<ast::Service> {
         let leading = self.peek().leading.comments.clone();
         let start = self.bump().span.start; // service
         let name = self.expect_ident("service name")?;
@@ -62,31 +66,13 @@ impl<'s> Parser<'s> {
         let output = self.parse_rpc_type()?;
 
         let mut options = Vec::new();
-        let end: u32;
-        match self.peek_kind() {
-            TokenKind::LBrace => {
-                self.bump();
-                while !matches!(self.peek_kind(), TokenKind::RBrace | TokenKind::Eof) {
-                    match self.peek_kind() {
-                        TokenKind::KwOption => {
-                            if let Some(o) = self.parse_option_decl() {
-                                options.push(o);
-                            }
-                        }
-                        TokenKind::Semi => { self.bump(); }
-                        _ => {
-                            self.bump();
-                        }
-                    }
-                }
-                let close = self.expect(&TokenKind::RBrace, "`}`");
-                end = close.map(|t| t.span.end).unwrap_or(output.span.end);
-            }
-            _ => {
-                let close = self.expect(&TokenKind::Semi, "`;`");
-                end = close.map(|t| t.span.end).unwrap_or(output.span.end);
-            }
-        }
+        let close = match self.peek_kind() {
+            TokenKind::LBrace => self
+                .nested(TokenKind::LBrace, TokenKind::RBrace, |p| p.parse_rpc_body(&mut options))
+                .flatten(),
+            _ => self.expect(&TokenKind::Semi, "`;`"),
+        };
+        let end = close.map(|t| t.span.end).unwrap_or(output.span.end);
 
         Some(ast::Rpc {
             name: name.clone(),
@@ -96,6 +82,25 @@ impl<'s> Parser<'s> {
             span: ByteSpan::new(start, end),
             leading_comments: leading,
         })
+    }
+
+    /// Parse `{ option ...; }` after an rpc signature; returns the `}`.
+    fn parse_rpc_body(&mut self, options: &mut Vec<ast::OptionDecl>) -> Option<Token> {
+        self.bump(); // {
+        while !matches!(self.peek_kind(), TokenKind::RBrace | TokenKind::Eof) {
+            match self.peek_kind() {
+                TokenKind::KwOption => {
+                    if let Some(o) = self.parse_option_decl() {
+                        options.push(o);
+                    }
+                }
+                TokenKind::Semi => { self.bump(); }
+                _ => {
+                    self.bump();
+                }
+            }
+        }
+        self.expect(&TokenKind::RBrace, "`}`")
     }
 
     fn parse_rpc_type(&mut self) -> Option<ast::RpcType> {

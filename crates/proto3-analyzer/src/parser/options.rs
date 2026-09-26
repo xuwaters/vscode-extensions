@@ -75,8 +75,16 @@ impl<'s> Parser<'s> {
                 let sp = self.bump().span;
                 ast::OptionValue::Bool(false, sp)
             }
-            TokenKind::LBrace => self.parse_message_literal(),
-            TokenKind::LBracket => self.parse_list_literal(),
+            TokenKind::LBrace => {
+                let sp = self.peek().span;
+                self.nested(TokenKind::LBrace, TokenKind::RBrace, Self::parse_message_literal)
+                    .unwrap_or_else(|| ast::OptionValue::Missing(self.span_since(sp)))
+            }
+            TokenKind::LBracket => {
+                let sp = self.peek().span;
+                self.nested(TokenKind::LBracket, TokenKind::RBracket, Self::parse_list_literal)
+                    .unwrap_or_else(|| ast::OptionValue::Missing(self.span_since(sp)))
+            }
             TokenKind::Ident(s) => {
                 let sp = self.bump().span;
                 ast::OptionValue::Ident(ast::Ident { name: s, span: sp })

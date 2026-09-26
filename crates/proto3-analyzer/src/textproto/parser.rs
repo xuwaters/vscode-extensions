@@ -10,11 +10,22 @@ use crate::diagnostics::{DiagnosticCode, ProtoDiagnostic, Severity};
 use crate::spans::ByteSpan;
 use smol_str::SmolStr;
 
+/// Deepest message / list nesting the parser will descend into.
+///
+/// Each `{`, `<` or `[` value takes one level. Hand-written and generated
+/// text protos rarely go past a dozen; 64 leaves ample headroom while
+/// bounding the AST so schema validation, symbols, folding, serde and Drop,
+/// which all recurse over it, stay inside the 1 MB WASM stack. A debug
+/// build overflows 1 MB between 128 and 256 levels: 64 keeps a 2x margin.
+pub const MAX_NESTING_DEPTH: usize = 64;
+
 pub struct Parser<'s> {
     _src: std::marker::PhantomData<&'s str>,
     tokens: Vec<Token>,
     pos: usize,
     diagnostics: Vec<ProtoDiagnostic>,
+    /// Current nesting depth, bounded by [`MAX_NESTING_DEPTH`].
+    depth: usize,
 }
 
 pub struct ParseOutcome {
@@ -40,7 +51,59 @@ pub fn parse_file(source: &str, lex: LexResult) -> ParseOutcome {
 
 impl<'s> Parser<'s> {
     fn new(tokens: Vec<Token>) -> Self {
-        Parser { _src: std::marker::PhantomData, tokens, pos: 0, diagnostics: Vec::new() }
+        Parser { _src: std::marker::PhantomData, tokens, pos: 0, diagnostics: Vec::new(), depth: 0 }
+    }
+
+    /// Parse the message or list value opening at the current token one
+    /// nesting level deeper. Past [`MAX_NESTING_DEPTH`] the value is
+    /// reported, skipped as a whole, and replaced by [`Value::Missing`].
+    fn parse_nested_value(&mut self) -> Option<Value> {
+        let opener = self.peek().clone();
+        if self.depth >= MAX_NESTING_DEPTH {
+            self.error(
+                DiagnosticCode::TextprotoParseError,
+                format!("nesting too deep (limit {})", MAX_NESTING_DEPTH),
+                opener.span,
+            );
+            self.skip_balanced(&opener.kind);
+            let end = self.tokens[self.pos.saturating_sub(1)].span.end;
+            return Some(Value::Missing(ByteSpan::new(opener.span.start, end.max(opener.span.end))));
+        }
+        self.depth += 1;
+        let v = match opener.kind {
+            TokenKind::LBracket => self.parse_list_value(),
+            _ => self.parse_message_value(),
+        };
+        self.depth -= 1;
+        v
+    }
+
+    /// Iteratively skip from the opener at the current token (`{`, `<` or
+    /// `[`) through its matching closer, or to EOF if it is never closed.
+    fn skip_balanced(&mut self, open: &TokenKind) {
+        let close = match open {
+            TokenKind::LBrace => TokenKind::RBrace,
+            TokenKind::LAngle => TokenKind::RAngle,
+            _ => TokenKind::RBracket,
+        };
+        let same = |a: &TokenKind, b: &TokenKind| std::mem::discriminant(a) == std::mem::discriminant(b);
+        let mut depth = 0usize;
+        loop {
+            let k = &self.peek().kind;
+            if matches!(k, TokenKind::Eof) {
+                return;
+            }
+            if same(k, open) {
+                depth += 1;
+            } else if same(k, &close) {
+                depth -= 1;
+                if depth == 0 {
+                    self.bump();
+                    return;
+                }
+            }
+            self.bump();
+        }
     }
 
     fn peek(&self) -> &Token {
@@ -121,8 +184,7 @@ impl<'s> Parser<'s> {
         }
 
         let value = match &self.peek().kind {
-            TokenKind::LBrace | TokenKind::LAngle => self.parse_message_value()?,
-            TokenKind::LBracket => self.parse_list_value()?,
+            TokenKind::LBrace | TokenKind::LAngle | TokenKind::LBracket => self.parse_nested_value()?,
             _ => {
                 if !has_colon {
                     self.error(
@@ -289,7 +351,7 @@ impl<'s> Parser<'s> {
         }
         loop {
             let v = match &self.peek().kind {
-                TokenKind::LBrace | TokenKind::LAngle => self.parse_message_value(),
+                TokenKind::LBrace | TokenKind::LAngle => self.parse_nested_value(),
                 _ => self.parse_scalar_value(),
             };
             if let Some(v) = v {

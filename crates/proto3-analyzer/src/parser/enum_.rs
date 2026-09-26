@@ -7,6 +7,10 @@ use crate::spans::ByteSpan;
 
 impl<'s> Parser<'s> {
     pub(crate) fn parse_enum(&mut self) -> Option<ast::EnumDecl> {
+        self.nested(TokenKind::LBrace, TokenKind::RBrace, Self::parse_enum_decl).flatten()
+    }
+
+    fn parse_enum_decl(&mut self) -> Option<ast::EnumDecl> {
         let leading = self.peek().leading.comments.clone();
         let start = self.bump().span.start; // enum
         let name = self.expect_ident("enum name")?;

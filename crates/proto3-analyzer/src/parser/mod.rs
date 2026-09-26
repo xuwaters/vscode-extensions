@@ -17,16 +17,29 @@ use crate::lexer::{Token, TokenKind};
 use crate::spans::ByteSpan;
 use smol_str::SmolStr;
 
+/// Deepest brace/bracket/angle nesting the parser will descend into.
+///
+/// Every nested body (message, enum, oneof, service, rpc, extend) and every
+/// nested value (option aggregate `{`, option list `[`, `map<`) takes one
+/// level. Real schemas stay in the low single digits; 64 is far above that,
+/// yet it bounds the AST so the recursive passes that walk it afterwards
+/// (resolve, checks, symbols, formatting, serde, Drop) fit in the 1 MB WASM
+/// stack. A debug build, whose frames are the fattest, overflows 1 MB
+/// between 128 and 256 levels, so 64 keeps at least a 2x margin.
+pub const MAX_NESTING_DEPTH: usize = 64;
+
 pub struct Parser<'s> {
     source: &'s str,
     tokens: Vec<Token>,
     pos: usize,
     diagnostics: Vec<ProtoDiagnostic>,
+    /// Current nesting depth, bounded by [`MAX_NESTING_DEPTH`].
+    depth: usize,
 }
 
 impl<'s> Parser<'s> {
     pub fn new(source: &'s str, tokens: Vec<Token>) -> Self {
-        Parser { source, tokens, pos: 0, diagnostics: Vec::new() }
+        Parser { source, tokens, pos: 0, diagnostics: Vec::new(), depth: 0 }
     }
 
     pub fn into_diagnostics(self) -> Vec<ProtoDiagnostic> {
@@ -118,6 +131,69 @@ impl<'s> Parser<'s> {
     pub(crate) fn sync_to(&mut self, follow: &[TokenKindTag]) {
         while !matches!(self.peek_kind(), TokenKind::Eof) {
             if follow.iter().any(|tag| tag.matches(self.peek_kind())) {
+                return;
+            }
+            self.bump();
+        }
+    }
+
+    /// Run `f` one nesting level deeper. The construct starts at the current
+    /// token and its body is delimited by `open` / `close`. Past
+    /// [`MAX_NESTING_DEPTH`] the construct is reported, skipped as a whole,
+    /// and `None` is returned without calling `f`.
+    pub(crate) fn nested<T>(
+        &mut self,
+        open: TokenKind,
+        close: TokenKind,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> Option<T> {
+        if self.depth >= MAX_NESTING_DEPTH {
+            let span = self.peek().span;
+            self.error_at(
+                DiagnosticCode::ParseUnexpectedToken,
+                format!("nesting too deep (limit {})", MAX_NESTING_DEPTH),
+                span,
+            );
+            self.skip_balanced(&open, &close);
+            return None;
+        }
+        self.depth += 1;
+        let out = f(self);
+        self.depth -= 1;
+        Some(out)
+    }
+
+    /// Span from `start` to the end of the last consumed token.
+    pub(crate) fn span_since(&self, start: ByteSpan) -> ByteSpan {
+        let end = self.tokens[self.pos.saturating_sub(1)].span.end;
+        ByteSpan::new(start.start, end.max(start.end))
+    }
+
+    /// Iteratively skip a construct: tokens up to its first `open`, then
+    /// through the matching `close`. Stops without consuming at a `close`
+    /// that belongs to the enclosing construct, after a `;` met before any
+    /// `open` (a body-less declaration), or at EOF.
+    pub(crate) fn skip_balanced(&mut self, open: &TokenKind, close: &TokenKind) {
+        let same = |a: &TokenKind, b: &TokenKind| std::mem::discriminant(a) == std::mem::discriminant(b);
+        let mut depth = 0usize;
+        loop {
+            let k = self.peek_kind();
+            if matches!(k, TokenKind::Eof) {
+                return;
+            }
+            if same(k, open) {
+                depth += 1;
+            } else if same(k, close) {
+                if depth == 0 {
+                    return;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    self.bump();
+                    return;
+                }
+            } else if depth == 0 && matches!(k, TokenKind::Semi) {
+                self.bump();
                 return;
             }
             self.bump();
