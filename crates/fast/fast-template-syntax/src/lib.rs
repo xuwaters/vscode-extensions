@@ -221,6 +221,10 @@ pub enum ParseErrorKind {
     SelfClosedNonVoid,
     /// A close tag with no matching open tag.
     StrayCloseTag,
+    /// An element opened more than [`MAX_NESTING_DEPTH`] elements deep. Only
+    /// the outermost such element is reported; it and everything inside it
+    /// are flattened into the element at the limit.
+    NestedTooDeep,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,6 +233,21 @@ pub struct ParseError {
     /// Where to report: the offending tag's name.
     pub span: Span,
     pub tag: String,
+}
+
+impl ParseError {
+    pub fn message(&self) -> String {
+        match self.kind {
+            ParseErrorKind::UnclosedTag => format!("<{}> is never closed", self.tag),
+            ParseErrorKind::SelfClosedNonVoid => {
+                format!("<{}/> is self-closing outside foreign content", self.tag)
+            }
+            ParseErrorKind::StrayCloseTag => format!("</{}> has no matching open tag", self.tag),
+            ParseErrorKind::NestedTooDeep => {
+                format!("elements nested too deep (limit {MAX_NESTING_DEPTH})")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -255,6 +274,24 @@ impl Document {
         walk(&self.children, None, f);
     }
 }
+
+/// How many elements deep the tree may nest. The parser itself keeps an
+/// explicit stack, but everything that consumes the tree walks it by
+/// recursion — the rule pass, completion, hover, folding, `parse_tree`'s
+/// JSON, and the derived `Drop`, `Clone` and `PartialEq` — and the analyzer
+/// runs as WASM on a 1 MB stack. Unbounded, a fuzzed `<div><div>…` overflowed
+/// at about 1600 levels in a native release build.
+///
+/// 256 is several times deeper than any real template (a whole page rarely
+/// passes 30). On a 1 MB thread in a debug build, whose frames are bigger
+/// than release or WASM ones, the whole engine — parse, analyze, every
+/// query, drop — survived a limit of 512 and overflowed at 640, so 256
+/// keeps about half the stack spare for callers and for rules that grow; the
+/// `*_on_a_1mb_stack` tests hold that line. An element opened deeper than
+/// this is reported
+/// ([`ParseErrorKind::NestedTooDeep`]) and flattened into the element at the
+/// limit, so the tree is never more than `MAX_NESTING_DEPTH + 1` deep.
+pub const MAX_NESTING_DEPTH: usize = 256;
 
 pub const VOID_ELEMENTS: &[&str] = &[
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
@@ -328,6 +365,10 @@ struct Parser<'a> {
     errors: Vec<ParseError>,
     /// Depth of `<svg>`/`<math>` elements on the stack.
     foreign_depth: usize,
+    /// For each element on the stack past [`MAX_NESTING_DEPTH`], bottom to
+    /// top: the index of the slot reserved for it among the children of
+    /// `stack[MAX_NESTING_DEPTH - 1]`, the deepest element allowed children.
+    overflow_slots: Vec<usize>,
 }
 
 impl<'a> Parser<'a> {
@@ -344,6 +385,7 @@ impl<'a> Parser<'a> {
             document: Vec::new(),
             errors: Vec::new(),
             foreign_depth: 0,
+            overflow_slots: Vec::new(),
         }
     }
 
@@ -405,10 +447,25 @@ impl<'a> Parser<'a> {
     }
 
     fn push_node(&mut self, node: Node) {
-        match self.stack.last_mut() {
-            Some(top) => top.children.push(node),
+        // Past the depth limit, content goes to the deepest element allowed
+        // children rather than to the top of the stack: that is the flattening.
+        match self.stack.len().min(MAX_NESTING_DEPTH).checked_sub(1) {
+            Some(parent) => self.stack[parent].children.push(node),
             None => self.document.push(node),
         }
+    }
+
+    /// Hand an element just popped off the stack to its parent. One that
+    /// opened past the depth limit goes into the slot reserved for it when it
+    /// opened, so it keeps its source position among the flattened content.
+    fn attach(&mut self, el: Element) {
+        if self.stack.len() >= MAX_NESTING_DEPTH {
+            if let Some(slot) = self.overflow_slots.pop() {
+                self.stack[MAX_NESTING_DEPTH - 1].children[slot] = Node::Element(el);
+                return;
+            }
+        }
+        self.push_node(Node::Element(el));
     }
 
     fn is_name_byte(b: u8) -> bool {
@@ -564,10 +621,21 @@ impl<'a> Parser<'a> {
             if !self.in_foreign_content() && implies_end(top_name, &name_text) {
                 let mut el = self.stack.pop().unwrap();
                 el.closed_implicitly = true;
-                self.push_node(Node::Element(el));
+                self.attach(el);
             } else {
                 break;
             }
+        }
+
+        // Depth is decided after the implied end tags: `<li>` after `<li>` is
+        // a sibling, not a level deeper. Report only the element that crosses
+        // the limit; everything inside it is part of the same excursion.
+        if self.stack.len() == MAX_NESTING_DEPTH {
+            self.errors.push(ParseError {
+                kind: ParseErrorKind::NestedTooDeep,
+                span: name,
+                tag: name_text.clone(),
+            });
         }
 
         let kind = self.classify(&name_text);
@@ -615,6 +683,16 @@ impl<'a> Parser<'a> {
             && (name_text.eq_ignore_ascii_case("svg") || name_text.eq_ignore_ascii_case("math"))
         {
             self.foreign_depth += 1;
+        }
+        if self.stack.len() >= MAX_NESTING_DEPTH {
+            // Too deep to take children. It stays on the stack, so close
+            // tags, implied ends and foreign content pair exactly as before,
+            // but its content flattens into the element at the limit
+            // (`push_node`), and its own place there is reserved now — an
+            // empty placeholder `attach` overwrites when it closes.
+            let anchor = &mut self.stack[MAX_NESTING_DEPTH - 1];
+            self.overflow_slots.push(anchor.children.len());
+            anchor.children.push(Node::Text(Span::new(open.start, open.start)));
         }
         self.stack.push(element);
     }
@@ -882,7 +960,7 @@ impl<'a> Parser<'a> {
             }
         }
         el.close = Some(close);
-        self.push_node(Node::Element(el));
+        self.attach(el);
     }
 
     fn finish_unclosed(&mut self, mut el: Element) {
@@ -901,7 +979,7 @@ impl<'a> Parser<'a> {
                 tag: name,
             });
         }
-        self.push_node(Node::Element(el));
+        self.attach(el);
     }
 }
 

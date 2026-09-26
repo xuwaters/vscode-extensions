@@ -1051,3 +1051,128 @@ fn json_round_trip_through_the_string_boundary() {
     let parsed: serde_json::Value = serde_json::from_str(&severities).unwrap();
     assert_eq!(parsed["no-unclosed-tag"], "error");
 }
+
+// ------------------------------------------------------------ nesting depth
+
+/// What the WASM surface does on a document update and after it — upsert,
+/// analyze, every document query — through the same JSON entry points, on a
+/// thread with the 1 MB stack the WASM build gets. Returns the diagnostics
+/// and the top-level parse-tree names.
+fn run_whole_engine_on_a_1mb_stack(source: String) -> (Vec<serde_json::Value>, Vec<String>) {
+    std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(move || {
+            let mut engine = Engine::new();
+            engine.set_config_json(r#"{"strict": true}"#).unwrap();
+            let (text, placeholders) = substitute(&source);
+            let upsert = serde_json::json!({
+                "fileName": "/proj/t.ts",
+                "dependencies": [],
+                "components": [],
+                "documents": [{
+                    "id": "t1",
+                    "fileName": "/proj/t.ts",
+                    "templateStart": 10,
+                    "kind": "html",
+                    "text": text,
+                    "placeholders": placeholders.iter().map(|p| serde_json::json!({
+                        "index": p.index, "start": p.start, "end": p.end,
+                        "expr": {"kind": "arrow", "isFunctionType": true, "isConstant": false}
+                    })).collect::<Vec<_>>(),
+                }]
+            });
+            engine.upsert_file_json(&upsert.to_string()).unwrap();
+            let analysis: serde_json::Value =
+                serde_json::from_str(&engine.analyze_json("t1").unwrap()).unwrap();
+
+            // Every position query at the top, deep inside, and at the end.
+            let len = text.len() as u32;
+            for offset in [0, 3, len / 4, len / 2 - 3, len / 2, len * 3 / 4, len - 3, len] {
+                for kind in [
+                    "completions", "quickInfo", "definition", "references",
+                    "renameInfo", "renameLocations", "closingTag", "documentInfoAt",
+                ] {
+                    let query = serde_json::json!({
+                        "type": kind, "documentId": "t1", "offset": offset
+                    });
+                    engine.query_json(&query.to_string()).unwrap();
+                }
+            }
+            let range = serde_json::json!({
+                "type": "codeFixes", "documentId": "t1", "start": 0, "end": len
+            });
+            engine.query_json(&range.to_string()).unwrap();
+            engine.query_json(r#"{"type": "folding", "documentId": "t1"}"#).unwrap();
+            engine
+                .query_json(r#"{"type": "fileDiagnostics", "fileName": "/proj/t.ts"}"#)
+                .unwrap();
+            // The JSON is deeper than serde_json's parse limit (128) allows,
+            // so read the tree as a value rather than parsing the string.
+            let parse_tree = r#"{"type": "parseTree", "documentId": "t1"}"#;
+            engine.query_json(parse_tree).unwrap();
+            let tree = engine.query(serde_json::from_str(parse_tree).unwrap());
+            let roots = tree
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|n| n["kind"] == "element")
+                .map(|n| n["name"].as_str().unwrap().to_string())
+                .collect();
+            engine.remove_file("/proj/t.ts");
+            drop(engine);
+            (analysis["diagnostics"].as_array().unwrap().clone(), roots)
+        })
+        .unwrap()
+        .join()
+        .expect("overflowed or panicked on a 1 MB stack")
+}
+
+/// `depth` nested divs, one per line so folding has ranges to find, around a
+/// content binding, then a top-level sibling.
+fn deep_template(depth: usize) -> String {
+    format!(
+        "{}${{(x) => x.a}}{}<span>after</span>",
+        "<div class=\"c\">\n".repeat(depth),
+        "</div>\n".repeat(depth),
+    )
+}
+
+fn too_deep_diagnostics(diagnostics: &[serde_json::Value]) -> Vec<&str> {
+    diagnostics
+        .iter()
+        .map(|d| d["message"].as_str().unwrap())
+        .filter(|m| m.contains("nested too deep"))
+        .collect()
+}
+
+#[test]
+fn nesting_exactly_at_the_limit_on_a_1mb_stack() {
+    let (diagnostics, roots) =
+        run_whole_engine_on_a_1mb_stack(deep_template(fast_template_syntax::MAX_NESTING_DEPTH));
+    assert_eq!(diagnostics, Vec::<serde_json::Value>::new());
+    assert_eq!(roots, vec!["div", "span"]);
+}
+
+#[test]
+fn nesting_one_past_the_limit_on_a_1mb_stack() {
+    let depth = fast_template_syntax::MAX_NESTING_DEPTH + 1;
+    let (diagnostics, roots) = run_whole_engine_on_a_1mb_stack(deep_template(depth));
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert_eq!(diagnostics[0]["ruleId"], "no-unclosed-tag");
+    let limit = fast_template_syntax::MAX_NESTING_DEPTH;
+    let message = format!("elements nested too deep (limit {limit})");
+    assert!(too_deep_diagnostics(&diagnostics)[0].contains(&message), "{diagnostics:#?}");
+    // Reported at the too-deep element's name, in UTF-16 document offsets.
+    let at = (limit * "<div class=\"c\">\n".len() + 1) as u64;
+    assert_eq!(diagnostics[0]["start"], at);
+    assert_eq!(diagnostics[0]["end"], at + 3);
+    assert_eq!(roots, vec!["div", "span"]);
+}
+
+#[test]
+fn nesting_100_000_deep_on_a_1mb_stack() {
+    let (diagnostics, roots) = run_whole_engine_on_a_1mb_stack(deep_template(100_000));
+    assert_eq!(too_deep_diagnostics(&diagnostics).len(), 1, "{:#?}", &diagnostics[..5]);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(roots, vec!["div", "span"]);
+}

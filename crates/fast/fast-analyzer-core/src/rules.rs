@@ -96,6 +96,21 @@ impl<'a> Pass<'a> {
                         Vec::new(),
                     );
                 }
+                // A tag-structure error like the stray close tag, so it rides
+                // the same rule rather than adding one the plugin's rule table
+                // does not know.
+                ParseErrorKind::NestedTooDeep => {
+                    self.report(
+                        "no-unclosed-tag",
+                        error.span,
+                        format!(
+                            "<{}>: {}; it and everything inside it are analyzed as siblings.",
+                            error.tag,
+                            error.message()
+                        ),
+                        Vec::new(),
+                    );
+                }
                 // Unclosed and self-closed elements are reported from the
                 // element visit, where the fix has the tree to work with.
                 ParseErrorKind::UnclosedTag | ParseErrorKind::SelfClosedNonVoid => {}

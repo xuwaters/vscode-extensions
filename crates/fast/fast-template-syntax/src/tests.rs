@@ -436,3 +436,193 @@ fn markup_declaration_followed_by_a_multibyte_char() {
     parse_source("<!中");
     parse_source("<div></中");
 }
+
+// ------------------------------------------------------------ nesting depth
+
+/// `depth` nested divs around `inner`.
+fn nested_divs(depth: usize, inner: &str) -> String {
+    format!("{}{inner}{}", "<div>".repeat(depth), "</div>".repeat(depth))
+}
+
+/// The element `levels` down, following the first element child each time.
+fn descend(el: &Element, levels: usize) -> &Element {
+    let mut el = el;
+    for _ in 0..levels {
+        el = el
+            .children
+            .iter()
+            .find_map(|n| match n {
+                Node::Element(e) => Some(e),
+                _ => None,
+            })
+            .expect("no element child");
+    }
+    el
+}
+
+/// The tree's element depth, measured without recursion so it works on a
+/// tree of any shape.
+fn element_depth(doc: &Document) -> usize {
+    let mut deepest = 0;
+    let mut pending: Vec<(&[Node], usize)> = vec![(&doc.children, 1)];
+    while let Some((nodes, depth)) = pending.pop() {
+        for node in nodes {
+            if let Node::Element(el) = node {
+                deepest = deepest.max(depth);
+                pending.push((&el.children, depth + 1));
+            }
+        }
+    }
+    deepest
+}
+
+/// Run `body` on a thread with the 1 MB stack the WASM build gets.
+fn on_a_1mb_stack(body: impl FnOnce() + Send + 'static) {
+    std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(body)
+        .unwrap()
+        .join()
+        .expect("overflowed or panicked on a 1 MB stack");
+}
+
+#[test]
+fn nesting_exactly_at_the_limit_is_accepted() {
+    let source = nested_divs(MAX_NESTING_DEPTH, "x") + "<span>after</span>";
+    let (text, doc) = parse_source(&source);
+    assert_eq!(doc.errors, vec![]);
+    assert_eq!(element_depth(&doc), MAX_NESTING_DEPTH);
+    let innermost = descend(first_element(&doc), MAX_NESTING_DEPTH - 1);
+    assert!(matches!(innermost.children[..], [Node::Text(s)] if s.text(&text) == "x"));
+    assert!(innermost.close.is_some());
+    let Node::Element(after) = &doc.children[1] else {
+        panic!()
+    };
+    assert_eq!(after.name.text(&text), "span");
+}
+
+#[test]
+fn one_past_the_limit_is_reported_and_flattened() {
+    let source = nested_divs(MAX_NESTING_DEPTH + 1, "x") + "<span>after</span>";
+    let (text, doc) = parse_source(&source);
+    let too_deep_at = MAX_NESTING_DEPTH * "<div>".len() + 1;
+    assert_eq!(
+        doc.errors,
+        vec![ParseError {
+            kind: ParseErrorKind::NestedTooDeep,
+            span: Span::new(too_deep_at, too_deep_at + 3),
+            tag: "div".into(),
+        }]
+    );
+    assert_eq!(
+        doc.errors[0].message(),
+        format!("elements nested too deep (limit {MAX_NESTING_DEPTH})")
+    );
+    assert_eq!(element_depth(&doc), MAX_NESTING_DEPTH + 1);
+    // The too-deep div keeps its open and close tags but no children: its
+    // text is its next sibling, in the element at the limit.
+    let anchor = descend(first_element(&doc), MAX_NESTING_DEPTH - 1);
+    assert_eq!(anchor.children.len(), 2);
+    let Node::Element(flat) = &anchor.children[0] else {
+        panic!()
+    };
+    assert_eq!(flat.open.start, too_deep_at - 1);
+    assert!(flat.children.is_empty());
+    assert!(flat.close.is_some());
+    assert!(matches!(anchor.children[1], Node::Text(s) if s.text(&text) == "x"));
+    // Every close tag found its own open tag.
+    assert!(anchor.close.is_some());
+    assert!(first_element(&doc).close.is_some());
+    let Node::Element(after) = &doc.children[1] else {
+        panic!()
+    };
+    assert_eq!(after.name.text(&text), "span");
+}
+
+#[test]
+fn past_the_limit_close_tags_and_implied_ends_still_pair() {
+    // Past the limit: a list with omitted `</li>`, a void, an unclosed
+    // `<b>`, and svg self-closing — all flattened, all paired as usual.
+    let deep = "<ul><li>a<li>b<br></ul><b><svg><rect/></svg>";
+    let source = nested_divs(MAX_NESTING_DEPTH, deep) + "<span>after</span>";
+    let (text, doc) = parse_source(&source);
+    let kinds: Vec<(ParseErrorKind, &str)> =
+        doc.errors.iter().map(|e| (e.kind, e.tag.as_str())).collect();
+    // One report per element that crosses the limit, not per element past it.
+    assert_eq!(
+        kinds,
+        vec![
+            (ParseErrorKind::NestedTooDeep, "ul"),
+            (ParseErrorKind::NestedTooDeep, "b"),
+            (ParseErrorKind::UnclosedTag, "b"),
+        ]
+    );
+    assert_eq!(element_depth(&doc), MAX_NESTING_DEPTH + 1);
+    let anchor = descend(first_element(&doc), MAX_NESTING_DEPTH - 1);
+    let names: Vec<&str> = anchor
+        .children
+        .iter()
+        .map(|n| match n {
+            Node::Element(e) => e.name.text(&text),
+            Node::Text(s) => s.text(&text),
+            _ => "?",
+        })
+        .collect();
+    assert_eq!(names, vec!["ul", "li", "a", "li", "b", "br", "b", "svg", "rect"]);
+    let elements: Vec<&Element> = anchor
+        .children
+        .iter()
+        .filter_map(|n| match n {
+            Node::Element(e) => Some(e),
+            _ => None,
+        })
+        .collect();
+    assert!(elements.iter().all(|e| e.children.is_empty()));
+    assert!(elements[0].close.is_some()); // ul
+    assert!(elements[1].closed_implicitly && elements[2].closed_implicitly); // li, li
+    assert!(elements[6].self_closing && elements[6].kind == ElementKind::Svg); // rect
+    // The unclosed `<b>` ran to the anchor's close tag, which still closed
+    // the anchor, not the b.
+    assert!(anchor.close.is_some());
+    let Node::Element(after) = &doc.children[1] else {
+        panic!()
+    };
+    assert_eq!(after.name.text(&text), "span");
+}
+
+#[test]
+fn nesting_100_000_deep_parses_on_a_1mb_stack() {
+    on_a_1mb_stack(|| {
+        const DEPTH: usize = 100_000;
+        // A sibling ten levels down after the deep run, and one at the top.
+        let source = format!(
+            "{}x{}<em>mid</em>{}<span>after</span>",
+            "<div>".repeat(DEPTH),
+            "</div>".repeat(DEPTH - 10),
+            "</div>".repeat(10),
+        );
+        let (text, doc) = parse_source(&source);
+        assert_eq!(doc.errors.len(), 1);
+        assert_eq!(doc.errors[0].kind, ParseErrorKind::NestedTooDeep);
+        assert_eq!(element_depth(&doc), MAX_NESTING_DEPTH + 1);
+
+        let anchor = descend(first_element(&doc), MAX_NESTING_DEPTH - 1);
+        // Every div past the limit, then the text.
+        assert_eq!(anchor.children.len(), DEPTH - MAX_NESTING_DEPTH + 1);
+        assert!(anchor.close.is_some());
+
+        let tenth = descend(first_element(&doc), 9);
+        let Some(Node::Element(mid)) = tenth.children.last() else {
+            panic!()
+        };
+        assert_eq!(mid.name.text(&text), "em");
+        let Node::Element(after) = &doc.children[1] else {
+            panic!()
+        };
+        assert_eq!(after.name.text(&text), "span");
+
+        // The derived impls recurse too.
+        assert_eq!(doc.clone(), doc);
+        drop(doc);
+    });
+}
