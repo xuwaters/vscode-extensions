@@ -2,7 +2,7 @@
   "name": "wx-vsce-csv-ultra",
   "displayName": "CSV Ultra",
   "description": "CSV and TSV as a spreadsheet: an Excel-style custom editor with in-place editing, sorting, column and row selection, resizable columns and rows — plus rainbow column colours in the text editor and CSV ⇄ TSV conversion",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",

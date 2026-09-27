@@ -2,7 +2,7 @@
   "name": "wx-vsce-askama-templates",
   "displayName": "Askama Templates",
   "description": "Syntax highlighting and snippets for Askama (Rust) template engine",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",

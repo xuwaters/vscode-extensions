@@ -2,7 +2,7 @@
   "name": "wx-vsce-typst-ultra-fonts",
   "displayName": "Typst Ultra Fonts",
   "description": "Typst's default font set — Libertinus Serif, New Computer Modern, DejaVu Sans Mono — packaged for the Typst Ultra extension, which reads them from here",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "publisher": "weixu",
   "license": "SEE LICENSE IN LICENSE.md",
