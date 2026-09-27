@@ -5,10 +5,11 @@
 import { UsageError, run } from './lib/cli.mjs';
 import { createRepo } from './lib/repo.mjs';
 import { bumpCommand } from './commands/bump.mjs';
+import { publishCommand } from './commands/publish.mjs';
 import { syncVscodeignoreCommand } from './commands/sync-vscodeignore.mjs';
 
 /** @type {import('./lib/cli.mjs').Command<{ repo: import('./lib/repo.mjs').Repo }>[]} */
-export const COMMANDS = [bumpCommand, syncVscodeignoreCommand];
+export const COMMANDS = [bumpCommand, publishCommand, syncVscodeignoreCommand];
 
 try {
   process.exitCode = await run({

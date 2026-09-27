@@ -91,6 +91,19 @@ cargo test --workspace
 `build` does not run `build:wasm`, so run it first for a Rust-backed extension.
 `package` runs both.
 
+### Publishing
+
+`pnpm repo publish` uploads each extension's packaged `.vsix` to the VS Code
+Marketplace, skipping versions already there. Bump what changed first, then
+package and publish in one step:
+
+```sh
+pnpm bump -f <name>
+VSCE_PAT=<token> pnpm repo publish --build -f <name>   # --dry-run to preview
+```
+
+`pnpm repo publish --help` covers the options and where the token comes from.
+
 Some extensions have a `CONTRIBUTING.md` with more detail, such as extra data
 sources or how to regenerate their notices.
 

@@ -8,6 +8,7 @@ pnpm repo                      # list commands
 pnpm repo <command> --help     # options for one
 pnpm bump --minor -f vim-ultra # shortcuts for the common ones
 pnpm sync-vscodeignore
+pnpm repo publish -b -f vim-ultra  # package, then upload to the Marketplace
 pnpm test:scripts
 ```
 
