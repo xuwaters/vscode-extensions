@@ -64,8 +64,8 @@ typing in a long document repaints only the paragraph you are editing.
   opens the same way — across both preview surfaces and a window reload.
 
 - **Reading conveniences**: a hover `¶`
-  anchor on every heading that copies its link, click-to-zoom lightbox on
-  images, `ctrl`/`cmd` `+` / `-` / `0` to scale the page (0.5×–3×, remembered
+  anchor on every heading that copies its link, an image viewer that opens
+  when you click an image (see [Image viewer](#image-viewer)), `ctrl`/`cmd` `+` / `-` / `0` to scale the page (0.5×–3×, remembered
   per tab), and a front-matter card that lists your YAML keys and values above
   the document.
 
@@ -220,4 +220,24 @@ replacing the page.
 | `alt+right` | `ctrl+alt+shift+-` | Go Forward (with the preview panel focused) |
 
 Inside a focused preview, `ctrl`/`cmd` with `+`, `-` or `0` zooms the page, and
-`esc` closes the image lightbox.
+`esc` closes the image viewer.
+
+### Image viewer
+
+Click an image in the preview to open it in a full-window viewer. It works like
+VS Code's built-in image preview: the image opens scaled to fit, and you zoom
+and scroll it with these controls.
+
+| Action | Windows/Linux | macOS |
+| --- | --- | --- |
+| Zoom in one step | click, `ctrl` `+` | click, `cmd` `+` |
+| Zoom out one step | `ctrl`+click, `ctrl` `-` | `option`+click, `cmd` `-` |
+| Zoom smoothly | `ctrl`+wheel, pinch | `ctrl`+wheel, `option`+wheel, pinch |
+| Scale to fit | `ctrl` `0` | `cmd` `0` |
+| Scroll up / down | wheel, arrow and page keys | same |
+| Scroll left / right | `shift`+wheel, arrow keys | same |
+| Pan | drag the image, scrollbars | same |
+| Close | `esc`, the ✕ button, click beside the image | same |
+
+The zoom goes from 10% to 2000%, and pixels show as sharp squares from 300% up.
+The current zoom is shown next to the ✕ button.
