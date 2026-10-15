@@ -28,13 +28,17 @@ export function withTempDir(prefix, fn) {
 /**
  * Add `entry` to an existing archive, recursively, resolving it against `cwd`.
  *
+ * `-X` drops Info-ZIP's extra fields (extended timestamp, Unix UID/GID) and
+ * `-D` its directory entries, so the added entries match what vsce writes:
+ * Open VSX rejects a VSIX whose entries carry extra fields.
+ *
  * @param {string} zipPath Archive to add to; must already exist.
  * @param {string} cwd Directory the entry path is relative to.
  * @param {string} entry Top-level file or directory to add.
  * @returns {void}
  */
 export function addToZip(zipPath, cwd, entry) {
-  execFileSync('zip', ['-r', '-q', zipPath, entry], { cwd });
+  execFileSync('zip', ['-r', '-q', '-X', '-D', zipPath, entry], { cwd });
 }
 
 /**
