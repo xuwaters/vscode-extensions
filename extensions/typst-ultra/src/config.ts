@@ -87,7 +87,7 @@ export function read(scope?: vscode.Uri): Config {
       },
       preview: {
         scrollSync: config.get('preview.scrollSync', 'both'),
-        cursorIndicator: config.get('preview.cursorIndicator', true),
+        cursorIndicator: config.get('preview.cursorIndicator', false),
         invertColors: config.get('preview.invertColors', 'never'),
         background: config.get('preview.background', 'editor'),
         renderMode: config.get('preview.renderMode', 'svg'),

@@ -76,7 +76,7 @@ export class TypstPreview extends FASTElement {
 
   @observable settings: PreviewSettings = {
     scrollSync: 'both',
-    cursorIndicator: true,
+    cursorIndicator: false,
     invertColors: 'never',
     background: 'editor',
     renderMode: 'svg',

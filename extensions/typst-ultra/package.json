@@ -650,7 +650,7 @@
         },
         "typstUltra.preview.cursorIndicator": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Flash a marker at the cursor's position on the page."
         },
         "typstUltra.preview.invertColors": {
