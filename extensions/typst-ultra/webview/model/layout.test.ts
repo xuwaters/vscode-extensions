@@ -8,6 +8,7 @@ import {
   fitZoom,
   pageSize,
   stepZoom,
+  wheelZoom,
   zoomBucket,
 } from './layout.js';
 
@@ -87,5 +88,27 @@ describe('bucketing the zoom for raster pages', () => {
 
   it('changes bucket over a real step', () => {
     expect(zoomBucket(1)).not.toBe(zoomBucket(1.6));
+  });
+});
+
+describe('zooming with the wheel', () => {
+  it('follows a small delta in proportion, as a pinch needs', () => {
+    expect(wheelZoom(1, -10)).toBeCloseTo(Math.exp(0.1), 6);
+    expect(wheelZoom(1, 10)).toBeCloseTo(Math.exp(-0.1), 6);
+  });
+
+  it('turns back exactly what the same delta the other way did', () => {
+    expect(wheelZoom(wheelZoom(1.5, -7), 7)).toBeCloseTo(1.5, 6);
+  });
+
+  /** A mouse notch is a delta of about a hundred; uncapped, that is a jump by e. */
+  it('moves no further than one toolbar step per event', () => {
+    expect(wheelZoom(1, -120)).toBeCloseTo(stepZoom(1, 1), 6);
+    expect(wheelZoom(1, 1000)).toBeCloseTo(stepZoom(1, -1), 6);
+  });
+
+  it('stays inside the zoom range', () => {
+    expect(wheelZoom(MAX_ZOOM, -100)).toBe(MAX_ZOOM);
+    expect(wheelZoom(MIN_ZOOM, 100)).toBe(MIN_ZOOM);
   });
 });

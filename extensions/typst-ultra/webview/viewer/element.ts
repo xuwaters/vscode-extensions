@@ -2,13 +2,21 @@ import { FASTElement, css, customElement, observable } from '@microsoft/fast-ele
 import type {
   FitMode,
   HostToWebview,
+  PreviewCommand,
   PreviewPlace,
   PreviewSettings,
   WebviewToHost,
 } from '../../src/preview/messages.js';
-import { PX_PER_PT, clampZoom, fitZoom, stepZoom, zoomBucket } from '../model/layout.js';
+import {
+  PX_PER_PT,
+  clampZoom,
+  fitZoom,
+  stepZoom,
+  wheelZoom,
+  zoomBucket,
+} from '../model/layout.js';
 import { formatZoomPercent, parseZoomPercent } from '../model/zoom.js';
-import { PageColumn } from '../render/pageColumn.js';
+import { PageColumn, type ClientPoint } from '../render/pageColumn.js';
 import sheet from './styles.css';
 import { template } from './template.js';
 
@@ -129,21 +137,35 @@ export class TypstPreview extends FASTElement {
    * the keyboard — Cmd+Shift+], the tab list, a mode switch — is handed the focus
    * without anything *in* the page taking it, and a handler bound to the column
    * hears nothing in that state: which is why → and ← used to turn the page only
-   * after the page had been clicked. Zoom was already bound here for the milder
-   * version of the same problem, the focus sitting in a toolbar box.
+   * after the page had been clicked.
    *
-   * The boxes are the one exception, and only for the page keys: an arrow there
-   * moves the caret through the number being typed, and taking that away would
-   * stop the reader editing it. Ctrl+= over a box still means zoom, because there
-   * is nothing else it could mean.
+   * The boxes are the one exception: an arrow there moves the caret through the
+   * number being typed, and taking that away would stop the reader editing it.
+   *
+   * Modified keys are not answered here at all. The zoom shortcuts are VSCode
+   * keybindings that arrive as `command` messages — see {@link PreviewCommand}
+   * on why answering them here as well zoomed the whole window too.
    */
   private readonly onKeydown = (event: KeyboardEvent): void => {
-    if (event.ctrlKey || event.metaKey) {
-      this.onZoomKey(event);
-      return;
-    }
-    if (event.altKey || isTextEntry(event.target)) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (isTextEntry(event.target)) return;
     this.onPageKey(event);
+  };
+
+  /**
+   * Ctrl-wheel zooms, about the pointer — and so does a trackpad pinch, which
+   * the browser delivers as a Ctrl-wheel. Alt-wheel does too, as in `pdf-ultra`.
+   *
+   * Answered here, unlike the zoom keys: VSCode has no keybindings for the
+   * wheel, so nothing outside the page hears it, and taking it from the
+   * browser is what stops it zooming the webview's own page instead.
+   */
+  private readonly onWheel = (event: WheelEvent): void => {
+    if (!event.ctrlKey && !event.altKey) return;
+    event.preventDefault();
+    const pixels = wheelPixels(event);
+    if (pixels === 0) return;
+    this.setZoom(wheelZoom(this.zoom, pixels), event);
   };
 
   /**
@@ -164,14 +186,6 @@ export class TypstPreview extends FASTElement {
     }, 0);
   };
 
-  private onZoomKey(event: KeyboardEvent): void {
-    if (event.key === '+' || event.key === '=') this.zoomBy(1);
-    else if (event.key === '-') this.zoomBy(-1);
-    else if (event.key === '0') this.applyFit('actual');
-    else return;
-    event.preventDefault();
-  }
-
   override connectedCallback(): void {
     super.connectedCallback();
     // The template has rendered by now — it is not behind a `when`, so the refs
@@ -183,6 +197,8 @@ export class TypstPreview extends FASTElement {
     });
     this.applyZoom();
     this.observeResize();
+    // Not passive: the whole point is to take the scroll away and zoom instead.
+    window.addEventListener('wheel', this.onWheel, { passive: false });
     window.addEventListener('keydown', this.onKeydown);
     window.addEventListener('focus', this.onWindowFocus);
     // Nothing in a fresh panel holds the focus, and the column is what scrolls —
@@ -194,6 +210,7 @@ export class TypstPreview extends FASTElement {
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
+    window.removeEventListener('wheel', this.onWheel);
     window.removeEventListener('keydown', this.onKeydown);
     window.removeEventListener('focus', this.onWindowFocus);
     if (this.focusTimer) clearTimeout(this.focusTimer);
@@ -279,10 +296,29 @@ export class TypstPreview extends FASTElement {
         break;
 
       case 'goToPage':
-        // A negative page is the invert command in disguise: the host has no
-        // other way to reach a toggle that lives only in the webview.
-        if (message.page >= 0) this.goToPage(message.page);
-        else this.toggleInvert();
+        this.goToPage(message.page);
+        break;
+
+      case 'command':
+        this.runCommand(message.command);
+        break;
+    }
+  }
+
+  /** A `typstUltra.*` command — a keybinding, or the command palette. */
+  private runCommand(command: PreviewCommand): void {
+    switch (command) {
+      case 'zoomIn':
+        this.zoomBy(1);
+        break;
+      case 'zoomOut':
+        this.zoomBy(-1);
+        break;
+      case 'zoomReset':
+        this.applyFit('actual');
+        break;
+      case 'toggleInvert':
+        this.toggleInvert();
         break;
     }
   }
@@ -377,8 +413,10 @@ export class TypstPreview extends FASTElement {
    * A tab with no box is left alone: a fit measured against a zero-width
    * scroller resolves to the bottom of the zoom range, and writing that into
    * the layout is how a document comes back from the background at 10%.
+   *
+   * `at` is the point to zoom about; without it, the top of the viewport holds.
    */
-  private applyZoom(): void {
+  private applyZoom(at?: ClientPoint): void {
     const column = this.column;
     if (!column) return;
 
@@ -392,7 +430,7 @@ export class TypstPreview extends FASTElement {
     }
 
     const before = column.scale;
-    column.setZoom(this.zoom);
+    column.setZoom(this.zoom, at);
     this.zoom = column.scale;
     this.showZoom();
 
@@ -424,10 +462,10 @@ export class TypstPreview extends FASTElement {
     this.setZoom(stepZoom(this.zoom, direction));
   }
 
-  setZoom(zoom: number): void {
+  setZoom(zoom: number, at?: ClientPoint): void {
     this.fit = 'actual';
     this.zoom = clampZoom(zoom);
-    this.applyZoom();
+    this.applyZoom(at);
     this.savePlace();
   }
 
@@ -692,6 +730,16 @@ function isTextEntry(target: EventTarget | null): boolean {
     target instanceof HTMLSelectElement ||
     (target instanceof HTMLElement && target.isContentEditable)
   );
+}
+
+/** Line- and page-mode wheel deltas, in the pixels they stand for. */
+const WHEEL_LINE_PX = 16;
+const WHEEL_PAGE_PX = 400;
+
+function wheelPixels(event: WheelEvent): number {
+  if (event.deltaMode === 1) return event.deltaY * WHEEL_LINE_PX;
+  if (event.deltaMode === 2) return event.deltaY * WHEEL_PAGE_PX;
+  return event.deltaY;
 }
 
 function prefersDark(): boolean {

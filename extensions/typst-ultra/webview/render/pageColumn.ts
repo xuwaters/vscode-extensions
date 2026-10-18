@@ -29,6 +29,12 @@ export interface Anchor {
   ratio: number;
 }
 
+/** A point on screen, as a pointer event reports it. */
+export interface ClientPoint {
+  clientX: number;
+  clientY: number;
+}
+
 /** What the column tells the element about. */
 export interface ColumnCallbacks {
   onViewport(first: number, last: number, known: Record<number, string>): void;
@@ -189,14 +195,38 @@ export class PageColumn {
    * The anchor is what makes a live fit bearable: dragging the split wider
    * re-resolves `fit-width` on every frame, and without holding the page still
    * the document would walk away under the pointer.
+   *
+   * With `at` — a point in client coordinates, the pointer of a Ctrl-wheel —
+   * the spot of the document under it is what holds still, rather than the top
+   * of the viewport, so the reader zooms into what they are pointing at.
    */
-  setZoom(zoom: number): void {
+  setZoom(zoom: number, at?: ClientPoint): void {
     const next = clampZoom(zoom);
     if (next === this.zoom) return;
-    const anchor = this.anchor();
+
+    // How far down the viewport the pointer is — kept inside it, so a wheel
+    // over the toolbar zooms about the top edge rather than a point off screen.
+    let offset = 0;
+    if (at) {
+      const box = this.container.getBoundingClientRect();
+      const y = at.clientY - box.top - this.container.clientTop;
+      offset = Math.min(Math.max(0, y), this.container.clientHeight);
+    }
+    const anchor = this.anchor(offset);
+    // Sideways there is no stack to measure against — the pages are centred
+    // until they overflow — so the point is held by where it sits on its page.
+    const page = at && anchor ? this.pages[anchor.index]?.element : undefined;
+    const before = page?.getBoundingClientRect();
+    const fraction =
+      at && before && before.width > 0 ? (at.clientX - before.left) / before.width : null;
+
     this.zoom = next;
     this.applyZoom();
-    if (anchor) this.restore(anchor);
+    if (anchor) this.restore(anchor, offset);
+    if (at && page && fraction !== null) {
+      const after = page.getBoundingClientRect();
+      this.container.scrollLeft += after.left + fraction * after.width - at.clientX;
+    }
     this.reportViewport();
   }
 
@@ -251,10 +281,12 @@ export class PageColumn {
    *
    * Scale-free by construction — every page's height is linear in the zoom — so
    * the same anchor means the same place before and after a rescale.
+   *
+   * `offset` is how far below the top of the viewport to stand, in pixels.
    */
-  anchor(): Anchor | null {
+  anchor(offset = 0): Anchor | null {
     const { tops, heights } = this.measure();
-    const top = this.container.scrollTop;
+    const top = this.container.scrollTop + offset;
     for (let index = 0; index < this.pages.length; index += 1) {
       const pageTop = tops[index];
       const height = heights[index];
@@ -265,12 +297,12 @@ export class PageColumn {
     return null;
   }
 
-  /** Put the reader back on an anchor taken before a rescale. */
-  restore(anchor: Anchor): void {
+  /** Put the reader back on an anchor taken before a rescale, `offset` and all. */
+  restore(anchor: Anchor, offset = 0): void {
     if (!this.pages[anchor.index]) return;
     const { tops, heights } = this.measure();
     this.container.scrollTop =
-      tops[anchor.index] + anchor.ratio * heights[anchor.index];
+      tops[anchor.index] + anchor.ratio * heights[anchor.index] - offset;
   }
 
   /**

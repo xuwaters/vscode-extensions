@@ -179,9 +179,24 @@ open next land in the main group rather than on top of the preview
 In the pages themselves: `←` / `→` and `PgUp` / `PgDn` turn the page, `Home` and
 `End` go to the first and last. `←` / `→` give way to the scroller when the page
 is zoomed wider than the tab, because otherwise there would be no way to reach
-its right-hand edge without a mouse — the same rule `pdf-ultra` follows. Zoom is
-`Cmd/Ctrl+=` / `Cmd/Ctrl+-`, and `Cmd/Ctrl+0` is 100%; those work wherever the
-focus is in the preview, including the toolbar's boxes.
+its right-hand edge without a mouse — the same rule `pdf-ultra` follows.
+
+Zoom the preview — the side panel or a full-tab Preview view — with these:
+
+| Action | Windows/Linux | macOS |
+| --- | --- | --- |
+| Zoom in one step | `ctrl` `=` / `ctrl` `+` | `cmd` `=` / `cmd` `+` |
+| Zoom out one step | `ctrl` `-` | `cmd` `-` |
+| Zoom to 100% | `ctrl` `0` | `cmd` `0` |
+| Zoom smoothly, about the pointer | `ctrl`+wheel, `alt`+wheel, pinch | `ctrl`+wheel, `option`+wheel, pinch |
+
+Each step is 20%, and the zoom goes from 10% to 2000%. The wheel and pinch zoom
+around the spot under the pointer, so what you point at stays put; a mouse
+notch moves at most one step, and a pinch follows your fingers. Zooming by hand
+turns off fit width or fit page; the toolbar's ↔ and ⤢ buttons turn them back
+on. The keys zoom the preview only while it is the active tab; with the focus
+in the source editor they zoom the VS Code window as usual. They are ordinary
+VS Code keybindings, so `Preferences: Open Keyboard Shortcuts` rebinds them.
 
 ## Commands
 
@@ -196,6 +211,7 @@ All under the **Typst Ultra** category.
 | Typst Ultra: Toggle Edit / Preview View | `Cmd/Ctrl+K Cmd/Ctrl+P` |
 | Typst Ultra: Toggle Preview Pin | `Cmd/Ctrl+K Cmd/Ctrl+L` (in the preview) |
 | Typst Ultra: Sync Preview to Cursor | `Cmd/Ctrl+K Cmd/Ctrl+J` |
+| Typst Ultra: Zoom Preview In / Out / to 100% | `Cmd/Ctrl+=` / `Cmd/Ctrl+-` / `Cmd/Ctrl+0` (in the preview) |
 | Typst Ultra: Open Preview | |
 | Typst Ultra: Switch to Edit View / Preview View / Switch View Mode… | |
 | Typst Ultra: Export… | |

@@ -51,6 +51,28 @@ export function stepZoom(zoom: number, direction: 1 | -1): number {
 }
 
 /**
+ * What a wheel delta of one pixel is worth, as an exponent.
+ *
+ * A hundredth, because Chromium hands a trackpad pinch to the page as Ctrl-wheel
+ * events whose `deltaY` is a hundred times the log of the scale the fingers
+ * made — so this is what makes a pinch track the fingers exactly.
+ */
+export const WHEEL_ZOOM = 0.01;
+
+/**
+ * The zoom after one Ctrl-wheel event of `pixels`.
+ *
+ * Proportional to the delta, so a pinch or a trackpad scroll, which send many
+ * small deltas, zoom smoothly; and capped at one toolbar step, because a mouse
+ * notch is a delta of around a hundred and would otherwise jump the zoom by e.
+ */
+export function wheelZoom(zoom: number, pixels: number): number {
+  const cap = Math.log(ZOOM_STEP);
+  const exponent = Math.min(cap, Math.max(-cap, -pixels * WHEEL_ZOOM));
+  return clampZoom(zoom * Math.exp(exponent));
+}
+
+/**
  * The zoom a fit resolves to for a scroller of this size.
  *
  * Measured against the *content* box — the column's padding is part of the

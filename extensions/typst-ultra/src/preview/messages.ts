@@ -75,6 +75,17 @@ export interface PreviewPlace {
   inverted: boolean;
 }
 
+/**
+ * What a `typstUltra.*` command asks the page to do.
+ *
+ * The zoom shortcuts are VSCode keybindings that arrive as these, not keys the
+ * page listens for: VSCode forwards every keystroke a webview sees to its own
+ * keybinding resolver whatever the page does with it, so a Cmd+= answered in
+ * the page zoomed the page *and* the whole window. Being commands is also what
+ * makes them rebindable.
+ */
+export type PreviewCommand = 'zoomIn' | 'zoomOut' | 'zoomReset' | 'toggleInvert';
+
 /** Host → webview. */
 export type HostToWebview =
   | { type: 'init'; settings: PreviewSettings; restore?: PreviewPlace }
@@ -89,7 +100,8 @@ export type HostToWebview =
    * webview is told to put it on the page column.
    */
   | { type: 'focus' }
-  | { type: 'goToPage'; page: number };
+  | { type: 'goToPage'; page: number }
+  | { type: 'command'; command: PreviewCommand };
 
 /** Webview → host. */
 export type WebviewToHost =

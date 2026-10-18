@@ -2,7 +2,7 @@
   "name": "wx-vsce-typst-ultra",
   "displayName": "Typst Ultra",
   "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact — diagnostics, completion, hover, goto-definition, semantic tokens, formatting, BibTeX bibliographies, two-way-synced preview, and PDF/SVG/PNG export",
-  "version": "0.14.4",
+  "version": "0.14.5",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -345,6 +345,24 @@
         "icon": "$(color-mode)"
       },
       {
+        "command": "typstUltra.zoomIn",
+        "title": "Zoom Preview In",
+        "category": "Typst Ultra",
+        "icon": "$(zoom-in)"
+      },
+      {
+        "command": "typstUltra.zoomOut",
+        "title": "Zoom Preview Out",
+        "category": "Typst Ultra",
+        "icon": "$(zoom-out)"
+      },
+      {
+        "command": "typstUltra.zoomReset",
+        "title": "Zoom Preview to 100%",
+        "category": "Typst Ultra",
+        "icon": "$(screen-normal)"
+      },
+      {
         "command": "typstUltra.restartServer",
         "title": "Restart Language Server",
         "category": "Typst Ultra"
@@ -429,6 +447,18 @@
         {
           "command": "typstUltra.toggleInvertColors",
           "when": "typstUltra.previewVisible || activeCustomEditorId == typstUltra.editor"
+        },
+        {
+          "command": "typstUltra.zoomIn",
+          "when": "activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        },
+        {
+          "command": "typstUltra.zoomOut",
+          "when": "activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
+        },
+        {
+          "command": "typstUltra.zoomReset",
+          "when": "activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor"
         },
         {
           "command": "typstUltra.newFromTemplate"
@@ -521,6 +551,42 @@
         "key": "ctrl+k ctrl+j",
         "mac": "cmd+k cmd+j",
         "when": "editorLangId == typst && !terminalFocus"
+      },
+      {
+        "command": "typstUltra.zoomIn",
+        "key": "ctrl+=",
+        "mac": "cmd+=",
+        "when": "(activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "typstUltra.zoomIn",
+        "key": "ctrl+shift+=",
+        "mac": "cmd+shift+=",
+        "when": "(activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "typstUltra.zoomIn",
+        "key": "ctrl+numpad_add",
+        "mac": "cmd+numpad_add",
+        "when": "(activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "typstUltra.zoomOut",
+        "key": "ctrl+-",
+        "mac": "cmd+-",
+        "when": "(activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "typstUltra.zoomOut",
+        "key": "ctrl+numpad_subtract",
+        "mac": "cmd+numpad_subtract",
+        "when": "(activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "typstUltra.zoomReset",
+        "key": "ctrl+0",
+        "mac": "cmd+0",
+        "when": "(activeWebviewPanelId == typstUltra.preview || activeCustomEditorId == typstUltra.editor) && !terminalFocus && !inputFocus"
       }
     ],
     "configuration": {

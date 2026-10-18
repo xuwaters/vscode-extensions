@@ -8,6 +8,7 @@ import { Client } from './lsp/client.js';
 import { StatusBar } from './lsp/status.js';
 import { TypstPreviewEditor } from './preview/customEditor.js';
 import { PreviewManager } from './preview/manager.js';
+import type { PreviewCommand } from './preview/messages.js';
 import { ModeManager } from './preview/modes.js';
 import { PageMemory } from './preview/pageMemory.js';
 
@@ -28,7 +29,15 @@ export function activate(context: vscode.ExtensionContext): void {
   // mode switch between them is continuous.
   const pages = new PageMemory();
   const preview = new PreviewManager(context, client, output, pages, compileRoot);
+  const previewEditor = new TypstPreviewEditor(context, client, output, pages, compileRoot);
   const modes = new ModeManager(preview);
+
+  // The preview tab the reader is on takes the command; with none active, the
+  // following panel does — which is how the palette's invert reaches a panel
+  // sitting beside the source.
+  const previewCommand = (command: PreviewCommand) => () => {
+    if (!previewEditor.command(command)) preview.command(command);
+  };
   const status = new StatusBar(client, output);
 
   context.subscriptions.push(output, client, preview, modes, compileRoot, status);
@@ -155,7 +164,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(
-    TypstPreviewEditor.register(context, client, output, pages, compileRoot),
+    TypstPreviewEditor.register(previewEditor),
 
     vscode.window.registerWebviewPanelSerializer(PreviewManager.viewType, {
       // The panel survives a window reload; the manager works out what it was
@@ -222,9 +231,13 @@ export function activate(context: vscode.ExtensionContext): void {
       preview.syncToCursor(),
     ),
 
-    vscode.commands.registerCommand('typstUltra.toggleInvertColors', () =>
-      preview.toggleInvert(),
+    vscode.commands.registerCommand(
+      'typstUltra.toggleInvertColors',
+      previewCommand('toggleInvert'),
     ),
+    vscode.commands.registerCommand('typstUltra.zoomIn', previewCommand('zoomIn')),
+    vscode.commands.registerCommand('typstUltra.zoomOut', previewCommand('zoomOut')),
+    vscode.commands.registerCommand('typstUltra.zoomReset', previewCommand('zoomReset')),
 
     vscode.commands.registerCommand('typstUltra.pinMain', async () => {
       const document = await requireDocument();

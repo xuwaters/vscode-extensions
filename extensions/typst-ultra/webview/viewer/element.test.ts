@@ -496,10 +496,82 @@ describe('talking to the extension host', () => {
     expect(posted).toContainEqual({ type: 'export' });
   });
 
-  /** The host has no other way to reach a toggle that lives only in the page. */
-  it('reads a negative page as the invert command', () => {
+  it('flips the inversion on the command', () => {
     expect(preview.inverted).toBe(false);
-    preview.handle({ type: 'goToPage', page: -1 });
+    preview.handle({ type: 'command', command: 'toggleInvert' });
     expect(preview.inverted).toBe(true);
+  });
+
+  it('zooms in, out and back to 100% on the commands, switching the fit off', () => {
+    openDocument(2);
+    preview.applyFit('actual');
+
+    preview.handle({ type: 'command', command: 'zoomIn' });
+    expect(preview.zoom).toBeGreaterThan(1);
+    expect(preview.fit).toBe('actual');
+
+    preview.handle({ type: 'command', command: 'zoomOut' });
+    preview.handle({ type: 'command', command: 'zoomOut' });
+    expect(preview.zoom).toBeLessThan(1);
+
+    preview.handle({ type: 'command', command: 'zoomReset' });
+    expect(preview.zoom).toBeCloseTo(1, 6);
+  });
+
+  /**
+   * happy-dom drops the modifier flags out of a `WheelEvent` init, so they are
+   * stated on the event itself rather than passed to the constructor.
+   */
+  function wheel(deltaY: number, modifier: 'ctrlKey' | 'altKey' | null): WheelEvent {
+    const event = new WheelEvent('wheel', { deltaY, cancelable: true });
+    if (modifier) Object.defineProperty(event, modifier, { value: true });
+    window.dispatchEvent(event);
+    return event;
+  }
+
+  /** A trackpad pinch arrives as a Ctrl-wheel too, so this is also the pinch. */
+  it('zooms with a Ctrl-wheel or an Alt-wheel, switching the fit off', () => {
+    openDocument(2);
+    preview.applyFit('actual');
+
+    expect(wheel(-50, 'ctrlKey').defaultPrevented).toBe(true);
+    expect(preview.zoom).toBeGreaterThan(1);
+    expect(preview.fit).toBe('actual');
+
+    const zoomed = preview.zoom;
+    expect(wheel(50, 'altKey').defaultPrevented).toBe(true);
+    expect(preview.zoom).toBeLessThan(zoomed);
+
+    preview.applyFit('width');
+    wheel(-50, 'ctrlKey');
+    expect(preview.fit).toBe('actual');
+  });
+
+  it('leaves a plain wheel to scroll the pages', () => {
+    openDocument(2);
+    preview.applyFit('actual');
+
+    expect(wheel(-50, null).defaultPrevented).toBe(false);
+    expect(preview.zoom).toBeCloseTo(1, 6);
+  });
+
+  /**
+   * VSCode forwards every keystroke a webview sees to its own keybinding
+   * resolver whatever the page does with the event — so a Cmd+= answered here
+   * as well as by `typstUltra.zoomIn` zooms twice, and the window with it. The
+   * modifier shortcuts belong to the host alone.
+   */
+  it('leaves the zoom shortcuts to the host rather than answering them twice', () => {
+    openDocument(2);
+    preview.applyFit('actual');
+
+    for (const key of ['=', '+', '-', '0']) {
+      for (const modifier of [{ metaKey: true }, { ctrlKey: true }]) {
+        const event = new KeyboardEvent('keydown', { key, cancelable: true, ...modifier });
+        window.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+      }
+    }
+    expect(preview.zoom).toBeCloseTo(1, 6);
   });
 });

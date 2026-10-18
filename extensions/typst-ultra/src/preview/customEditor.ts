@@ -8,6 +8,7 @@ import {
   isAllowedLink,
   parseWebviewMessage,
   type HostToWebview,
+  type PreviewCommand,
   type WebviewToHost,
 } from './messages.js';
 import type { PageMemory } from './pageMemory.js';
@@ -33,6 +34,12 @@ import { compileNow, fetchMetrics, fetchPages, jumpFromClick } from './rpc.js';
 export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
   static readonly viewType = PREVIEW_EDITOR_VIEW_TYPE;
 
+  /** Every open tab, so a command can find the one the reader is on. */
+  private readonly tabs = new Map<
+    vscode.WebviewPanel,
+    (message: HostToWebview) => void
+  >();
+
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly client: Client,
@@ -42,21 +49,30 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
   ) {}
 
   /** Register the provider. */
-  static register(
-    context: vscode.ExtensionContext,
-    client: Client,
-    output: vscode.OutputChannel,
-    pages: PageMemory,
-    root: RootState,
-  ): vscode.Disposable {
+  static register(provider: TypstPreviewEditor): vscode.Disposable {
     return vscode.window.registerCustomEditorProvider(
       TypstPreviewEditor.viewType,
-      new TypstPreviewEditor(context, client, output, pages, root),
+      provider,
       {
         webviewOptions: { retainContextWhenHidden: true },
         supportsMultipleEditorsPerDocument: false,
       },
     );
+  }
+
+  /**
+   * Hand a command to the preview tab the reader is on.
+   *
+   * Returns false when no preview tab is the active one, so the caller can give
+   * the command to the following panel instead.
+   */
+  command(command: PreviewCommand): boolean {
+    for (const [panel, send] of this.tabs) {
+      if (!panel.active) continue;
+      send({ type: 'command', command });
+      return true;
+    }
+    return false;
   }
 
   async resolveCustomTextEditor(
@@ -74,6 +90,7 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
     const uri = document.uri;
     const key = uri.toString();
     const send = (message: HostToWebview) => void panel.webview.postMessage(message);
+    this.tabs.set(panel, send);
     let seq = 0;
 
     const refresh = async (): Promise<void> => {
@@ -116,6 +133,7 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
     });
 
     panel.onDidDispose(() => {
+      this.tabs.delete(panel);
       subscription.dispose();
       viewState.dispose();
     });

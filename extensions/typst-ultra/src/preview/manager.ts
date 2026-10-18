@@ -8,6 +8,7 @@ import {
   isAllowedLink,
   parseWebviewMessage,
   type HostToWebview,
+  type PreviewCommand,
   type PreviewSettings,
   type WebviewToHost,
 } from './messages.js';
@@ -317,9 +318,9 @@ export class PreviewManager implements vscode.Disposable {
     await this.sendCursor(editor, true);
   }
 
-  /** Flip colour inversion without writing the setting. */
-  toggleInvert(): void {
-    this.post({ type: 'goToPage', page: -1 });
+  /** Hand a zoom or inversion command to the panel's page. */
+  command(command: PreviewCommand): void {
+    this.post({ type: 'command', command });
   }
 
   dispose(): void {

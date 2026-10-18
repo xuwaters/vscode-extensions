@@ -230,6 +230,53 @@ describe('sizing the pages', () => {
     );
   });
 
+  /**
+   * happy-dom does no layout, so the boxes are stacked here by hand: each page
+   * sits a 16px gap below the last, as `viewer/styles.css` stacks them.
+   */
+  function stack(container: HTMLElement): void {
+    const pages = [...container.children] as HTMLElement[];
+    const height = (page: HTMLElement) => Number.parseFloat(page.style.height);
+    pages.forEach((page, index) => {
+      Object.defineProperty(page, 'offsetHeight', {
+        configurable: true,
+        get: () => height(page),
+      });
+      Object.defineProperty(page, 'offsetTop', {
+        configurable: true,
+        get: () =>
+          16 + pages.slice(0, index).reduce((sum, above) => sum + height(above) + 16, 0),
+      });
+    });
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 600 });
+  }
+
+  /** Where the point at `y` pixels down the viewport is, as a page and a fraction. */
+  function pointAt(container: HTMLElement, y: number): { page: number; ratio: number } {
+    const at = container.scrollTop + y;
+    const pages = [...container.children] as HTMLElement[];
+    const page = pages.findIndex((box) => at < box.offsetTop + box.offsetHeight);
+    const box = pages[page];
+    return { page, ratio: (at - box.offsetTop) / box.offsetHeight };
+  }
+
+  it('holds the spot under the pointer still, not the top of the viewport', () => {
+    const { column, container } = build();
+    column.setMetrics([metric(0, 'a'.repeat(16)), metric(1, 'b'.repeat(16))]);
+    stack(container);
+    // The column measured the pages before they were stacked; a rescale is
+    // what makes it measure again.
+    column.setZoom(1.2);
+    container.scrollTop = 900;
+    const before = pointAt(container, 300);
+
+    column.setZoom(1.5, { clientX: 0, clientY: 300 });
+
+    const after = pointAt(container, 300);
+    expect(after.page).toBe(before.page);
+    expect(after.ratio).toBeCloseTo(before.ratio, 6);
+  });
+
   it('clamps a zoom that is out of range', () => {
     const { column } = build();
     column.setMetrics([metric(0, 'f'.repeat(16))]);
