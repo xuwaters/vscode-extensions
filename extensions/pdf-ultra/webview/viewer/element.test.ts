@@ -304,22 +304,27 @@ describe('the chrome, once a document is open', () => {
     expect(viewer.shadowRoot?.activeElement).toBe(box);
   });
 
-  it('takes the scroll away from an Alt-wheel and leaves a plain one alone', () => {
-    // happy-dom drops the modifier flags out of a `WheelEvent` init, so they
-    // are stated on the event itself rather than passed to the constructor.
-    const wheel = (altKey: boolean): WheelEvent => {
-      const event = new WheelEvent('wheel', { deltaY: -120, cancelable: true });
-      Object.defineProperty(event, 'altKey', { value: altKey });
-      return event;
-    };
+  /**
+   * happy-dom drops the modifier flags out of a `WheelEvent` init, so they are
+   * stated on the event itself rather than passed to the constructor.
+   */
+  function wheel(deltaY: number, modifier: 'ctrlKey' | 'altKey' | null): WheelEvent {
+    const event = new WheelEvent('wheel', { deltaY, cancelable: true });
+    if (modifier) Object.defineProperty(event, modifier, { value: true });
+    window.dispatchEvent(event);
+    return event;
+  }
 
-    const alt = wheel(true);
-    window.dispatchEvent(alt);
-    expect(alt.defaultPrevented).toBe(true);
+  /** A trackpad pinch arrives as a Ctrl-wheel too, so this is also the pinch. */
+  it('takes the scroll away from a Ctrl-wheel or an Alt-wheel', () => {
+    expect(wheel(-50, 'ctrlKey').defaultPrevented).toBe(true);
+    expect(wheel(-50, 'altKey').defaultPrevented).toBe(true);
+  });
 
-    const plain = wheel(false);
-    window.dispatchEvent(plain);
-    expect(plain.defaultPrevented).toBe(false);
+  it('leaves a plain wheel to scroll the pages', () => {
+    expect(wheel(-50, null).defaultPrevented).toBe(false);
+    expect(viewer.zoom).toBe(1);
+    expect(viewer.fit).toBe('fit-width');
   });
 
   /**

@@ -23,7 +23,8 @@ CDN, no web fonts, no telemetry, no remote origin of any kind.
 - Go back from a jump: follow a link, an outline entry, or a page you typed, and
   the toolbar's ← returns you to the exact spot you left, as far back as you went
 - Zoom by step, by typed percentage (`150`, `150%`, `1.5x` all read the same),
-  by `Alt`-wheel about the pointer, fit-width, fit-height, fit-page, or 100%
+  by `Ctrl`-wheel, `Alt`-wheel or a trackpad pinch about the pointer,
+  fit-width, fit-height, fit-page, or 100%
 - One column or two pages side by side, both continuous — and one page at a
   time when you want the scrollbar to describe the page rather than the document
 - Rotation, and colour inversion for reading white pages in a dark editor
@@ -78,8 +79,23 @@ point the association elsewhere:
 
 In the page itself: `←` / `→` turn the page — unless the page is zoomed wider
 than the tab, in which case they scroll it, because otherwise there would be no
-way to reach its right-hand edge without a mouse. `Alt`-wheel zooms about the
-pointer, so the spot you are looking at stays where it is.
+way to reach its right-hand edge without a mouse.
+
+Zoom with these:
+
+| Action | Windows/Linux | macOS |
+| --- | --- | --- |
+| Zoom in one step | `ctrl` `=` / `ctrl` `+` | `cmd` `=` / `cmd` `+` |
+| Zoom out one step | `ctrl` `-` | `cmd` `-` |
+| Zoom to 100% | `ctrl` `0` | `cmd` `0` |
+| Zoom smoothly, about the pointer | `ctrl`+wheel, `alt`+wheel, pinch | `ctrl`+wheel, `option`+wheel, pinch |
+
+The keys walk through the toolbar's presets, from 10% to 1000%. The wheel and
+pinch zoom around the spot under the pointer, so what you point at stays put; a
+mouse notch moves about one step, and a pinch follows your fingers. Zooming by
+hand turns off a fit; the toolbar's fit buttons turn it back on. The keys zoom
+the document only while it is the active tab; with the focus elsewhere they
+zoom the VS Code window as usual.
 
 Every shortcut above is an ordinary VS Code keybinding scoped to this editor, so
 `Preferences: Open Keyboard Shortcuts` rebinds any of them — and if one of them

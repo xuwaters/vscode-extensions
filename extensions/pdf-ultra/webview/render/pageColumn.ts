@@ -508,7 +508,7 @@ export class PageColumn {
   /**
    * The anchor a zoom holds still: which page a point in the viewport is over,
    * and how far into it. Paired with {@link holdAnchor}, that is what keeps the
-   * spot under the pointer under the pointer across an Alt-wheel zoom.
+   * spot under the pointer under the pointer across a wheel zoom.
    */
   anchor(viewportY: number): { page: number; ratio: number } | null {
     return anchorAt(

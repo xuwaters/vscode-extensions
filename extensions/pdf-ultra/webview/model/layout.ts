@@ -112,6 +112,36 @@ export function stepZoom(zoom: number, direction: 1 | -1): number {
 }
 
 /**
+ * What a wheel delta of one pixel is worth, as an exponent.
+ *
+ * A hundredth, because Chromium hands a trackpad pinch to the page as Ctrl-wheel
+ * events whose `deltaY` is a hundred times the log of the scale the fingers
+ * made — so this is what makes a pinch track the fingers exactly.
+ */
+export const WHEEL_ZOOM = 0.01;
+
+/**
+ * The most one wheel event may scale the zoom by: the toolbar's step around
+ * 100%. The presets are not evenly spaced, so this is the step a reader meets
+ * most, not every step there is.
+ */
+export const WHEEL_ZOOM_CAP = 1.25;
+
+/**
+ * The zoom after one Ctrl- or Alt-wheel event of `pixels`.
+ *
+ * Proportional to the delta, so a pinch or a trackpad scroll, which send many
+ * small deltas, zoom smoothly; and capped at about one toolbar step, because a
+ * mouse notch is a delta of around a hundred and would otherwise jump the zoom
+ * by e.
+ */
+export function wheelZoom(zoom: number, pixels: number): number {
+  const cap = Math.log(WHEEL_ZOOM_CAP);
+  const exponent = Math.min(cap, Math.max(-cap, -pixels * WHEEL_ZOOM));
+  return clampZoom(zoom * Math.exp(exponent));
+}
+
+/**
  * Stack the pages into rows of `columns`: box sizes at `scale`, and the top
  * edge of each in the scroller's coordinate space.
  *

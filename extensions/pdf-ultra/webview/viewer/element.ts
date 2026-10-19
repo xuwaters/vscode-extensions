@@ -13,7 +13,7 @@ import type {
   WebviewToHost,
 } from '../../src/messages.js';
 import { ChunkBuffer } from '../model/chunks.js';
-import { clampZoom, columnsFor, fitZoom, stepZoom } from '../model/layout.js';
+import { clampZoom, columnsFor, fitZoom, stepZoom, wheelZoom } from '../model/layout.js';
 import type { OutlineRow, RawOutlineItem } from '../model/outline.js';
 import { formatZoomPercent, parseZoomPercent } from '../model/zoom.js';
 import { resolveDestination } from '../render/destinations.js';
@@ -36,16 +36,6 @@ const TIP_GAP = 4;
 
 /** The resolution an exported page is rendered at, relative to actual size. */
 const EXPORT_ZOOM = 2;
-
-/**
- * How hard a wheel notch pushes the zoom.
- *
- * Applied as `exp(-delta * WHEEL_ZOOM)`, so the zoom is continuous rather than
- * the toolbar's discrete steps and a notch costs the same fraction whichever
- * end of the range it is at. A trackpad sends many small deltas and a mouse
- * sends few large ones; the exponent is what makes both feel the same.
- */
-const WHEEL_ZOOM = 0.0022;
 
 /** Line- and page-mode wheel deltas, in the pixels they stand for. */
 const WHEEL_LINE_PX = 16;
@@ -170,20 +160,24 @@ export class PdfViewer extends FASTElement {
   private wasOffScreen = false;
 
   /**
-   * Alt-wheel zooms, about the pointer.
+   * Ctrl-wheel zooms, about the pointer — and so does a trackpad pinch, which
+   * the browser delivers as a Ctrl-wheel. Alt-wheel does too.
    *
-   * Only Alt. Ctrl- and Cmd-wheel belong to the editor around us, and this is
-   * the one modifier nothing else in a VSCode window claims. Nor are the
-   * keyboard shortcuts handled here: VSCode forwards every keystroke a webview
-   * sees to its own keybinding resolver whatever the page does with it, so a
-   * shortcut answered in both places is answered twice. They arrive as
-   * `command` messages instead — which is also what makes them rebindable.
+   * Answered here, unlike the keyboard shortcuts: VSCode has no keybindings for
+   * the wheel, so nothing outside the page hears it, and taking it from the
+   * browser is what stops it zooming the webview's own page instead. The keys
+   * are another matter — VSCode forwards every keystroke a webview sees to its
+   * own keybinding resolver whatever the page does with it, so a shortcut
+   * answered in both places is answered twice. They arrive as `command`
+   * messages instead, which is also what makes them rebindable.
    */
   private readonly onWheel = (event: WheelEvent): void => {
-    if (!event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!event.ctrlKey && !event.altKey) return;
     if (this.state !== 'ready') return;
     event.preventDefault();
-    this.zoomAbout(this.zoom * Math.exp(-wheelPixels(event) * WHEEL_ZOOM), event);
+    const pixels = wheelPixels(event);
+    if (pixels === 0) return;
+    this.zoomAbout(wheelZoom(this.zoom, pixels), event);
   };
 
   /**
