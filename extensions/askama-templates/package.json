@@ -33,12 +33,12 @@
         ],
         "extensions": [
           ".html.askama",
-          ".htm.askama",
           ".html.j2",
-          ".htm.j2",
           ".html.jinja",
-          ".htm.jinja",
           ".html.jinja2",
+          ".htm.askama",
+          ".htm.j2",
+          ".htm.jinja",
           ".htm.jinja2"
         ],
         "configuration": "./language-configuration.json"
@@ -286,6 +286,70 @@
           ".capnp.jinja2"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-sh",
+        "aliases": [
+          "Askama Shell Script",
+          "askama-sh"
+        ],
+        "extensions": [
+          ".sh.askama",
+          ".sh.j2",
+          ".sh.jinja",
+          ".sh.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-objc",
+        "aliases": [
+          "Askama Objective-C",
+          "askama-objc"
+        ],
+        "extensions": [
+          ".m.askama",
+          ".m.j2",
+          ".m.jinja",
+          ".m.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-xml",
+        "aliases": [
+          "Askama XML",
+          "askama-xml"
+        ],
+        "extensions": [
+          ".xml.askama",
+          ".xml.j2",
+          ".xml.jinja",
+          ".xml.jinja2",
+          ".plist.askama",
+          ".plist.j2",
+          ".plist.jinja",
+          ".plist.jinja2",
+          ".xcscheme.askama",
+          ".xcscheme.j2",
+          ".xcscheme.jinja",
+          ".xcscheme.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "askama-gradle",
+        "aliases": [
+          "Askama Gradle",
+          "askama-gradle"
+        ],
+        "extensions": [
+          ".gradle.askama",
+          ".gradle.j2",
+          ".gradle.jinja",
+          ".gradle.jinja2"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -374,6 +438,26 @@
         "path": "./syntaxes/askama-capnp.tmLanguage.json"
       },
       {
+        "language": "askama-sh",
+        "scopeName": "source.shell.askama",
+        "path": "./syntaxes/askama-sh.tmLanguage.json"
+      },
+      {
+        "language": "askama-objc",
+        "scopeName": "source.objc.askama",
+        "path": "./syntaxes/askama-objc.tmLanguage.json"
+      },
+      {
+        "language": "askama-xml",
+        "scopeName": "text.xml.askama",
+        "path": "./syntaxes/askama-xml.tmLanguage.json"
+      },
+      {
+        "language": "askama-gradle",
+        "scopeName": "source.groovy.askama",
+        "path": "./syntaxes/askama-gradle.tmLanguage.json"
+      },
+      {
         "scopeName": "askama.injection",
         "path": "./syntaxes/askama-injection.tmLanguage.json",
         "injectTo": [
@@ -391,7 +475,11 @@
           "source.ignore.askama",
           "source.dotenv.askama",
           "source.swift.askama",
-          "source.capnp.askama"
+          "source.capnp.askama",
+          "source.shell.askama",
+          "source.objc.askama",
+          "text.xml.askama",
+          "source.groovy.askama"
         ]
       }
     ],
@@ -458,6 +546,22 @@
       },
       {
         "language": "askama-capnp",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-sh",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-objc",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-xml",
+        "path": "./snippets/askama.json"
+      },
+      {
+        "language": "askama-gradle",
         "path": "./snippets/askama.json"
       }
     ],
@@ -535,6 +639,7 @@
     ]
   },
   "scripts": {
+    "build:languages": "node scripts/languages/generate.mjs",
     "build": "tsdown",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",

@@ -8,20 +8,22 @@ wherever they appear.
 
 ## Features
 
-- **16 template languages**, one per host format: HTML, plain text, Rust,
+- **20 template languages**, one per host format: HTML, plain text, Rust,
   JavaScript, TypeScript, JSX, TSX, TOML, CSS, JSON, Markdown, YAML,
-  `.gitignore`, dotenv, Swift and Cap'n Proto. Each is claimed by a base
+  `.gitignore`, dotenv, Swift, Cap'n Proto, shell script, Objective-C, XML
+  (including `.plist` and `.xcscheme`) and Gradle. Each is claimed by a base
   extension plus one of four template suffixes — `.askama`, `.j2`, `.jinja`,
   `.jinja2` — so `page.html.askama`, `page.html.j2`, `page.html.jinja` and
   `page.html.jinja2` all resolve to Askama HTML.
 
 - **Host grammar underneath.** Every language grammar includes the real
   upstream grammar (`text.html.basic`, `source.rust`, `source.yaml`,
-  `text.html.markdown`, `source.toml`, and so on) after the Askama patterns, so
-  tags, attributes, keys and code around the template tags are highlighted the
-  way they normally are. Formats whose grammar ships in another extension —
-  TOML, dotenv, `.gitignore` — fall back to plain text for the host part if that
-  extension is not installed; the Askama tags are highlighted either way.
+  `text.html.markdown`, `source.shell`, `text.xml`, and so on) after the Askama
+  patterns, so tags, attributes, keys and code around the template tags are
+  highlighted the way they normally are. TOML is the one format whose grammar
+  VS Code does not ship: install a TOML extension (Even Better TOML, say) to
+  colour the host part; without one it stays plain text, and the Askama tags are
+  highlighted either way.
   Cap'n Proto is the exception: no grammar for it ships with VS Code, so this
   extension bundles its own — declarations, field ordinals (`@0`), unions and
   groups, built-in types, annotations (`$Cxx.namespace`), `#` comments, strings
@@ -51,7 +53,7 @@ wherever they appear.
   colours have separate defaults for dark, light, high contrast and high
   contrast light themes, and repaint 50 ms after you stop typing.
 
-- **16 snippets**, available in all 16 languages. Each block tag has both a
+- **16 snippets**, available in all 20 languages. Each block tag has both a
   bare prefix and a `%`-prefixed one — `for` and `%for` both expand to a
   `{% for … %} … {% endfor %}` pair with tab stops on the loop variable and the
   iterable. `{{` expands to `{{ expr }}` and `{#` to `{# comment #}`.
@@ -83,6 +85,10 @@ wherever they appear.
 | Askama dotenv | `.env` | `.env.askama`, `.env.production.j2` |
 | Askama Swift | `.swift` | `View.swift.askama` |
 | Askama Cap'n Proto | `.capnp` | `schema.capnp.askama` |
+| Askama Shell Script | `.sh` | `install.sh.askama` |
+| Askama Objective-C | `.m` | `AppDelegate.m.j2` |
+| Askama XML | `.xml`, `.plist`, `.xcscheme` | `Info.plist.askama`, `App.xcscheme.jinja` |
+| Askama Gradle | `.gradle` | `build.gradle.askama` |
 
 Every base name above works with all four suffixes. The dotenv language also
 matches `.env.*.askama` and the `.j2` / `.jinja` / `.jinja2` variants, so

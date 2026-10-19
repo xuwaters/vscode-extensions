@@ -1,0 +1,20 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace '{{ package_name }}'
+    compileSdk {{ compile_sdk }}
+
+    defaultConfig {
+        applicationId "{{ package_name }}"
+        versionCode {{ version_code }}
+        versionName '{{ version }}'
+    }
+}
+
+dependencies {
+{% for dep in dependencies %}
+    implementation '{{ dep }}'
+{% endfor %}
+}

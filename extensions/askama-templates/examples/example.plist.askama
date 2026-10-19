@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>{{ bundle_id }}</string>
+  <key>CFBundleShortVersionString</key>
+  <string>{{ version }}</string>
+{% if url_schemes.len() > 0 %}
+  <key>CFBundleURLTypes</key>
+  <array>
+  {% for scheme in url_schemes %}
+    <dict>
+      <key>CFBundleURLSchemes</key>
+      <array><string>{{ scheme }}</string></array>
+    </dict>
+  {% endfor %}
+  </array>
+{% endif %}
+</dict>
+</plist>

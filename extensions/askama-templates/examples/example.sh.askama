@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# {{ name }} installer, generated for {{ target }}.
+set -euo pipefail
+
+PREFIX="${PREFIX:-{{ default_prefix }}}"
+echo "Installing {{ name }} {{ version }} into $PREFIX"
+
+{% for dir in dirs %}
+mkdir -p "$PREFIX/{{ dir }}"
+{% endfor %}
+
+{% if with_service %}
+systemctl enable --now {{ name|lower }}.service
+{% else %}
+echo "Skipping service setup"
+{% endif %}

@@ -1,9 +1,21 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ASKAMA_LANGUAGES } from './languages';
 
 const root = path.resolve(__dirname, '..');
+const GENERATOR = path.join(root, 'scripts', 'languages', 'generate.mjs');
+
+interface TemplateLanguage {
+  id: string;
+  host?: string;
+  provider?: 'extension';
+}
+
+const TABLE = JSON.parse(
+  readFileSync(path.join(root, 'scripts', 'languages', 'languages.json'), 'utf8'),
+) as { languages: TemplateLanguage[] };
 
 interface LanguageContribution {
   id: string;
@@ -76,17 +88,21 @@ describe('language contributions', () => {
       'askama-css',
       'askama-env',
       'askama-gitignore',
+      'askama-gradle',
       'askama-html',
       'askama-js',
       'askama-json',
       'askama-jsx',
       'askama-md',
+      'askama-objc',
       'askama-rust',
+      'askama-sh',
       'askama-swift',
       'askama-toml',
       'askama-ts',
       'askama-tsx',
       'askama-txt',
+      'askama-xml',
       'askama-yaml',
     ]);
   });
@@ -104,6 +120,58 @@ describe('language contributions', () => {
       for (const [base, found] of bases) {
         expect([...found].sort(), `${lang.id} base "${base}"`).toEqual([...suffixes].sort());
       }
+    }
+  });
+});
+
+describe('the language table', () => {
+  it('is what package.json, the grammars and languages.ts are generated from', () => {
+    // The generator's own `--check`, so a forgotten regeneration fails here.
+    execFileSync('node', [GENERATOR, '--check'], { stdio: 'pipe' });
+  });
+
+  it('names each language once', () => {
+    const ids = TABLE.languages.map(l => l.id);
+    expect(new Set(ids).size, ids.join(' ')).toBe(ids.length);
+  });
+});
+
+/** The `extensions` directory of a VS Code install, if this machine has one. */
+const APP_EXTENSIONS = [
+  '/Applications/Visual Studio Code.app/Contents/Resources/app/extensions',
+  '/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/extensions',
+  '/Applications/Cursor.app/Contents/Resources/app/extensions',
+  '/usr/share/code/resources/app/extensions',
+].find(candidate => existsSync(candidate));
+
+/** Every TextMate scope the VS Code at `directory` ships a grammar for. */
+function builtinScopes(directory: string): Set<string> {
+  const scopes = new Set<string>();
+  for (const name of readdirSync(directory)) {
+    const manifest = path.join(directory, name, 'package.json');
+    if (!existsSync(manifest)) continue;
+    try {
+      const contributes = JSON.parse(readFileSync(manifest, 'utf8')).contributes;
+      for (const grammar of contributes?.grammars ?? []) scopes.add(grammar.scopeName);
+    } catch {
+      continue;
+    }
+  }
+  return scopes;
+}
+
+describe.skipIf(!APP_EXTENSIONS)('against the VS Code on this machine', () => {
+  const scopes = APP_EXTENSIONS ? builtinScopes(APP_EXTENSIONS) : new Set<string>();
+
+  it('includes a host grammar VS Code really ships, for every host it ships', () => {
+    for (const language of TABLE.languages.filter(l => l.host && !l.provider)) {
+      expect(scopes.has(language.host!), `${language.id} (${language.host})`).toBe(true);
+    }
+  });
+
+  it('marks as provided-by-an-extension only what VS Code does not ship', () => {
+    for (const language of TABLE.languages.filter(l => l.provider === 'extension')) {
+      expect(scopes.has(language.host!), `${language.id} is built in now`).toBe(false);
     }
   });
 });

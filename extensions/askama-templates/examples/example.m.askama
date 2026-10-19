@@ -1,0 +1,16 @@
+{# Generated per target; do not edit the rendered file. #}
+#import "{{ class_name }}.h"
+
+@implementation {{ class_name }}
+
+- (NSString *)bundleIdentifier {
+    return @"{{ bundle_id }}";
+}
+
+{% for prop in properties %}
+- ({{ prop.objc_type }}){{ prop.name }} {
+    return _{{ prop.name }};
+}
+{% endfor %}
+
+@end

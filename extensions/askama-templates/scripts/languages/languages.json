@@ -1,0 +1,26 @@
+{
+  "_comment": "The template languages this extension contributes. This table is the source of truth: `node scripts/languages/generate.mjs` expands it into package.json (contributes.languages, grammars, snippets), one syntaxes/askama-<name>.tmLanguage.json per language, the injection grammar's selector and src/languages.ts. Adding a language means adding one entry here and re-running that. `id` is the VS Code language id and `name` its display name after `Askama `. `scope` is the scope the language's grammar registers. `host` is the TextMate scope of the format being templated; its grammar colours everything outside the Askama tags. `bundled` marks a language whose grammar file is written by hand because no host grammar exists to include — the generator leaves that file alone. A language with neither is plain text: its grammar is `source.askama` alone and nothing is injected into it. `provider: extension` marks a host grammar VS Code does not ship, so the host part stays uncoloured until the user installs an extension for it; src/contributions.test.ts checks every other host against the VS Code on the machine running the tests. `extensions`, `filenames` and `filenamePatterns` list base names; each is expanded with every entry of `suffixes`, so `.html` claims `.html.askama`, `.html.j2`, `.html.jinja` and `.html.jinja2`.",
+  "suffixes": [".askama", ".j2", ".jinja", ".jinja2"],
+  "languages": [
+    { "id": "askama-html", "name": "HTML", "scope": "text.html.askama", "host": "text.html.basic", "extensions": [".html", ".htm"] },
+    { "id": "askama-txt", "name": "Text", "scope": "text.askama", "extensions": [".txt", ""] },
+    { "id": "askama-rust", "name": "Rust", "scope": "source.rust.askama", "host": "source.rust", "extensions": [".rs"] },
+    { "id": "askama-js", "name": "JavaScript", "scope": "source.js.askama", "host": "source.js", "extensions": [".js"] },
+    { "id": "askama-ts", "name": "TypeScript", "scope": "source.ts.askama", "host": "source.ts", "extensions": [".ts"] },
+    { "id": "askama-toml", "name": "TOML", "scope": "source.toml.askama", "host": "source.toml", "provider": "extension", "extensions": [".toml"] },
+    { "id": "askama-css", "name": "CSS", "scope": "source.css.askama", "host": "source.css", "extensions": [".css"] },
+    { "id": "askama-json", "name": "JSON", "scope": "source.json.askama", "host": "source.json", "extensions": [".json"] },
+    { "id": "askama-md", "name": "Markdown", "scope": "text.html.markdown.askama", "host": "text.html.markdown", "extensions": [".md", ".markdown"] },
+    { "id": "askama-jsx", "name": "JSX", "scope": "source.js.jsx.askama", "host": "source.js.jsx", "extensions": [".jsx"] },
+    { "id": "askama-tsx", "name": "TSX", "scope": "source.tsx.askama", "host": "source.tsx", "extensions": [".tsx"] },
+    { "id": "askama-yaml", "name": "YAML", "scope": "source.yaml.askama", "host": "source.yaml", "extensions": [".yaml", ".yml"] },
+    { "id": "askama-gitignore", "name": "gitignore", "scope": "source.ignore.askama", "host": "source.ignore", "extensions": [".gitignore"], "filenames": ["gitignore"] },
+    { "id": "askama-env", "name": "dotenv", "scope": "source.dotenv.askama", "host": "source.dotenv", "extensions": [".env"], "filenames": [".env", "env"], "filenamePatterns": [".env.*"] },
+    { "id": "askama-swift", "name": "Swift", "scope": "source.swift.askama", "host": "source.swift", "extensions": [".swift"] },
+    { "id": "askama-capnp", "name": "Cap'n Proto", "scope": "source.capnp.askama", "bundled": true, "extensions": [".capnp"] },
+    { "id": "askama-sh", "name": "Shell Script", "scope": "source.shell.askama", "host": "source.shell", "extensions": [".sh"] },
+    { "id": "askama-objc", "name": "Objective-C", "scope": "source.objc.askama", "host": "source.objc", "extensions": [".m"] },
+    { "id": "askama-xml", "name": "XML", "scope": "text.xml.askama", "host": "text.xml", "extensions": [".xml", ".plist", ".xcscheme"] },
+    { "id": "askama-gradle", "name": "Gradle", "scope": "source.groovy.askama", "host": "source.groovy", "extensions": [".gradle"] }
+  ]
+}
