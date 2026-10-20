@@ -459,21 +459,28 @@ fn match_conditional_open(text: &str) -> Option<ConditionalKind> {
 }
 
 fn match_directive(text: &str) -> Option<DirectiveKind> {
-    if starts_keyword(text, "export") {
-        Some(DirectiveKind::Export)
+    let (kw, kind) = if starts_keyword(text, "export") {
+        ("export", DirectiveKind::Export)
     } else if starts_keyword(text, "unexport") {
-        Some(DirectiveKind::Unexport)
+        ("unexport", DirectiveKind::Unexport)
     } else if starts_keyword(text, "override") {
-        Some(DirectiveKind::Override)
+        ("override", DirectiveKind::Override)
     } else if starts_keyword(text, "private") {
-        Some(DirectiveKind::Private)
+        ("private", DirectiveKind::Private)
     } else if starts_keyword(text, "undefine") {
-        Some(DirectiveKind::Undefine)
+        ("undefine", DirectiveKind::Undefine)
     } else if starts_keyword(text, "vpath") {
-        Some(DirectiveKind::VPath)
+        ("vpath", DirectiveKind::VPath)
     } else {
-        None
+        return None;
+    };
+    // `export:` / `export : deps` is a rule whose target happens to be
+    // named like a directive, not the directive itself.
+    let rest = text[kw.len()..].trim_start();
+    if rest.starts_with(':') && !is_assign_colon(rest, 0) {
+        return None;
     }
+    Some(kind)
 }
 
 fn starts_keyword(text: &str, kw: &str) -> bool {
@@ -841,6 +848,25 @@ mod tests {
         let src = "\techo hi\n";
         let (_, diags) = parse(src);
         assert!(diags.iter().any(|d| d.code == DiagnosticCode::RecipeOutsideRule));
+    }
+
+    #[test]
+    fn directive_named_target_is_a_rule() {
+        let src = ".PHONY: export\nexport:\n\t@echo export\nvpath : x\n\techo vpath\n";
+        let (file, diags) = parse(src);
+        assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+        let Item::Rule(r) = &file.items[1] else { panic!() };
+        assert_eq!(r.targets[0].name, "export");
+        assert_eq!(r.recipe_lines.len(), 1);
+        let Item::Rule(r) = &file.items[2] else { panic!() };
+        assert_eq!(r.targets[0].name, "vpath");
+    }
+
+    #[test]
+    fn export_with_assignment_is_still_a_directive() {
+        let src = "export FOO := 1\nexport\n";
+        let (file, _) = parse(src);
+        assert!(file.items.iter().all(|i| !matches!(i, Item::Rule(_))));
     }
 
     #[test]

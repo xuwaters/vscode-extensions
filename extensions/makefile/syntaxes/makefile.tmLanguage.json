@@ -23,7 +23,7 @@
     "directive": {
       "patterns": [
         {
-          "match": "^\\s*(export|unexport|override|private|undefine|vpath)\\b",
+          "match": "^\\s*(export|unexport|override|private|undefine|vpath)(?=\\s|$)(?!\\s*::?(?![:=]))",
           "captures": {
             "1": { "name": "keyword.control.directive.makefile" }
           }
@@ -33,7 +33,7 @@
     "conditional": {
       "patterns": [
         {
-          "match": "^\\s*(ifeq|ifneq|ifdef|ifndef|else|endif)\\b",
+          "match": "^\\s*(ifeq|ifneq|ifdef|ifndef|else|endif)(?=\\s|$)",
           "captures": {
             "1": { "name": "keyword.control.conditional.makefile" }
           }
