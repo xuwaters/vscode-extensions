@@ -242,6 +242,35 @@ describe('a raw block without one', () => {
   });
 });
 
+describe('math', () => {
+  it('scopes $ as an embedded-mode delimiter, which themes colour', async () => {
+    const source = 'Let $r = p/q$ hold.\n';
+    expect(await scopesAt(source, '$r')).toEqual(
+      expect.arrayContaining([
+        'punctuation.section.embedded.begin.typst',
+        'punctuation.definition.math.typst',
+      ]),
+    );
+    expect(await scopesAt(source, '$ hold')).toEqual(
+      expect.arrayContaining([
+        'punctuation.section.embedded.end.typst',
+        'punctuation.definition.math.typst',
+      ]),
+    );
+  });
+
+  it('does not call $ a string, so $ and " still auto-close after it', async () => {
+    // vscode-textmate makes any scope with the word `string` in it a String
+    // token, and language-configuration.json auto-closes `$` and `"` only
+    // outside one. Bits 8–9 of the metadata are the standard token type.
+    const grammar = await stubbed.loadGrammar('source.typst');
+    const { tokens } = grammar!.tokenizeLine2('$x$', textmate.INITIAL);
+    for (let i = 1; i < tokens.length; i += 2) {
+      expect((tokens[i] >>> 8) & 0b11, `token at ${tokens[i - 1]}`).toBe(0);
+    }
+  });
+});
+
 /**
  * Every bracket in `source`, paired the way VS Code's bracket-pair colouring
  * pairs them.

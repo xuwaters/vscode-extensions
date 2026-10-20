@@ -212,10 +212,16 @@
             "markup.bold.typst"
           ],
           "mathDelimiter": [
-            "punctuation.definition.math.typst"
+            "punctuation.definition.math.typst",
+            "punctuation.section.embedded.begin.typst",
+            "punctuation.definition.string.begin.typst"
           ],
           "interpolated": [
-            "meta.interpolation.typst"
+            "meta.interpolation.typst",
+            "variable.other.typst"
+          ],
+          "mathSymbol": [
+            "support.constant.math.typst"
           ],
           "error": [
             "invalid.illegal.typst"

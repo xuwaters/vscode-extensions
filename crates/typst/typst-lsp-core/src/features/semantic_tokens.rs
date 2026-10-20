@@ -16,6 +16,10 @@
 //! * **A language-tagged raw block is not ours to colour.** ```` ```rust ````
 //!   is handed to rust's TextMate grammar, and semantic tokens outrank grammar
 //!   scopes — so the body is deliberately left untagged (decision 0013).
+//! * **Upstream leaves most of math uncoloured.** Variables and numbers are
+//!   `MathText` with no tag, and a symbol like `in` shares `Interpolated` with
+//!   `#x` in markup. Those leaves are refined here: `variable`, `number` and
+//!   `mathSymbol`.
 
 use lsp_types::{
     SemanticToken, SemanticTokenType, SemanticTokens, SemanticTokensDelta,
@@ -58,6 +62,8 @@ pub const TOKEN_TYPES: &[&str] = &[
     // Every theme already understands both, so they need no scope mapping.
     "property",
     "variable",
+    // A named symbol in math, `in` or `arrow.r`; see `leaf_type`.
+    "mathSymbol",
 ];
 
 /// The legend the server advertises at initialize time.
@@ -215,14 +221,39 @@ fn collect(
         if range.is_empty() {
             return;
         }
-        if let Some(tag) = tag {
-            push_split_by_line(range, token_index(tag), source, out);
+        if let Some(token_type) = leaf_type(node, tag) {
+            push_split_by_line(range, token_type, source, out);
         }
         return;
     }
 
     for child in node.children() {
         collect(&child, tag, source, out);
+    }
+}
+
+/// The token type of a leaf, which is its tag's except in math.
+///
+/// Upstream tags no `MathText`, so `a` and `111` in `$a = 111$` would carry no
+/// token at all, and it gives `in` the same `Interpolated` as `#x` in markup.
+/// A math letter becomes a `variable` and a math number a `number`, both of
+/// which every theme colours; a named symbol gets a type of its own. The rest
+/// of `MathText` — `+`, `=`, `,` — stays as it was, which leaves the
+/// grammar's operator scope showing through.
+fn leaf_type(node: &LinkedNode, tag: Option<Tag>) -> Option<u32> {
+    match node.kind() {
+        SyntaxKind::MathText => {
+            let first = node.leaf_text().chars().next();
+            if first.is_some_and(char::is_numeric) {
+                Some(index_of("number"))
+            } else if first.is_some_and(char::is_alphabetic) {
+                Some(index_of("variable"))
+            } else {
+                tag.map(token_index)
+            }
+        }
+        SyntaxKind::MathIdent if tag == Some(Tag::Interpolated) => Some(index_of("mathSymbol")),
+        _ => tag.map(token_index),
     }
 }
 
@@ -391,6 +422,55 @@ mod tests {
             .find(|token| type_name(token.token_type) == "strong")
             .expect("expected a strong token");
         assert_eq!(strong.start, 2);
+    }
+
+    /// The token type over the first occurrence of `needle` in `text`.
+    fn type_at(text: &str, needle: &str) -> Option<&'static str> {
+        let source = Source::detached(text);
+        let start = text.find(needle).expect("needle in text") as u32;
+        absolute(&source)
+            .into_iter()
+            .find(|token| token.line == 0 && token.start == start)
+            .map(|token| type_name(token.token_type))
+    }
+
+    #[test]
+    fn math_letters_and_numbers_are_variables_and_numbers() {
+        let text = "$a + b^2 = 111/x$\n";
+        assert_eq!(type_at(text, "a"), Some("variable"));
+        assert_eq!(type_at(text, "b"), Some("variable"));
+        assert_eq!(type_at(text, "2"), Some("number"));
+        assert_eq!(type_at(text, "111"), Some("number"));
+        assert_eq!(type_at(text, "x"), Some("variable"));
+        // Left to the grammar, which scopes it as a math operator.
+        assert_eq!(type_at(text, "+"), None);
+        assert_eq!(type_at(text, "="), None);
+    }
+
+    #[test]
+    fn a_decimal_in_math_is_one_number_token() {
+        let source = Source::detached("$3.14$\n");
+        let number: Vec<AbsoluteToken> = absolute(&source)
+            .into_iter()
+            .filter(|token| type_name(token.token_type) == "number")
+            .collect();
+        assert_eq!(number.len(), 1);
+        assert_eq!((number[0].start, number[0].length), (1, 4));
+    }
+
+    #[test]
+    fn a_math_symbol_is_told_apart_from_a_markup_interpolation() {
+        let text = "$a in arrow.r$ and #x\n";
+        assert_eq!(type_at(text, "in"), Some("mathSymbol"));
+        assert_eq!(type_at(text, "arrow"), Some("mathSymbol"));
+        assert_eq!(type_at(text, "r$"), Some("mathSymbol"));
+        assert_eq!(type_at(text, "x"), Some("interpolated"));
+    }
+
+    #[test]
+    fn a_called_math_ident_stays_a_function() {
+        assert_eq!(type_at("$sqrt(4 a b)$\n", "sqrt"), Some("function"));
+        assert_eq!(type_at("$sqrt(4 a b)$\n", "4"), Some("number"));
     }
 
     #[test]

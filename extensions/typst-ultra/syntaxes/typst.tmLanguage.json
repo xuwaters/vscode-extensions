@@ -47,10 +47,10 @@
       "begin": "\\$",
       "end": "\\$",
       "beginCaptures": {
-        "0": { "name": "punctuation.definition.math.typst" }
+        "0": { "name": "punctuation.section.embedded.begin.typst punctuation.definition.math.typst" }
       },
       "endCaptures": {
-        "0": { "name": "punctuation.definition.math.typst" }
+        "0": { "name": "punctuation.section.embedded.end.typst punctuation.definition.math.typst" }
       },
       "patterns": [
         { "include": "#escape" },

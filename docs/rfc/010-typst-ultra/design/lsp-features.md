@@ -230,12 +230,28 @@ actual parser, so coloring is correct by construction rather than by regex appro
 | `Heading` | `heading`* | `markup.heading` |
 | `ListMarker` | `listMarker`* | `punctuation.definition.list.begin` |
 | `ListTerm` | `listTerm`* | `markup.bold` |
-| `MathDelimiter` | `mathDelimiter`* | `punctuation.definition.math` |
-| `Interpolated` | `interpolated`* | `meta.interpolation` |
+| `MathDelimiter` | `mathDelimiter`* | `punctuation.definition.math`, then `punctuation.section.embedded.begin`, then `punctuation.definition.string.begin` |
+| `Interpolated` | `interpolated`* | `meta.interpolation`, then `variable.other` |
+| `Interpolated` on a `MathIdent` | `mathSymbol`* | `support.constant.math` |
+| none, on a `MathText` letter | `variable` | `variable` |
+| none, on a `MathText` number | `number` | `constant.numeric` |
 | `Error` | `error`* | `invalid.illegal` |
 
 `*` = custom token type, declared in the server's legend and given a TextMate scope fallback via
-`contributes.semanticTokenScopes` so themes without explicit support still color it sensibly.
+`contributes.semanticTokenScopes` so themes without explicit support still color it sensibly. A theme is
+matched against the fallbacks in order, so `meta.interpolation` still wins in a theme that styles it.
+Almost no theme styles `punctuation.definition.math` — none of VS Code's defaults, nor Dracula — so `$`
+falls back to `punctuation.section.embedded.begin`, the opener of an embedded mode such as `${`, which
+every default theme and Dracula colour. The grammar gives `$` the same pair of scopes, so the colour does
+not change when the first semantic tokens arrive. The string-delimiter scope VS Code's LaTeX grammar gives
+`$` comes last, for a theme that styles only that; the grammar must not carry it, because a scope
+containing `string` makes vscode-textmate call the token a String, and `$` and `"` do not auto-close
+after one.
+
+Upstream leaves most of math untagged: a variable or a number is `MathText` with no tag, and a symbol such
+as `in` or `arrow.r` shares `Interpolated` with `#x` in markup. The last three rows are ours, refined at the
+leaf. The rest of `MathText` (`+`, `=`, `,`) still gets no token, so the grammar's
+`keyword.operator.math` shows through.
 
 Both `full` and `full/delta` are implemented — delta matters here because a document produces thousands of
 tokens and re-sending them on every keystroke is wasteful. The server keeps the previous token array per
