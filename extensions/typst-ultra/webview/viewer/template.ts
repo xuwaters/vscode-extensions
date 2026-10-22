@@ -123,7 +123,7 @@ export const template = html<TypstPreview>`
     </div>
 
     ${when(
-      (x) => x.status.state !== 'ok',
+      (x) => x.showsStatus,
       html<TypstPreview>`
         <div class="status status-${(x) => x.status.state}" role="status">
           ${(x) => x.statusText}

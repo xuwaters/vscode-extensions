@@ -55,7 +55,8 @@ download, no code signing.
   `PageUp`/`PageDown`/`Home`/`End` to turn the page from the keyboard
 - Fit width and fit page are modes, not one-shots: they stay switched on and
   follow the panel as it is resized, until you set the zoom by hand
-- A compile error dims the last good pages rather than blanking the preview
+- A compile error leaves the last good pages on screen rather than blanking
+  the preview; `preview.showErrors` dims them and says so
 
 **Snippets** — 84 of them, for people who have not written Typst
 before: whole-document scaffolds (`article`, `report`, `book`, `letter`,
@@ -237,6 +238,7 @@ All under `typstUltra.`. The ones worth knowing about:
 | `packages.enabled` | `true` | Turn off for air-gapped setups |
 | `preview.scrollSync` | `"both"` | Which way the editor and preview follow each other |
 | `preview.invertColors` | `"never"` | `never` · `always` · `auto` |
+| `preview.showErrors` | `false` | Dim the preview and show a bar while the document has errors |
 | `preview.defaultMode` | `"split"` | `split` · `preview` |
 | `preview.lockPreviewGroup` | `true` | Keep newly-opened files out of the preview's group |
 | `export.outputPath` | `"$dir/$name"` | Supports `$dir`, `$name`, `$root` — where the export dialog opens |

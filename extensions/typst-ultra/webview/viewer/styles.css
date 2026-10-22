@@ -290,8 +290,13 @@ typst-preview * {
 /*
  * A compile failure dims the last good pages rather than blanking them. Because
  * the session keeps the last good document, a transient syntax error while
- * typing leaves something readable on screen.
+ * typing leaves something readable on screen. The fade keeps the change from
+ * reading as a flash.
  */
+.pages .page {
+  transition: opacity 150ms ease-out;
+}
+
 .pages.has-error .page {
   opacity: 0.45;
 }

@@ -716,6 +716,7 @@ export function previewSettings(scope?: vscode.Uri): PreviewSettings {
   return {
     scrollSync: settings.scrollSync,
     cursorIndicator: settings.cursorIndicator,
+    showErrors: settings.showErrors,
     invertColors: settings.invertColors,
     background: settings.background,
     renderMode: settings.renderMode,

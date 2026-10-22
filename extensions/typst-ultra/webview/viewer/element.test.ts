@@ -11,6 +11,7 @@ import { PX_PER_PT } from '../model/layout.js';
 const SETTINGS: PreviewSettings = {
   scrollSync: 'both',
   cursorIndicator: true,
+  showErrors: true,
   invertColors: 'never',
   background: 'editor',
   renderMode: 'svg',
@@ -96,17 +97,85 @@ describe('the chrome', () => {
     expect(query('.status')).toBeNull();
   });
 
-  it('keeps the last good pages on screen, dimmed, when a compile fails', async () => {
+  /** The editor already marks the error; the preview just keeps the last good pages. */
+  it('leaves the pages alone when a compile fails, unless asked to show it', async () => {
+    preview.handle({ type: 'settings', settings: { ...SETTINGS, showErrors: false } });
     vi.useFakeTimers();
     try {
       preview.handle({ type: 'status', state: 'error', message: 'unexpected }' });
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
+      preview.handle({ type: 'status', state: 'compiling' });
+      vi.advanceTimersByTime(2000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await Updates.next();
+    expect(query('.status')).toBeNull();
+    expect(must('.pages').classList.contains('has-error')).toBe(false);
+
+    preview.handle({ type: 'settings', settings: SETTINGS });
+    await Updates.next();
+    expect(must('.status').textContent).toContain('unexpected }');
+    expect(must('.pages').classList.contains('has-error')).toBe(true);
+  });
+
+  it('keeps the last good pages on screen, dimmed, when a compile fails', async () => {
+    preview.handle({ type: 'settings', settings: SETTINGS });
+    vi.useFakeTimers();
+    try {
+      preview.handle({ type: 'status', state: 'error', message: 'unexpected }' });
+      vi.advanceTimersByTime(2000);
     } finally {
       vi.useRealTimers();
     }
     await Updates.next();
     expect(must('.status').textContent).toContain('unexpected }');
     expect(must('.pages').classList.contains('has-error')).toBe(true);
+  });
+
+  /** `#t`, `#ta`, `#tab` each fail, and a pause mid-word is not a finished thought. */
+  it('waits longer before reporting a failure than a compile', async () => {
+    preview.handle({ type: 'settings', settings: SETTINGS });
+    vi.useFakeTimers();
+    try {
+      preview.handle({ type: 'status', state: 'error', message: 'unknown variable: tab' });
+      vi.advanceTimersByTime(600);
+    } finally {
+      vi.useRealTimers();
+    }
+    await Updates.next();
+    expect(query('.status')).toBeNull();
+    expect(must('.pages').classList.contains('has-error')).toBe(false);
+  });
+
+  /**
+   * Each keystroke into a broken document recompiles it. Letting that
+   * `compiling` replace the error undimmed the pages until the compile failed
+   * again, which flashed the preview once per key.
+   */
+  it('keeps a failure on screen through the recompiles that follow it', async () => {
+    preview.handle({ type: 'settings', settings: SETTINGS });
+    vi.useFakeTimers();
+    try {
+      preview.handle({ type: 'status', state: 'error', message: 'unknown variable: t' });
+      vi.advanceTimersByTime(2000);
+      preview.handle({ type: 'status', state: 'compiling' });
+      vi.advanceTimersByTime(2000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await Updates.next();
+    expect(must('.status').textContent).toContain('unknown variable: t');
+    expect(must('.pages').classList.contains('has-error')).toBe(true);
+
+    preview.handle({ type: 'status', state: 'error', message: 'unknown variable: ta' });
+    await Updates.next();
+    expect(must('.status').textContent).toContain('unknown variable: ta');
+
+    preview.handle({ type: 'status', state: 'ok' });
+    await Updates.next();
+    expect(query('.status')).toBeNull();
+    expect(must('.pages').classList.contains('has-error')).toBe(false);
   });
 
   /**

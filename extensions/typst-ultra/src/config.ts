@@ -21,6 +21,7 @@ export interface HostSettings {
   preview: {
     scrollSync: 'both' | 'editorToPreview' | 'previewToEditor' | 'off';
     cursorIndicator: boolean;
+    showErrors: boolean;
     invertColors: 'never' | 'always' | 'auto';
     background: 'editor' | 'white' | 'gray';
     renderMode: 'svg' | 'png' | 'auto';
@@ -88,6 +89,7 @@ export function read(scope?: vscode.Uri): Config {
       preview: {
         scrollSync: config.get('preview.scrollSync', 'both'),
         cursorIndicator: config.get('preview.cursorIndicator', false),
+        showErrors: config.get('preview.showErrors', false),
         invertColors: config.get('preview.invertColors', 'never'),
         background: config.get('preview.background', 'editor'),
         renderMode: config.get('preview.renderMode', 'svg'),

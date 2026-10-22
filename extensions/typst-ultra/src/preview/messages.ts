@@ -27,6 +27,11 @@ export type FitMode = 'width' | 'page' | 'actual';
 export interface PreviewSettings {
   scrollSync: 'both' | 'editorToPreview' | 'previewToEditor' | 'off';
   cursorIndicator: boolean;
+  /**
+   * Dim the pages and say so when a compile fails. Off by default: the editor
+   * already marks the error where it is, and the last good pages stay readable.
+   */
+  showErrors: boolean;
   invertColors: 'never' | 'always' | 'auto';
   background: 'editor' | 'white' | 'gray';
   /**

@@ -1,4 +1,10 @@
-import { FASTElement, css, customElement, observable } from '@microsoft/fast-element';
+import {
+  FASTElement,
+  css,
+  customElement,
+  observable,
+  volatile,
+} from '@microsoft/fast-element';
 import type {
   FitMode,
   HostToWebview,
@@ -39,6 +45,16 @@ const SAVE_MS = 200;
  * know about; one that does not is noise.
  */
 const STATUS_MS = 400;
+
+/**
+ * How long a failed compile has to hold before the preview dims for it.
+ *
+ * Longer than {@link STATUS_MS}, because typing a name one letter at a time —
+ * `#t`, `#ta`, `#tab` — fails on every letter, and a reader pausing mid-word is
+ * not asking to be told. The editor squiggles the error at once; the preview
+ * only needs to say so once the reader has stopped.
+ */
+const ERROR_MS = 1000;
 
 /** What the element needs from the extension host. */
 export interface PreviewHost {
@@ -85,6 +101,7 @@ export class TypstPreview extends FASTElement {
   @observable settings: PreviewSettings = {
     scrollSync: 'both',
     cursorIndicator: false,
+    showErrors: false,
     invertColors: 'never',
     background: 'editor',
     renderMode: 'svg',
@@ -228,10 +245,30 @@ export class TypstPreview extends FASTElement {
   get columnClass(): string {
     return [
       this.inverted ? 'inverted' : '',
-      this.status.state === 'error' ? 'has-error' : '',
+      this.showsError ? 'has-error' : '',
     ]
       .filter(Boolean)
       .join(' ');
+  }
+
+  /**
+   * Whether a failed compile is shown at all. Off by default: the editor marks
+   * the error where it is, and the last good pages are on screen either way.
+   * The failure is still tracked when hidden, so that the recompiles typing
+   * into it do not put "Compiling…" up in its place.
+   *
+   * Volatile because the `&&` reads the setting only some of the time, and a
+   * binding that tracked its first reading would miss the setting changing.
+   */
+  @volatile
+  get showsError(): boolean {
+    return this.status.state === 'error' && this.settings.showErrors;
+  }
+
+  /** Whether the status bar is up. */
+  @volatile
+  get showsStatus(): boolean {
+    return this.status.state === 'compiling' || this.showsError;
   }
 
   get statusText(): string {
@@ -326,10 +363,16 @@ export class TypstPreview extends FASTElement {
   /**
    * Say what the compiler is doing — once it has been doing it long enough.
    *
-   * Only the rise out of `ok` waits. Going back to `ok` is immediate, so a
-   * compile that finishes inside {@link STATUS_MS} is never announced at all;
-   * and once the bar is up, further news changes its text at once rather than
-   * leaving a stale message on screen for another {@link STATUS_MS}.
+   * Only the rise out of `ok` waits — {@link STATUS_MS} for a compile,
+   * {@link ERROR_MS} for a failure. Going back to `ok` is immediate, so a
+   * compile that finishes inside the wait is never announced at all; and once
+   * the bar is up, further news changes its text at once rather than leaving a
+   * stale message on screen for another wait.
+   *
+   * A failure on screen stays there through the recompiles that follow it,
+   * until one of them succeeds. Every keystroke recompiles, and letting each
+   * `compiling` replace the error undimmed the pages for the moment the compile
+   * took, so typing into a broken document flashed the preview once per key.
    */
   private showStatus(state: 'compiling' | 'ok' | 'error', message?: string): void {
     if (this.statusTimer) {
@@ -337,15 +380,20 @@ export class TypstPreview extends FASTElement {
       this.statusTimer = undefined;
     }
 
+    if (this.status.state === 'error' && state === 'compiling') return;
+
     if (state === 'ok' || this.status.state !== 'ok') {
       this.status = { state, message };
       return;
     }
 
-    this.statusTimer = setTimeout(() => {
-      this.statusTimer = undefined;
-      this.status = { state, message };
-    }, STATUS_MS);
+    this.statusTimer = setTimeout(
+      () => {
+        this.statusTimer = undefined;
+        this.status = { state, message };
+      },
+      state === 'error' ? ERROR_MS : STATUS_MS,
+    );
   }
 
   // ── Settings and place ─────────────────────────────────────────────────────
