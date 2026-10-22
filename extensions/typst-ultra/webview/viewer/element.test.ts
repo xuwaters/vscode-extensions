@@ -134,18 +134,22 @@ describe('the chrome', () => {
   });
 
   /** `#t`, `#ta`, `#tab` each fail, and a pause mid-word is not a finished thought. */
-  it('waits longer before reporting a failure than a compile', async () => {
+  it('waits before reporting a failure', async () => {
     openDocument();
     preview.handle({ type: 'settings', settings: SETTINGS });
     vi.useFakeTimers();
     try {
       preview.handle({ type: 'status', state: 'error', message: 'unknown variable: tab' });
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(300);
+      await Updates.next();
+      expect(query('.status')).toBeNull();
+
+      vi.advanceTimersByTime(200);
     } finally {
       vi.useRealTimers();
     }
     await Updates.next();
-    expect(query('.status')).toBeNull();
+    expect(must('.status').textContent).toContain('unknown variable: tab');
   });
 
   /**

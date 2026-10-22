@@ -15,12 +15,16 @@ import type { PageMetric, PagePatch } from './messages.js';
 export interface MetricsResult {
   pageCount: number;
   pages: PageMetric[];
+  /** The document measured: the compile root, whatever URI was asked about. */
+  uri?: string;
 }
 
 /** The server's answer to `typst/renderPages`. */
 export interface RenderResult {
   patches: PagePatch[];
   pageCount: number;
+  /** The document rendered, as in {@link MetricsResult.uri}. */
+  uri?: string;
 }
 
 /** The server's answer to `typst/jumpFromClick`. */

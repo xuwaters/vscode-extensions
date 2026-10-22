@@ -960,6 +960,7 @@ fn document_metrics_describe_every_page() {
         .request("typst/documentMetrics", json!({ "uri": uri.as_str() }));
 
     assert_eq!(result["pageCount"], json!(2));
+    assert_eq!(result["uri"], json!(uri.as_str()));
     let pages = result["pages"].as_array().unwrap();
     assert_eq!(pages.len(), 2);
     assert!(pages[0]["widthPt"].as_f64().unwrap() > 100.0);
@@ -992,6 +993,25 @@ fn render_pages_ships_a_page_once_and_then_nothing() {
     );
     assert_eq!(second["patches"][0]["op"], json!("unchanged"));
     assert!(second["patches"][0].get("content").is_none());
+}
+
+/// The server holds one document, and answers for it whatever the request
+/// names. Saying which one it is lets a preview of another refuse the pages.
+#[test]
+fn preview_answers_name_the_document_they_describe() {
+    let mut harness = Harness::new();
+    let chapter = harness.open("chapter.typ", "= Chapter\n");
+    let main = harness.open("main.typ", "= Main\n");
+    harness.compile(&main);
+
+    let metrics = harness.request("typst/documentMetrics", json!({ "uri": chapter.as_str() }));
+    assert_eq!(metrics["uri"], json!(main.as_str()));
+
+    let pages = harness.request(
+        "typst/renderPages",
+        json!({ "uri": chapter.as_str(), "pages": [0], "knownHashes": {} }),
+    );
+    assert_eq!(pages["uri"], json!(main.as_str()));
 }
 
 #[test]

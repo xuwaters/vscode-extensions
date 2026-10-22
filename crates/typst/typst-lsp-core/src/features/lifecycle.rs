@@ -240,7 +240,7 @@ impl<Q: Ports> Server<Q> {
     }
 
     /// The compile root's URI, as the client knows it.
-    fn main_uri(&self) -> Option<String> {
+    pub(crate) fn main_uri(&self) -> Option<String> {
         let main = self.session().world().main_id();
         self.uris().to_uri(main).map(|uri| uri.as_str().to_string())
     }

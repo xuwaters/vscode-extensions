@@ -94,9 +94,24 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
     this.tabs.set(panel, send);
     let seq = 0;
 
+    /**
+     * Whether the server's answer is about this tab's document.
+     *
+     * The server holds one document — whichever it compiled last — and answers
+     * every question with it, whatever URI was asked about. With two Preview
+     * tabs open, the one behind would otherwise take the other's pages as its
+     * own. A settled compile root is the exception: every tab shows it.
+     *
+     * Compared through `Uri.parse`, because the server and VSCode do not
+     * percent-encode a path the same way.
+     */
+    const isAbout = (subject: string | undefined): boolean =>
+      this.root.entry !== undefined ||
+      (subject !== undefined && vscode.Uri.parse(subject).toString() === key);
+
     const refresh = async (): Promise<void> => {
       const metrics = await fetchMetrics(this.client, uri);
-      if (!metrics) return;
+      if (!metrics || !isAbout(metrics.uri)) return;
       send({ type: 'metrics', seq: (seq += 1), uri: key, pages: metrics.pages });
     };
 
@@ -120,6 +135,7 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
       await this.onMessage(message, document, panel, {
         refresh,
         claimCompile,
+        isAbout,
         send,
         seq: () => (seq += 1),
       });
@@ -127,18 +143,15 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
 
     const subscription = this.client.onNotification('typst/compileStatus', (params) => {
       const status = parseCompileStatus(params);
-      // The server compiles one document at a time, and with two Preview tabs
-      // open its news is about one of them. A tab passes it on only when it is
-      // about this tab's document — or about a settled compile root, which is
-      // what every tab is showing.
-      // Compared through `Uri.parse`, because the server and VSCode do not
-      // percent-encode a path the same way.
-      const about = status?.uri && vscode.Uri.parse(status.uri).toString();
-      if (status && (about === key || this.root.entry !== undefined)) {
-        const { state, message, location } = status;
-        send({ type: 'status', state, message, location });
+      if (!status || !isAbout(status.uri)) return;
+      const { state, message, location } = status;
+      send({ type: 'status', state, message, location });
+      if (state === 'ok') void refresh();
+      // Nothing behind the failure: the server has no pages to measure and
+      // says so with no answer at all, so the emptiness is sent from here.
+      else if (state === 'error' && status.pageCount === 0) {
+        send({ type: 'metrics', seq: (seq += 1), uri: key, pages: [] });
       }
-      void refresh();
     });
 
     const viewState = panel.onDidChangeViewState(() => {
@@ -159,6 +172,7 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
     tab: {
       refresh: () => Promise<void>;
       claimCompile: () => void;
+      isAbout: (subject: string | undefined) => boolean;
       send: (message: HostToWebview) => void;
       seq: () => number;
     },
@@ -193,7 +207,7 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
           message.known,
           message.zoom,
         );
-        if (result) {
+        if (result && tab.isAbout(result.uri)) {
           tab.send({ type: 'pages', seq: tab.seq(), patches: result.patches });
         }
         break;

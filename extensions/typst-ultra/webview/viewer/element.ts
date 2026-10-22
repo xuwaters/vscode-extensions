@@ -49,10 +49,10 @@ const STATUS_MS = 400;
 /**
  * How long a failed compile has to hold before the preview says so.
  *
- * Longer than {@link STATUS_MS}, because typing a name one letter at a time —
- * `#t`, `#ta`, `#tab` — fails on every letter, and a reader pausing mid-word is
- * not asking to be told. The editor squiggles the error at once; the preview
- * only needs to say so once the reader has stopped.
+ * Kept apart from {@link STATUS_MS}, because typing a name one letter at a
+ * time — `#t`, `#ta`, `#tab` — fails on every letter, and a reader pausing
+ * mid-word is not asking to be told. The editor squiggles the error at once;
+ * the preview only needs to say so once the reader has stopped.
  */
 const ERROR_MS = 400;
 

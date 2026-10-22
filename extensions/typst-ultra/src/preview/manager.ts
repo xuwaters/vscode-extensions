@@ -453,11 +453,14 @@ export class PreviewManager implements vscode.Disposable {
 
     this.lastStatus = state;
     this.post({ type: 'status', state, message, location });
+    if (state === 'ok') void this.refreshMetrics();
     // A failure with no pages behind it is a document that has never compiled
     // — often one just switched to, whose predecessor's pages are still on
-    // screen. Measuring it clears them, so the preview can say why it is blank.
-    if (state === 'ok' || (state === 'error' && pageCount === 0)) {
-      void this.refreshMetrics();
+    // screen. The server has nothing to measure and answers with nothing, so
+    // the emptiness is sent from here; it clears them, and the preview can say
+    // why it is blank.
+    else if (state === 'error' && pageCount === 0 && this.panel && this.target) {
+      this.post({ type: 'metrics', seq: ++this.seq, uri: this.target.toString(), pages: [] });
     }
   }
 

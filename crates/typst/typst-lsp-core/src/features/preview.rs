@@ -46,6 +46,9 @@ pub struct RenderPagesResult {
     pub patches: Vec<PagePatch>,
     /// How many pages the document has, so the webview can size its scrollbar.
     pub page_count: usize,
+    /// The document these pages belong to — the compile root, whatever `uri`
+    /// the request named. A preview of a different document must not take them.
+    pub uri: Option<String>,
 }
 
 /// `typst/documentMetrics`.
@@ -64,6 +67,8 @@ pub struct DocumentMetricsResult {
     pub page_count: usize,
     /// Dimensions and content hash per page.
     pub pages: Vec<PageMetricsWire>,
+    /// The document measured, as in [`RenderPagesResult::uri`].
+    pub uri: Option<String>,
 }
 
 /// A page's metrics on the wire, with the hash as hex so JSON keeps it exact.
@@ -194,7 +199,11 @@ impl<Q: Ports> Server<Q> {
             },
         );
 
-        Some(RenderPagesResult { patches, page_count: document.pages().len() })
+        Some(RenderPagesResult {
+            patches,
+            page_count: document.pages().len(),
+            uri: self.main_uri(),
+        })
     }
 
     /// `typst/documentMetrics`.
@@ -208,6 +217,7 @@ impl<Q: Ports> Server<Q> {
         Some(DocumentMetricsResult {
             page_count: metrics.len(),
             pages: metrics.iter().map(PageMetricsWire::from).collect(),
+            uri: self.main_uri(),
         })
     }
 
