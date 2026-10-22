@@ -126,7 +126,36 @@ export const template = html<TypstPreview>`
       (x) => x.showsStatus,
       html<TypstPreview>`
         <div class="status status-${(x) => x.status.state}" role="status">
-          ${(x) => x.statusText}
+          ${when(
+            (x) => x.status.state === 'error',
+            html<TypstPreview>`
+              <svg class="status-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.3" />
+                <path d="M8 4.8v3.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                <circle cx="8" cy="10.9" r="0.85" fill="currentColor" />
+              </svg>
+            `,
+          )}
+          <span class="status-text">${(x) => x.statusText}</span>
+        </div>
+      `,
+    )}
+
+    ${when(
+      (x) => x.showsErrorPanel,
+      html<TypstPreview>`
+        <div class="error-panel" role="alert">
+          <svg class="error-panel-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.1" />
+            <path d="M8 4.8v3.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+            <circle cx="8" cy="10.9" r="0.75" fill="currentColor" />
+          </svg>
+          <div class="error-panel-title">This document does not compile yet</div>
+          <pre class="error-panel-message">${(x) => x.status.message ?? 'The compiler reported an error.'}</pre>
+          ${when(
+            (x) => x.status.location,
+            html<TypstPreview>`<div class="error-panel-location">${(x) => x.status.location}</div>`,
+          )}
         </div>
       `,
     )}
@@ -135,7 +164,7 @@ export const template = html<TypstPreview>`
          turn its pages are bound on the window rather than here, so that a tab
          reached from the keyboard answers to them before it is clicked. -->
     <div
-      class="pages ${(x) => x.columnClass}"
+      class="pages ${(x) => (x.inverted ? 'inverted' : '')}"
       tabindex="0"
       ${ref('scrollEl')}
       @scroll="${(x) => x.onScroll()}"

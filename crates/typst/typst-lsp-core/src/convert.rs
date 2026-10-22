@@ -213,6 +213,17 @@ fn untitled_name(uri: &str) -> Option<&str> {
     usable.then_some(name)
 }
 
+/// A file id as a reader would name it: `chapters/one.typ`, the buffer name of
+/// an untitled document, or `@preview/pkg:0.1.0/lib.typ` inside a package.
+pub fn display_path(id: FileId) -> String {
+    let path = id.get();
+    let vpath = path.vpath().get_without_slash();
+    match path.root() {
+        VirtualRoot::Project => untitled_part(vpath).unwrap_or(vpath).to_string(),
+        VirtualRoot::Package(spec) => format!("{spec}/{vpath}"),
+    }
+}
+
 /// The buffer name inside a project path under [`UNTITLED_DIR`], if it is one.
 fn untitled_part(vpath: &str) -> Option<&str> {
     let rest = vpath.strip_prefix(UNTITLED_DIR)?.strip_prefix('/')?;

@@ -99,6 +99,7 @@ describe('the chrome', () => {
 
   /** The editor already marks the error; the preview just keeps the last good pages. */
   it('leaves the pages alone when a compile fails, unless asked to show it', async () => {
+    openDocument();
     preview.handle({ type: 'settings', settings: { ...SETTINGS, showErrors: false } });
     vi.useFakeTimers();
     try {
@@ -111,15 +112,14 @@ describe('the chrome', () => {
     }
     await Updates.next();
     expect(query('.status')).toBeNull();
-    expect(must('.pages').classList.contains('has-error')).toBe(false);
 
     preview.handle({ type: 'settings', settings: SETTINGS });
     await Updates.next();
     expect(must('.status').textContent).toContain('unexpected }');
-    expect(must('.pages').classList.contains('has-error')).toBe(true);
   });
 
-  it('keeps the last good pages on screen, dimmed, when a compile fails', async () => {
+  it('says so when a compile fails, without dimming the pages', async () => {
+    openDocument();
     preview.handle({ type: 'settings', settings: SETTINGS });
     vi.useFakeTimers();
     try {
@@ -130,11 +130,12 @@ describe('the chrome', () => {
     }
     await Updates.next();
     expect(must('.status').textContent).toContain('unexpected }');
-    expect(must('.pages').classList.contains('has-error')).toBe(true);
+    expect(must('.pages').className).not.toMatch(/error/);
   });
 
   /** `#t`, `#ta`, `#tab` each fail, and a pause mid-word is not a finished thought. */
   it('waits longer before reporting a failure than a compile', async () => {
+    openDocument();
     preview.handle({ type: 'settings', settings: SETTINGS });
     vi.useFakeTimers();
     try {
@@ -145,15 +146,15 @@ describe('the chrome', () => {
     }
     await Updates.next();
     expect(query('.status')).toBeNull();
-    expect(must('.pages').classList.contains('has-error')).toBe(false);
   });
 
   /**
    * Each keystroke into a broken document recompiles it. Letting that
-   * `compiling` replace the error undimmed the pages until the compile failed
-   * again, which flashed the preview once per key.
+   * `compiling` replace the error took the bar down until the compile failed
+   * again, which flashed it once per key.
    */
   it('keeps a failure on screen through the recompiles that follow it', async () => {
+    openDocument();
     preview.handle({ type: 'settings', settings: SETTINGS });
     vi.useFakeTimers();
     try {
@@ -166,7 +167,6 @@ describe('the chrome', () => {
     }
     await Updates.next();
     expect(must('.status').textContent).toContain('unknown variable: t');
-    expect(must('.pages').classList.contains('has-error')).toBe(true);
 
     preview.handle({ type: 'status', state: 'error', message: 'unknown variable: ta' });
     await Updates.next();
@@ -175,15 +175,15 @@ describe('the chrome', () => {
     preview.handle({ type: 'status', state: 'ok' });
     await Updates.next();
     expect(query('.status')).toBeNull();
-    expect(must('.pages').classList.contains('has-error')).toBe(false);
   });
 
   /**
    * Typing passes through half-written expressions, so `error` and `compiling`
    * arrive and leave several times a second. Announcing each of them would put
-   * a bar on screen and dim every page, twice per keystroke.
+   * a bar on screen and take it down again, twice per keystroke.
    */
   it('says nothing about a compile state that does not last', async () => {
+    openDocument();
     vi.useFakeTimers();
     try {
       preview.handle({ type: 'status', state: 'compiling' });
@@ -197,7 +197,53 @@ describe('the chrome', () => {
     }
     await Updates.next();
     expect(query('.status')).toBeNull();
-    expect(must('.pages').classList.contains('has-error')).toBe(false);
+  });
+
+  /** Nothing has ever compiled, so there are no last good pages to fall back on. */
+  it('shows the error in place of the pages when there are none', async () => {
+    preview.handle({ type: 'settings', settings: { ...SETTINGS, showErrors: false } });
+    vi.useFakeTimers();
+    try {
+      preview.handle({
+        type: 'status',
+        state: 'error',
+        message: 'unknown variable: tab',
+        location: 'main.typ:3:2',
+      });
+      vi.advanceTimersByTime(2000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await Updates.next();
+    expect(must('.error-panel-message').textContent).toBe('unknown variable: tab');
+    expect(must('.error-panel-location').textContent).toBe('main.typ:3:2');
+    // The panel says it; the bar would only say it twice.
+    expect(query('.status')).toBeNull();
+
+    openDocument();
+    preview.handle({ type: 'status', state: 'ok' });
+    await Updates.next();
+    expect(query('.error-panel')).toBeNull();
+  });
+
+  it('names where the error is in the bar over the last good pages', async () => {
+    openDocument();
+    preview.handle({ type: 'settings', settings: SETTINGS });
+    vi.useFakeTimers();
+    try {
+      preview.handle({
+        type: 'status',
+        state: 'error',
+        message: 'unexpected }',
+        location: 'main.typ:1:4',
+      });
+      vi.advanceTimersByTime(2000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await Updates.next();
+    expect(query('.error-panel')).toBeNull();
+    expect(must('.status-text').textContent).toBe('main.typ:1:4: unexpected }');
   });
 
   it('counts the pages', async () => {

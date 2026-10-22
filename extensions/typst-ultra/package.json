@@ -2,7 +2,7 @@
   "name": "wx-vsce-typst-ultra",
   "displayName": "Typst Ultra",
   "description": "Typst language server and live preview on unmodified upstream typst, compiled to a single WASM artifact — diagnostics, completion, hover, goto-definition, semantic tokens, formatting, BibTeX bibliographies, two-way-synced preview, and PDF/SVG/PNG export",
-  "version": "0.14.7",
+  "version": "0.14.8",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -728,7 +728,7 @@
         "typstUltra.preview.showErrors": {
           "type": "boolean",
           "default": false,
-          "description": "When a compile fails, dim the last good pages and show a bar saying the document has errors. Off by default: the editor already marks the error, and the preview keeps showing the last good version either way."
+          "description": "When a compile fails, show a bar saying the document has errors. Off by default: the editor already marks the error, and the preview keeps showing the last good version either way."
         },
         "typstUltra.preview.invertColors": {
           "type": "string",

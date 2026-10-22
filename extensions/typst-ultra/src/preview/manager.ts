@@ -15,6 +15,7 @@ import {
 import { html } from './html.js';
 import type { PageMemory } from './pageMemory.js';
 import { readPlace, readSubject, writePlace, writeSubject } from './place.js';
+import { parseCompileStatus } from './compileStatus.js';
 import { compileNow, fetchMetrics, fetchPages, jumpFromClick } from './rpc.js';
 import { SyncGuard } from './sync.js';
 
@@ -446,13 +447,18 @@ export class PreviewManager implements vscode.Disposable {
   }
 
   private onCompileStatus(params: unknown): void {
-    if (typeof params !== 'object' || params === null) return;
-    const state = (params as { state?: string }).state;
-    if (state !== 'compiling' && state !== 'ok' && state !== 'error') return;
+    const status = parseCompileStatus(params);
+    if (!status) return;
+    const { state, pageCount, message, location } = status;
 
     this.lastStatus = state;
-    this.post({ type: 'status', state });
-    if (state === 'ok') void this.refreshMetrics();
+    this.post({ type: 'status', state, message, location });
+    // A failure with no pages behind it is a document that has never compiled
+    // — often one just switched to, whose predecessor's pages are still on
+    // screen. Measuring it clears them, so the preview can say why it is blank.
+    if (state === 'ok' || (state === 'error' && pageCount === 0)) {
+      void this.refreshMetrics();
+    }
   }
 
   // ── Rendering ──────────────────────────────────────────────────────

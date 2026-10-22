@@ -10,9 +10,13 @@ use lsp_types::{
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, Uri,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use typst::World;
+use typst::diag::Severity;
 use typst::syntax::FileId;
+use typst_session::CompileOutcome;
 
-use crate::convert::range_from_lsp;
+use crate::convert::{display_path, offset_to_position, range_from_lsp};
 use crate::settings::Settings;
 use crate::state::DocumentEntry;
 use crate::{Ports, Server};
@@ -187,10 +191,13 @@ impl<Q: Ports> Server<Q> {
         }
 
         let version = self.main_version();
+        // Which document this is, so a preview showing a different one can
+        // tell the news is not about it.
+        let main_uri = self.main_uri();
 
         self.notify(
             "typst/compileStatus",
-            serde_json::json!({ "state": "compiling" }),
+            serde_json::json!({ "state": "compiling", "uri": main_uri }),
         );
 
         let outcome = self.session_mut().compile(version);
@@ -218,13 +225,44 @@ impl<Q: Ports> Server<Q> {
         self.publish_diagnostics(&outcome);
         self.last_published_version = Some(outcome.version);
 
-        self.notify(
-            "typst/compileStatus",
-            serde_json::json!({
-                "state": if outcome.ok { "ok" } else { "error" },
-                "pageCount": page_count,
-            }),
-        );
+        let mut status = serde_json::json!({
+            "state": if outcome.ok { "ok" } else { "error" },
+            "pageCount": page_count,
+            "uri": main_uri,
+        });
+        if !outcome.ok
+            && let Some((message, location)) = self.first_error(&outcome)
+        {
+            status["message"] = Value::from(message);
+            status["location"] = Value::from(location);
+        }
+        self.notify("typst/compileStatus", status);
+    }
+
+    /// The compile root's URI, as the client knows it.
+    fn main_uri(&self) -> Option<String> {
+        let main = self.session().world().main_id();
+        self.uris().to_uri(main).map(|uri| uri.as_str().to_string())
+    }
+
+    /// The first error a failed compile reported, and where: `main.typ:3:5`.
+    ///
+    /// The preview has nothing else to put on screen when a document has never
+    /// compiled, so this is what it says instead. The editor's squiggles carry
+    /// the rest; one error is enough to say why the page is blank.
+    fn first_error(&self, outcome: &CompileOutcome) -> Option<(String, String)> {
+        let diagnostic = outcome
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.severity == Severity::Error)?;
+        let file = diagnostic.file.unwrap_or(self.session().world().main_id());
+        let mut location = display_path(file);
+        if let Ok(source) = self.session().world().source(file) {
+            let start = diagnostic.range.as_ref().map_or(0, |range| range.start);
+            let position = offset_to_position(&source, start);
+            location = format!("{location}:{}:{}", position.line + 1, position.character + 1);
+        }
+        Some((diagnostic.message.to_string(), location))
     }
 
     /// `typst/setMain`: pin or unpin the compile root.

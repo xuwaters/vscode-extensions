@@ -28,8 +28,9 @@ export interface PreviewSettings {
   scrollSync: 'both' | 'editorToPreview' | 'previewToEditor' | 'off';
   cursorIndicator: boolean;
   /**
-   * Dim the pages and say so when a compile fails. Off by default: the editor
+   * Show a bar saying so when a compile fails. Off by default: the editor
    * already marks the error where it is, and the last good pages stay readable.
+   * A document with no good version to show says why regardless.
    */
   showErrors: boolean;
   invertColors: 'never' | 'always' | 'auto';
@@ -97,7 +98,16 @@ export type HostToWebview =
   | { type: 'metrics'; seq: number; uri: string; pages: PageMetric[] }
   | { type: 'pages'; seq: number; patches: PagePatch[] }
   | { type: 'cursor'; page: number; xPt: number; yPt: number }
-  | { type: 'status'; state: 'compiling' | 'ok' | 'error'; message?: string }
+  /**
+   * `message` and `location` come with `error`: the compiler's first error,
+   * and where it is (`main.typ:3:5`).
+   */
+  | {
+      type: 'status';
+      state: 'compiling' | 'ok' | 'error';
+      message?: string;
+      location?: string;
+    }
   | { type: 'settings'; settings: PreviewSettings }
   /**
    * The tab has become the active one. VSCode focuses the page itself but

@@ -47,14 +47,14 @@ const SAVE_MS = 200;
 const STATUS_MS = 400;
 
 /**
- * How long a failed compile has to hold before the preview dims for it.
+ * How long a failed compile has to hold before the preview says so.
  *
  * Longer than {@link STATUS_MS}, because typing a name one letter at a time —
  * `#t`, `#ta`, `#tab` — fails on every letter, and a reader pausing mid-word is
  * not asking to be told. The editor squiggles the error at once; the preview
  * only needs to say so once the reader has stopped.
  */
-const ERROR_MS = 1000;
+const ERROR_MS = 400;
 
 /** What the element needs from the extension host. */
 export interface PreviewHost {
@@ -113,7 +113,11 @@ export class TypstPreview extends FASTElement {
   @observable inverted = false;
   @observable pageCount = 0;
   @observable pageField = '1';
-  @observable status: { state: 'compiling' | 'ok' | 'error'; message?: string } = {
+  @observable status: {
+    state: 'compiling' | 'ok' | 'error';
+    message?: string;
+    location?: string;
+  } = {
     state: 'ok',
   };
 
@@ -241,28 +245,31 @@ export class TypstPreview extends FASTElement {
     this.column = null;
   }
 
-  /** What the page column wears: the reader's inversion, and a failed compile. */
-  get columnClass(): string {
-    return [
-      this.inverted ? 'inverted' : '',
-      this.showsError ? 'has-error' : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+  /**
+   * Whether a failed compile has nothing behind it: the document has never
+   * compiled, so there are no last good pages to keep on screen. The error
+   * takes their place, whatever the setting says — a blank preview with no
+   * reason given looks broken.
+   */
+  @volatile
+  get showsErrorPanel(): boolean {
+    return this.status.state === 'error' && this.pageCount === 0;
   }
 
   /**
-   * Whether a failed compile is shown at all. Off by default: the editor marks
-   * the error where it is, and the last good pages are on screen either way.
-   * The failure is still tracked when hidden, so that the recompiles typing
-   * into it do not put "Compiling…" up in its place.
+   * Whether a failed compile is shown over the last good pages. Off by
+   * default: the editor marks the error where it is, and the last good pages
+   * are on screen either way. The failure is still tracked when hidden, so
+   * that the recompiles typing into it do not put "Compiling…" up in its place.
    *
    * Volatile because the `&&` reads the setting only some of the time, and a
    * binding that tracked its first reading would miss the setting changing.
    */
   @volatile
   get showsError(): boolean {
-    return this.status.state === 'error' && this.settings.showErrors;
+    return (
+      this.status.state === 'error' && this.settings.showErrors && !this.showsErrorPanel
+    );
   }
 
   /** Whether the status bar is up. */
@@ -273,9 +280,9 @@ export class TypstPreview extends FASTElement {
 
   get statusText(): string {
     if (this.status.state === 'compiling') return 'Compiling…';
-    return (
-      this.status.message ?? 'The document has errors — showing the last good version'
-    );
+    const { message, location } = this.status;
+    if (!message) return 'The document has errors — showing the last good version';
+    return location ? `${location}: ${message}` : message;
   }
 
   // ── The host protocol ──────────────────────────────────────────────────────
@@ -323,7 +330,7 @@ export class TypstPreview extends FASTElement {
         break;
 
       case 'status':
-        this.showStatus(message.state, message.message);
+        this.showStatus(message.state, message.message, message.location);
         break;
 
       case 'focus':
@@ -371,10 +378,14 @@ export class TypstPreview extends FASTElement {
    *
    * A failure on screen stays there through the recompiles that follow it,
    * until one of them succeeds. Every keystroke recompiles, and letting each
-   * `compiling` replace the error undimmed the pages for the moment the compile
-   * took, so typing into a broken document flashed the preview once per key.
+   * `compiling` replace the error took the bar down for the moment the compile
+   * took, so typing into a broken document flashed the bar once per key.
    */
-  private showStatus(state: 'compiling' | 'ok' | 'error', message?: string): void {
+  private showStatus(
+    state: 'compiling' | 'ok' | 'error',
+    message?: string,
+    location?: string,
+  ): void {
     if (this.statusTimer) {
       clearTimeout(this.statusTimer);
       this.statusTimer = undefined;
@@ -383,14 +394,14 @@ export class TypstPreview extends FASTElement {
     if (this.status.state === 'error' && state === 'compiling') return;
 
     if (state === 'ok' || this.status.state !== 'ok') {
-      this.status = { state, message };
+      this.status = { state, message, location };
       return;
     }
 
     this.statusTimer = setTimeout(
       () => {
         this.statusTimer = undefined;
-        this.status = { state, message };
+        this.status = { state, message, location };
       },
       state === 'error' ? ERROR_MS : STATUS_MS,
     );

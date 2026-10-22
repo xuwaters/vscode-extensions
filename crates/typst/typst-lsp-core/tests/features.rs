@@ -44,6 +44,7 @@ fn a_compile_reports_its_status_and_page_count() {
     let statuses = events_named(&events, "typst/compileStatus");
 
     assert_eq!(statuses.first().unwrap()["state"], json!("compiling"));
+    assert_eq!(statuses.first().unwrap()["uri"], json!(uri.as_str()));
     let last = statuses.last().unwrap();
     assert_eq!(last["state"], json!("ok"));
     assert_eq!(last["pageCount"], json!(1));
@@ -57,6 +58,37 @@ fn a_broken_document_reports_an_error_status() {
     let events = harness.compile(&uri);
     let statuses = events_named(&events, "typst/compileStatus");
     assert_eq!(statuses.last().unwrap()["state"], json!("error"));
+}
+
+/// A document that has never compiled has no pages to show, so the preview
+/// says why instead — and needs the compiler's words to do it.
+#[test]
+fn an_error_status_carries_the_first_error_and_where_it_is() {
+    let mut harness = Harness::new();
+    let uri = harness.open("main.typ", "= Title\n\n#undefined-thing()\n");
+
+    let events = harness.compile(&uri);
+    let statuses = events_named(&events, "typst/compileStatus");
+    let last = statuses.last().unwrap();
+    assert_eq!(last["state"], json!("error"));
+    assert_eq!(last["pageCount"], json!(0));
+    assert!(
+        last["message"].as_str().unwrap().contains("unknown variable"),
+        "got {}",
+        last["message"]
+    );
+    assert_eq!(last["location"], json!("main.typ:3:2"));
+    assert_eq!(last["uri"], json!(uri.as_str()));
+}
+
+#[test]
+fn an_ok_status_carries_no_error() {
+    let mut harness = Harness::new();
+    let uri = harness.open("main.typ", "= Title\n");
+
+    let events = harness.compile(&uri);
+    let statuses = events_named(&events, "typst/compileStatus");
+    assert!(statuses.last().unwrap().get("message").is_none());
 }
 
 #[test]

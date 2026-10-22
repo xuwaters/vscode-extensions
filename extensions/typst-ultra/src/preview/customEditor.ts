@@ -13,6 +13,7 @@ import {
 } from './messages.js';
 import type { PageMemory } from './pageMemory.js';
 import { readPlace, writePlace } from './place.js';
+import { parseCompileStatus } from './compileStatus.js';
 import { compileNow, fetchMetrics, fetchPages, jumpFromClick } from './rpc.js';
 
 /**
@@ -124,7 +125,19 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
       });
     });
 
-    const subscription = this.client.onNotification('typst/compileStatus', () => {
+    const subscription = this.client.onNotification('typst/compileStatus', (params) => {
+      const status = parseCompileStatus(params);
+      // The server compiles one document at a time, and with two Preview tabs
+      // open its news is about one of them. A tab passes it on only when it is
+      // about this tab's document — or about a settled compile root, which is
+      // what every tab is showing.
+      // Compared through `Uri.parse`, because the server and VSCode do not
+      // percent-encode a path the same way.
+      const about = status?.uri && vscode.Uri.parse(status.uri).toString();
+      if (status && (about === key || this.root.entry !== undefined)) {
+        const { state, message, location } = status;
+        send({ type: 'status', state, message, location });
+      }
       void refresh();
     });
 
