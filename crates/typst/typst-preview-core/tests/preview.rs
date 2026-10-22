@@ -12,7 +12,7 @@ use typst::foundations::Bytes;
 use typst::syntax::{FileId, RootedPath, VirtualPath, VirtualRoot};
 use typst::text::FontInfo;
 use typst_preview_core::pages::PagePatch;
-use typst_preview_core::{DocumentPoint, JumpTarget, PreviewSession, jump, patch};
+use typst_preview_core::{DocumentPoint, JumpTarget, PreviewSession, TiffColor, jump, patch};
 use typst_session::fs::{FsFiles, SystemClock};
 use typst_session::ports::{FaceDescriptor, FontProvider, NoPackages};
 use typst_session::{Session, SessionWorld};
@@ -374,7 +374,179 @@ fn export_produces_svg_and_png() {
     assert!(typst_preview_core::export_png(&document, 999, 144.0).is_err());
 }
 
-// ── P4-05 and P4-11: render modes and coordinate rounding ────────────────────
+#[test]
+fn png_export_records_its_resolution() {
+    let mut session = session("doc.typ");
+    let id = file_id("doc.typ");
+    session.open(id, multi_page_source(1));
+
+    let document = session.compile(1).document.unwrap();
+    let png = typst_preview_core::export_png(&document, 0, 300.0).unwrap();
+
+    // Straight after the signature and IHDR, as the spec requires.
+    assert_eq!(&png[37..41], b"pHYs");
+    let per_metre = u32::from_be_bytes(png[41..45].try_into().unwrap());
+    assert_eq!(per_metre, 11811, "300 ppi is 11811 pixels per metre");
+    assert_eq!(png[49], 1, "the unit is the metre");
+
+    // And it is still a PNG the encoder's own decoder accepts.
+    let pixmap = tiny_skia::Pixmap::decode_png(&png).unwrap();
+    let a4_width = (595.28 * 300.0 / 72.0_f64).ceil() as u32;
+    assert!(pixmap.width().abs_diff(a4_width) <= 1, "got {}", pixmap.width());
+}
+
+#[test]
+fn tiff_export_writes_every_page_into_one_file() {
+    let mut session = session("doc.typ");
+    let id = file_id("doc.typ");
+    session.open(id, multi_page_source(3));
+
+    let document = session.compile(1).document.unwrap();
+    let tiff = typst_preview_core::export_tiff(&document, 300.0, TiffColor::Rgba).unwrap();
+    assert_eq!(&tiff[..4], b"II*\0", "expected little-endian TIFF magic");
+
+    let pages = read_tiff(&tiff);
+    assert!(pages.len() >= 3, "got {} pages", pages.len());
+    assert_eq!(pages.len(), document.pages().len());
+
+    for (index, page) in pages.iter().enumerate() {
+        assert_eq!(page.page_number, (index, pages.len()));
+        assert_eq!(page.ppi, 300);
+        assert_eq!((page.bits.as_slice(), page.photometric), (&[8, 8, 8, 8][..], 2));
+        assert_eq!(page.samples.len(), (page.width * page.height * 4) as usize);
+    }
+
+    // A 300 ppi A4 page is more than one band, so it is more than one strip —
+    // and the strips put back together are the page rendered whole.
+    let first = &pages[0];
+    assert!(first.strips > 1, "expected a banded page, got {} strip", first.strips);
+
+    let mut samples = first.samples.clone();
+    let row = first.width as usize * 4;
+    for line in samples.chunks_exact_mut(row) {
+        for index in 4..row {
+            line[index] = line[index].wrapping_add(line[index - 4]);
+        }
+    }
+
+    let png = typst_preview_core::export_png(&document, 0, 300.0).unwrap();
+    let whole = tiny_skia::Pixmap::decode_png(&png).unwrap();
+    assert_eq!((first.width, first.height), (whole.width(), whole.height()));
+
+    let differing = whole
+        .pixels()
+        .iter()
+        .zip(samples.as_chunks::<4>().0)
+        .filter(|(pixel, banded)| {
+            let pixel = pixel.demultiply();
+            let whole = [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()];
+            // Anti-aliasing may round a shade differently at a band's edge.
+            whole.iter().zip(banded.iter()).any(|(a, b)| a.abs_diff(*b) > 2)
+        })
+        .count();
+    assert_eq!(differing, 0, "banded pixels differ from the whole page");
+}
+
+#[test]
+fn bilevel_tiff_export_is_one_bit_black_on_white() {
+    let mut session = session("doc.typ");
+    let id = file_id("doc.typ");
+    session.open(id, "#set page(fill: none)\n= Title\n\n#lorem(40)\n".into());
+
+    let document = session.compile(1).document.unwrap();
+    let tiff = typst_preview_core::export_tiff(&document, 1200.0, TiffColor::Bilevel).unwrap();
+
+    let pages = read_tiff(&tiff);
+    assert_eq!(pages.len(), 1);
+    let page = &pages[0];
+
+    assert_eq!(page.ppi, 1200);
+    assert_eq!((page.bits.as_slice(), page.photometric), (&[1][..], 0), "1 bit, WhiteIsZero");
+    let a4_width = (595.28 * 1200.0 / 72.0_f64).round() as u32;
+    assert_eq!(page.width, a4_width);
+    assert!(page.strips > 1, "a 1200 ppi page is rendered in bands");
+
+    let stride = page.width.div_ceil(8) as usize;
+    assert_eq!(page.samples.len(), stride * page.height as usize);
+
+    // A transparent page still comes out as white paper, with black text on
+    // it — and the text is solid, not dithered into grey.
+    assert!(page.samples[..stride * 100].iter().all(|&byte| byte == 0), "top margin is white");
+    let black = page.samples.iter().map(|byte| byte.count_ones() as usize).sum::<usize>();
+    let total = (page.width * page.height) as usize;
+    assert!(black > 0 && black < total / 10, "{black} of {total} pixels black");
+
+    // Over a hundred times smaller than the same page as RGBA, uncompressed.
+    assert!(tiff.len() < total * 4 / 100, "{} bytes", tiff.len());
+}
+
+/// One TIFF page, read back.
+struct TiffPage {
+    width: u32,
+    height: u32,
+    bits: Vec<u32>,
+    photometric: u32,
+    ppi: u32,
+    page_number: (usize, usize),
+    strips: usize,
+    /// Every strip inflated, in order.
+    samples: Vec<u8>,
+}
+
+/// Just enough of a little-endian TIFF reader to check what export wrote.
+fn read_tiff(tiff: &[u8]) -> Vec<TiffPage> {
+    let u16_at = |at: usize| u16::from_le_bytes(tiff[at..at + 2].try_into().unwrap());
+    let u32_at = |at: usize| u32::from_le_bytes(tiff[at..at + 4].try_into().unwrap());
+
+    // Every value of a SHORT or LONG field, wherever it is stored.
+    let values = |directory: usize, tag: u16| -> Vec<u32> {
+        let entry = (0..u16_at(directory) as usize)
+            .map(|index| directory + 2 + index * 12)
+            .find(|&entry| u16_at(entry) == tag)
+            .unwrap_or_else(|| panic!("tag {tag} missing"));
+        let (kind, count) = (u16_at(entry + 2), u32_at(entry + 4) as usize);
+        let size = if kind == 3 { 2 } else { 4 };
+        let start = if size * count <= 4 { entry + 8 } else { u32_at(entry + 8) as usize };
+        (0..count)
+            .map(|index| match size {
+                2 => u32::from(u16_at(start + index * 2)),
+                _ => u32_at(start + index * 4),
+            })
+            .collect()
+    };
+
+    let mut pages = Vec::new();
+    let mut next = u32_at(4) as usize;
+    while next != 0 {
+        assert_eq!(next % 2, 0, "directories start on a word boundary");
+        let directory = next;
+
+        let resolution = values(directory, 282)[0] as usize;
+        let page_number = values(directory, 297);
+        let offsets = values(directory, 273);
+        let counts = values(directory, 279);
+        assert_eq!(offsets.len(), counts.len());
+
+        let mut samples = Vec::new();
+        for (&offset, &count) in offsets.iter().zip(&counts) {
+            let strip = &tiff[offset as usize..(offset + count) as usize];
+            samples.extend(miniz_oxide::inflate::decompress_to_vec_zlib(strip).unwrap());
+        }
+
+        pages.push(TiffPage {
+            width: values(directory, 256)[0],
+            height: values(directory, 257)[0],
+            bits: values(directory, 258),
+            photometric: values(directory, 262)[0],
+            ppi: u32_at(resolution) / u32_at(resolution + 4),
+            page_number: (page_number[0] as usize, page_number[1] as usize),
+            strips: offsets.len(),
+            samples,
+        });
+        next = u32_at(directory + 2 + u16_at(directory) as usize * 12) as usize;
+    }
+    pages
+}
 
 #[test]
 fn coordinate_rounding_shrinks_a_real_page_without_changing_its_shape() {

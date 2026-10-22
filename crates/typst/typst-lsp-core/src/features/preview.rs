@@ -12,7 +12,7 @@ use lsp_types::Uri;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use typst_preview_core::{
-    DocumentPoint, JumpTarget, PageMetrics, PagePatch, RenderMode, RenderOptions, jump,
+    DocumentPoint, JumpTarget, PageMetrics, PagePatch, RenderMode, RenderOptions, TiffColor, jump,
 };
 use typst_layout::PagedDocument;
 use typst_session::PdfExportOptions;
@@ -155,9 +155,12 @@ pub struct ExportParams {
     /// Page index, for single-page PNG export.
     #[serde(default)]
     pub page: Option<usize>,
-    /// Pixels per inch for PNG.
+    /// Pixels per inch for PNG and TIFF.
     #[serde(default)]
     pub ppi: Option<f64>,
+    /// TIFF only: one bit per pixel, black or white, instead of RGBA.
+    #[serde(default)]
+    pub bilevel: bool,
 }
 
 /// An export target.
@@ -170,6 +173,8 @@ pub enum ExportFormat {
     Svg,
     /// PNG, one file per page.
     Png,
+    /// One multi-page TIFF.
+    Tiff,
     /// HTML. A separate compilation target, so a document written for print may
     /// not produce one.
     Html,
@@ -316,6 +321,13 @@ impl<Q: Ports> Server<Q> {
                         .map_err(|err| ResponseError::internal(err.to_string()))?,
                 };
                 (pages, "png")
+            }
+            ExportFormat::Tiff => {
+                let color = if params.bilevel { TiffColor::Bilevel } else { TiffColor::Rgba };
+                let tiff =
+                    typst_preview_core::export_tiff(&document, params.ppi.unwrap_or(144.0), color)
+                        .map_err(|err| ResponseError::internal(err.to_string()))?;
+                (vec![tiff], "tiff")
             }
             ExportFormat::Html => {
                 // HTML re-runs the whole pipeline against a different target, so

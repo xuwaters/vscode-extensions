@@ -12,7 +12,7 @@ Each extension has its own README with the full feature list and settings.
 
 | Extension | What it does |
 | --- | --- |
-| [Typst Ultra](extensions/typst-ultra) | Typst language server and live, two-way-synced preview on unmodified upstream typst; PDF/SVG/PNG export and BibTeX support |
+| [Typst Ultra](extensions/typst-ultra) | Typst language server and live, two-way-synced preview on unmodified upstream typst; PDF/SVG/PNG/TIFF export and BibTeX support |
 | [Typst Ultra Fonts](extensions/typst-ultra-fonts) | Typst's default font set, packaged for Typst Ultra |
 | [WGSL / GLSL Shader](extensions/wgsl-shader) | Language server for WGSL (validated by naga) and GLSL, including shaders embedded in Rust and TypeScript |
 | [FAST Element Ultra](extensions/fast-element-ultra) | Diagnostics, completion, hover, navigation and rename inside FAST Element `html` and `css` tagged templates |

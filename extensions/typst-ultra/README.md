@@ -82,9 +82,15 @@ recognises stay raw-coloured as before, and a handful of languages VS Code does
 not bundle a grammar for — `toml`, `kotlin`, `zig`, `wgsl`, `proto` — light up
 as soon as an extension for them is installed.
 
-**Export** to PDF, SVG, PNG, and HTML, all in-process — from the title-bar
-button, the preview's own toolbar, or the palette. The save dialog opens on the
-document's own folder, so exporting next to the source is one keystroke.
+**Export** to PDF, SVG, PNG, TIFF, and HTML, all in-process — from the
+title-bar button, the preview's own toolbar, or the palette. The save dialog
+opens on the document's own folder, so exporting next to the source is one
+keystroke. PNG and TIFF come at 144 dpi for the screen or 300 dpi for print, with
+the resolution recorded in the file so it prints at its real size; PNG writes one
+file per page, TIFF puts every page in one file. TIFF also comes at 1200 dpi in
+black and white — one bit per pixel, with grey shading dithered — for line-art
+printing and fax, at a few hundred kilobytes a page rather than hundreds of
+megabytes.
 
 **Packages** from [Typst Universe](https://typst.app/universe) are downloaded
 and cached in typst's standard cache directory, shared with `typst-cli` so

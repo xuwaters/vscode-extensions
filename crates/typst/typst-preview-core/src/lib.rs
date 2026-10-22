@@ -20,7 +20,7 @@ pub mod round;
 use rustc_hash::FxHashMap;
 use typst_layout::PagedDocument;
 
-pub use export::{export_png, export_png_all, export_svg};
+pub use export::{export_png, export_png_all, export_svg, export_tiff, TiffColor};
 pub use jump::{DocumentPoint, JumpTarget};
 pub use pages::{
     PageFormat, PageMetrics, PagePatch, RenderMode, hash_hex, measure, page_hash,

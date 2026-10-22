@@ -15,26 +15,58 @@ interface ExportResult {
 }
 
 /** The formats the server can produce. */
-export type Format = 'pdf' | 'svg' | 'png' | 'html';
+export type Format = 'pdf' | 'svg' | 'png' | 'tiff' | 'html';
 
 /** What each format is called, and what it is written as. */
-const FORMATS: Record<
-  Format,
-  { label: string; extension: string; description: string }
-> = {
-  pdf: { label: 'PDF', extension: 'pdf', description: 'The whole document' },
-  svg: { label: 'SVG', extension: 'svg', description: 'One file, all pages' },
-  png: {
-    label: 'PNG',
-    extension: 'png',
-    description: 'One file per page, 144 ppi',
+const FORMATS: Record<Format, { label: string; extension: string }> = {
+  pdf: { label: 'PDF', extension: 'pdf' },
+  svg: { label: 'SVG', extension: 'svg' },
+  png: { label: 'PNG', extension: 'png' },
+  tiff: { label: 'TIFF', extension: 'tiff' },
+  html: { label: 'HTML', extension: 'html' },
+};
+
+/** Screen resolution: sharp on a high-density display, and modest on disk. */
+const SCREEN_PPI = 144;
+/** Print resolution: what a print shop or a journal asks for. */
+const PRINT_PPI = 300;
+/**
+ * Line-art resolution, for crisp text from an imagesetter or a fax gateway.
+ * Only offered in black and white: a 1200 dpi A4 page is 557 MB as RGBA.
+ */
+const LINE_ART_PPI = 1200;
+
+/** How a raster format is rendered: its resolution, and for TIFF its colour. */
+export interface RasterOptions {
+  ppi?: number;
+  /** TIFF only: one bit per pixel, black or white. */
+  bilevel?: boolean;
+}
+
+/** A choice in the export picker. Raster formats appear once per resolution. */
+interface Choice extends RasterOptions {
+  format: Format;
+  description: string;
+}
+
+const CHOICES: Choice[] = [
+  { format: 'pdf', description: 'The whole document' },
+  { format: 'svg', description: 'One file, all pages' },
+  { format: 'png', ppi: SCREEN_PPI, description: 'One file per page' },
+  { format: 'png', ppi: PRINT_PPI, description: 'One file per page, for print' },
+  { format: 'tiff', ppi: SCREEN_PPI, description: 'One file, all pages' },
+  { format: 'tiff', ppi: PRINT_PPI, description: 'One file, all pages, for print' },
+  {
+    format: 'tiff',
+    ppi: LINE_ART_PPI,
+    bilevel: true,
+    description: 'One file, all pages, black & white',
   },
-  html: {
-    label: 'HTML',
-    extension: 'html',
+  {
+    format: 'html',
     description: 'A separate compilation target — experimental upstream',
   },
-};
+];
 
 /**
  * Export a document.
@@ -48,6 +80,7 @@ export async function exportDocument(
   root: RootState,
   format: Format,
   document: vscode.TextDocument,
+  { ppi, bilevel }: RasterOptions = {},
 ): Promise<void> {
   // Ask where it goes *before* doing the work: a reader who changes their mind
   // at the dialog should not have paid for an export first.
@@ -69,7 +102,8 @@ export async function exportDocument(
     async () =>
       client.request<ExportResult>('typst/export', {
         format,
-        ppi: format === 'png' ? 144 : undefined,
+        ppi: format === 'png' || format === 'tiff' ? (ppi ?? SCREEN_PPI) : undefined,
+        bilevel: format === 'tiff' && bilevel === true ? true : undefined,
       }),
   );
 
@@ -106,15 +140,24 @@ export async function pickAndExport(
   root: RootState,
   document: vscode.TextDocument,
 ): Promise<void> {
-  const choice = await vscode.window.showQuickPick(
-    (Object.keys(FORMATS) as Format[]).map((format) => ({
-      label: FORMATS[format].label,
-      description: FORMATS[format].description,
-      format,
+  const picked = await vscode.window.showQuickPick(
+    CHOICES.map((choice) => ({
+      label: FORMATS[choice.format].label,
+      // The raster formats name their resolution in dpi, the unit print
+      // dialogs and print shops use; the label stays the bare format so typing
+      // `png` still finds both.
+      description:
+        choice.ppi === undefined
+          ? choice.description
+          : `${choice.ppi} dpi · ${choice.description}`,
+      choice,
     })),
     { title: 'Typst Ultra: export', placeHolder: 'Which format?' },
   );
-  if (choice) await exportDocument(client, root, choice.format, document);
+  if (picked) {
+    const { format, ...options } = picked.choice;
+    await exportDocument(client, root, format, document, options);
+  }
 }
 
 /**

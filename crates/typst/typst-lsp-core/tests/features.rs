@@ -1124,6 +1124,30 @@ fn export_produces_a_pdf() {
 }
 
 #[test]
+fn export_produces_a_tiff() {
+    let mut harness = Harness::new();
+    let uri = harness.open("main.typ", "= Title\n\nBody.\n");
+    harness.compile(&uri);
+
+    let result = harness.request("typst/export", json!({ "format": "tiff", "ppi": 300.0 }));
+    assert_eq!(result["extension"], json!("tiff"));
+    assert_eq!(result["files"].as_array().unwrap().len(), 1, "every page in one file");
+
+    let encoded = result["files"][0].as_str().unwrap();
+    assert!(encoded.starts_with("SUkqA"), "base64 of II*\\0, got {}", &encoded[..8]);
+
+    // Black and white is the same file a twentieth the size before
+    // compression, so it is much smaller after it too.
+    let bilevel = harness.request(
+        "typst/export",
+        json!({ "format": "tiff", "ppi": 300.0, "bilevel": true }),
+    );
+    let bilevel = bilevel["files"][0].as_str().unwrap();
+    assert!(bilevel.starts_with("SUkqA"));
+    assert!(bilevel.len() < encoded.len() / 2, "{} vs {}", bilevel.len(), encoded.len());
+}
+
+#[test]
 fn export_before_a_successful_compile_says_so() {
     let mut harness = Harness::new();
     harness.open("main.typ", "= Title\n");

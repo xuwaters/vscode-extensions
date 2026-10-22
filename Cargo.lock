@@ -3456,7 +3456,9 @@ dependencies = [
 name = "typst-preview-core"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "ecow",
+ "miniz_oxide",
  "pretty_assertions",
  "rustc-hash 2.1.2",
  "serde",

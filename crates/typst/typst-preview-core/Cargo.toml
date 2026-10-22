@@ -2,7 +2,7 @@
 name = "typst-preview-core"
 version = "0.1.0"
 edition = { workspace = true }
-description = "Per-page SVG rendering, page content hashing and diffing, cursor/click jump mapping, and SVG/PNG export for the Typst Ultra live preview."
+description = "Per-page SVG rendering, page content hashing and diffing, cursor/click jump mapping, and SVG/PNG/TIFF export for the Typst Ultra live preview."
 license = "MIT"
 
 [lints]
@@ -23,6 +23,10 @@ rustc-hash = "2"
 serde = { version = "1", features = ["derive"] }
 # For `Pixmap::encode_png`; typst-render does not re-export tiny-skia.
 tiny-skia = "0.12"
+# TIFF export's Deflate, and the CRC of the resolution chunk added to PNGs.
+# Both are already in the graph through tiny-skia's PNG encoder.
+miniz_oxide = "0.8"
+crc32fast = "1"
 
 [dev-dependencies]
 typst-svg = "0.15.1"
