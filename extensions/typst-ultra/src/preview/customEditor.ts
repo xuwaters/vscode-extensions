@@ -97,10 +97,11 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
     /**
      * Whether the server's answer is about this tab's document.
      *
-     * The server holds one document — whichever it compiled last — and answers
-     * every question with it, whatever URI was asked about. With two Preview
-     * tabs open, the one behind would otherwise take the other's pages as its
-     * own. A settled compile root is the exception: every tab shows it.
+     * The server compiles one document at a time. It keeps the last good pages
+     * of the few it compiled before and answers for the one asked about when
+     * it has them, but otherwise answers with the one it compiled last — which
+     * a tab for another document must not take as its own. A settled compile
+     * root is the exception: every tab shows it.
      *
      * Compared through `Uri.parse`, because the server and VSCode do not
      * percent-encode a path the same way.
@@ -216,6 +217,7 @@ export class TypstPreviewEditor implements vscode.CustomTextEditorProvider {
       case 'click': {
         const result = await jumpFromClick(
           this.client,
+          uri,
           message.page,
           message.xPt,
           message.yPt,

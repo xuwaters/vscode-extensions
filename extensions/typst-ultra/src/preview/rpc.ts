@@ -87,11 +87,14 @@ export function fetchPages(
 
 export function jumpFromClick(
   client: Client,
+  uri: vscode.Uri | undefined,
   page: number,
   xPt: number,
   yPt: number,
 ): Promise<JumpResult | null | undefined> {
   return client.request<JumpResult | null>('typst/jumpFromClick', {
+    // The page belongs to this document, which need not be the one compiled.
+    uri: uri?.toString(),
     page,
     xPt,
     yPt,

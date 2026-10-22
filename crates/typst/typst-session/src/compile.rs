@@ -46,12 +46,28 @@ pub struct CompileOutcome {
     pub pending_packages: Vec<PackageSpec>,
 }
 
+/// How many earlier compile roots keep their last good document.
+///
+/// Each one is a whole laid-out document, so this is a memory budget, not a
+/// cache size: enough for the few documents someone flips between with a
+/// preview open for each, not every file they have ever compiled.
+const PARKED_MAX: usize = 3;
+
+/// The last good document of a compile root that is not the current one.
+struct Parked {
+    main: FileId,
+    document: Arc<PagedDocument>,
+    version: DocVersion,
+}
+
 /// Owns the world and the last good document.
 pub struct Session<F, T, P, C> {
     world: SessionWorld<F, T, P, C>,
     evict_age: usize,
     last_good: Option<Arc<PagedDocument>>,
     last_good_version: Option<DocVersion>,
+    /// Earlier roots' documents, most recently set aside first.
+    parked: Vec<Parked>,
 }
 
 impl<F, T, P, C> Session<F, T, P, C>
@@ -67,7 +83,7 @@ where
     /// typst-cli's `10`, because per-keystroke editing and whole-file watch
     /// loops have different working sets. See decision record 0005.
     pub fn new(world: SessionWorld<F, T, P, C>, evict_age: usize) -> Self {
-        Self { world, evict_age, last_good: None, last_good_version: None }
+        Self { world, evict_age, last_good: None, last_good_version: None, parked: Vec::new() }
     }
 
     /// The world, for IDE features that need to resolve names or read sources.
@@ -141,6 +157,20 @@ where
         self.last_good_version
     }
 
+    /// The last good document of a compile root, current or set aside.
+    ///
+    /// A preview of a document that is not the one being compiled can still
+    /// show that document's own pages, rather than nothing or another's.
+    pub fn last_good_of(&self, main: FileId) -> Option<Arc<PagedDocument>> {
+        if main == self.world.main_id() {
+            return self.last_good.clone();
+        }
+        self.parked
+            .iter()
+            .find(|parked| parked.main == main)
+            .map(|parked| parked.document.clone())
+    }
+
     /// Register a document as open at the editor's copy of its text.
     pub fn open(&mut self, id: FileId, text: String) {
         self.world.vfs_mut().open(id, text);
@@ -164,13 +194,30 @@ where
 
     /// Point the compiler at a different entry file.
     ///
-    /// Also drops the last good document, because it describes a different
-    /// document entirely and would otherwise leak into the preview.
+    /// The last good document describes the old root, not the new one, and must
+    /// not leak into the new one's preview — so it is set aside under the old
+    /// root rather than kept, and the new root gets back its own, if it was set
+    /// aside earlier. Switching between two documents then shows each one's
+    /// pages at once, instead of a blank until the next compile finishes.
     pub fn set_main(&mut self, main: FileId) {
-        if self.world.main_id() != main {
-            self.world.set_main(main);
-            self.last_good = None;
-            self.last_good_version = None;
+        let previous = self.world.main_id();
+        if previous == main {
+            return;
+        }
+
+        if let (Some(document), Some(version)) =
+            (self.last_good.take(), self.last_good_version.take())
+        {
+            self.parked.retain(|parked| parked.main != previous);
+            self.parked.insert(0, Parked { main: previous, document, version });
+            self.parked.truncate(PARKED_MAX);
+        }
+
+        self.world.set_main(main);
+        if let Some(index) = self.parked.iter().position(|parked| parked.main == main) {
+            let parked = self.parked.remove(index);
+            self.last_good = Some(parked.document);
+            self.last_good_version = Some(parked.version);
         }
     }
 }

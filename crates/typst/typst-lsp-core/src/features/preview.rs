@@ -6,12 +6,15 @@
 //! a preview refresh cannot stall a keystroke, and an export of a document that
 //! currently has errors reports that rather than silently writing a stale file.
 
+use std::sync::Arc;
+
 use lsp_types::Uri;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use typst_preview_core::{
     DocumentPoint, JumpTarget, PageMetrics, PagePatch, RenderMode, RenderOptions, jump,
 };
+use typst_layout::PagedDocument;
 use typst_session::PdfExportOptions;
 
 use crate::convert::offset_to_position;
@@ -46,8 +49,9 @@ pub struct RenderPagesResult {
     pub patches: Vec<PagePatch>,
     /// How many pages the document has, so the webview can size its scrollbar.
     pub page_count: usize,
-    /// The document these pages belong to — the compile root, whatever `uri`
-    /// the request named. A preview of a different document must not take them.
+    /// The document these pages belong to: the one the request named when the
+    /// server holds its pages, else the compile root. A preview of a different
+    /// document must not take them.
     pub uri: Option<String>,
 }
 
@@ -100,6 +104,9 @@ impl From<&PageMetrics> for PageMetricsWire {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JumpFromClickParams {
+    /// The document whose page was clicked. Absent means the compile root's.
+    #[serde(default)]
+    pub uri: Option<Uri>,
     /// Zero-based page index.
     pub page: usize,
     /// Horizontal offset in points, already divided by the webview's zoom.
@@ -179,9 +186,30 @@ pub struct ExportResult {
 }
 
 impl<Q: Ports> Server<Q> {
+    /// The document a preview request is about, and its URI.
+    ///
+    /// The one `uri` names, when the session still holds its last good pages —
+    /// so a preview of a document that is not being compiled right now shows
+    /// its own pages, not the compile root's. Otherwise the compile root's, as
+    /// it is whenever a main file is pinned: then every preview shows the root.
+    fn preview_document(
+        &self,
+        uri: Option<&Uri>,
+    ) -> Option<(Arc<PagedDocument>, Option<String>)> {
+        if self.pinned_main.is_none()
+            && let Some(uri) = uri
+            && let Some(id) = self.uris().to_file_id(uri)
+            && let Some(document) = self.session().last_good_of(id)
+        {
+            let uri = self.uris().to_uri(id).map(|uri| uri.as_str().to_string());
+            return Some((document, uri));
+        }
+        Some((self.session().last_good_arc()?, self.main_uri()))
+    }
+
     /// `typst/renderPages`.
     pub fn render_pages(&mut self, params: RenderPagesParams) -> Option<RenderPagesResult> {
-        let document = self.session().last_good_arc()?;
+        let (document, uri) = self.preview_document(Some(&params.uri))?;
 
         let known: FxHashMap<usize, u64> = params
             .known_hashes
@@ -199,25 +227,21 @@ impl<Q: Ports> Server<Q> {
             },
         );
 
-        Some(RenderPagesResult {
-            patches,
-            page_count: document.pages().len(),
-            uri: self.main_uri(),
-        })
+        Some(RenderPagesResult { patches, page_count: document.pages().len(), uri })
     }
 
     /// `typst/documentMetrics`.
     pub fn document_metrics(
         &mut self,
-        _params: DocumentMetricsParams,
+        params: DocumentMetricsParams,
     ) -> Option<DocumentMetricsResult> {
-        let document = self.session().last_good_arc()?;
+        let (document, uri) = self.preview_document(Some(&params.uri))?;
         let metrics = self.preview.measure(&document);
 
         Some(DocumentMetricsResult {
             page_count: metrics.len(),
             pages: metrics.iter().map(PageMetricsWire::from).collect(),
-            uri: self.main_uri(),
+            uri,
         })
     }
 
@@ -226,7 +250,7 @@ impl<Q: Ports> Server<Q> {
         &mut self,
         params: JumpFromClickParams,
     ) -> Option<JumpFromClickResult> {
-        let document = self.session().last_good_arc()?;
+        let (document, _) = self.preview_document(params.uri.as_ref())?;
         let at = DocumentPoint {
             page: params.page,
             x_pt: params.x_pt,

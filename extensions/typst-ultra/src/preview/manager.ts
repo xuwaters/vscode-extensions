@@ -524,7 +524,7 @@ export class PreviewManager implements vscode.Disposable {
     xPt: number,
     yPt: number,
   ): Promise<void> {
-    const result = await jumpFromClick(this.client, page, xPt, yPt);
+    const result = await jumpFromClick(this.client, this.target, page, xPt, yPt);
     if (!result) return;
 
     if (result.kind === 'url') {
@@ -566,7 +566,7 @@ export class PreviewManager implements vscode.Disposable {
     if (mode !== 'both' && mode !== 'previewToEditor') return;
     if (this.guard.isEditorOrigin()) return;
 
-    const result = await jumpFromClick(this.client, page, 20, yPt);
+    const result = await jumpFromClick(this.client, this.target, page, 20, yPt);
     if (!result || result.kind !== 'source') return;
 
     const editor = vscode.window.visibleTextEditors.find(

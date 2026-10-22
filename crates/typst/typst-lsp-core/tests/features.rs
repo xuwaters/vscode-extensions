@@ -1014,6 +1014,48 @@ fn preview_answers_name_the_document_they_describe() {
     assert_eq!(pages["uri"], json!(main.as_str()));
 }
 
+/// Two Preview tabs, one document each: compiling the second must not take the
+/// first one's pages away from it.
+#[test]
+fn a_document_that_is_no_longer_compiled_still_answers_with_its_own_pages() {
+    let mut harness = Harness::new();
+    let one = harness.open("one.typ", "= One\n#pagebreak()\n= Still one\n");
+    harness.compile(&one);
+    let two = harness.open("two.typ", "= Two\n");
+    harness.compile(&two);
+
+    let metrics = harness.request("typst/documentMetrics", json!({ "uri": one.as_str() }));
+    assert_eq!(metrics["uri"], json!(one.as_str()));
+    assert_eq!(metrics["pageCount"], json!(2));
+
+    let metrics = harness.request("typst/documentMetrics", json!({ "uri": two.as_str() }));
+    assert_eq!(metrics["uri"], json!(two.as_str()));
+    assert_eq!(metrics["pageCount"], json!(1));
+
+    let pages = harness.request(
+        "typst/renderPages",
+        json!({ "uri": one.as_str(), "pages": [1], "knownHashes": {} }),
+    );
+    assert_eq!(pages["uri"], json!(one.as_str()));
+    assert_eq!(pages["patches"][0]["op"], json!("replace"));
+}
+
+/// With a main file pinned, every preview shows the root, even for a file that
+/// once compiled on its own and still has pages set aside.
+#[test]
+fn a_pinned_main_file_answers_for_every_document() {
+    let mut harness = Harness::new();
+    let chapter = harness.open("chapter.typ", "= Chapter\n");
+    harness.compile(&chapter);
+    let main = harness.open("main.typ", "= Main\n#pagebreak()\n= More\n");
+    harness.server().on_notification("typst/setMain", json!({ "uri": main.as_str() }));
+    harness.server().drain();
+
+    let metrics = harness.request("typst/documentMetrics", json!({ "uri": chapter.as_str() }));
+    assert_eq!(metrics["uri"], json!(main.as_str()));
+    assert_eq!(metrics["pageCount"], json!(2));
+}
+
 #[test]
 fn render_pages_honours_the_png_mode() {
     let mut harness = Harness::new();

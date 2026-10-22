@@ -7,6 +7,7 @@
 
 mod support;
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use support::{fixtures, render_diagnostics, session_at, session_with};
@@ -115,6 +116,36 @@ fn a_refused_package_produces_a_clear_diagnostic_rather_than_a_hang() {
         "the reason must reach the user: {:#?}",
         outcome.diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
+}
+
+/// Switching roots must not show one document's pages as another's — but
+/// switching back is no reason to forget the first one's either.
+#[test]
+fn switching_roots_sets_the_last_good_document_aside_and_back() {
+    let mut session = session_at(&fixtures(), "ok.typ");
+    let ok = support::file_id("ok.typ");
+    let other = support::file_id("unknown-font.typ");
+    session.open(ok, std::fs::read_to_string(fixtures().join("ok.typ")).unwrap());
+    session.open(other, "= Other\n".into());
+
+    assert!(session.compile(1).ok);
+    let first = session.last_good_arc().unwrap();
+
+    session.set_main(other);
+    assert!(session.last_good().is_none(), "the new root has no document of its own yet");
+    assert!(
+        Arc::ptr_eq(&session.last_good_of(ok).unwrap(), &first),
+        "the old root's document is still there to preview"
+    );
+
+    assert!(session.compile(1).ok);
+    let second = session.last_good_arc().unwrap();
+    assert!(!Arc::ptr_eq(&first, &second));
+
+    session.set_main(ok);
+    assert!(Arc::ptr_eq(&session.last_good_arc().unwrap(), &first));
+    assert_eq!(session.last_good_version(), Some(1));
+    assert!(Arc::ptr_eq(&session.last_good_of(other).unwrap(), &second));
 }
 
 #[test]
