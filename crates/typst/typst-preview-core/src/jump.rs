@@ -10,7 +10,7 @@ use std::num::NonZeroUsize;
 use serde::{Deserialize, Serialize};
 use typst::introspection::PagedPosition;
 use typst::layout::{Abs, Point};
-use typst::syntax::{FileId, Source};
+use typst::syntax::{FileId, LinkedNode, Side, Source, SyntaxKind};
 use typst_ide::{IdeWorld, Jump};
 use typst_layout::PagedDocument;
 
@@ -60,20 +60,61 @@ pub fn from_click(
     }
 }
 
+/// How many text leaves on each side of an unmapped cursor to try. Each try is
+/// a walk over the laid-out document, so this stays small.
+const NEAREST_TEXT_TRIES: usize = 8;
+
 /// Resolve a cursor position to the places it appears on the page.
 ///
-/// Returns nothing for a cursor in a comment or on a keyword — upstream only
-/// maps `Text` and `MathText` leaves — which is the correct behaviour: the
-/// preview stays where it is rather than jumping somewhere arbitrary.
+/// Upstream only maps a cursor touching a `Text` or `MathText` leaf, so a
+/// cursor on a blank line, in a comment or on a keyword would leave the preview
+/// wherever it was. Those fall back to the nearest text that does appear: the
+/// next text after the cursor, else the last before it. Nothing comes back only
+/// when no text nearby is on the page at all.
 pub fn from_cursor(
     document: &PagedDocument,
     source: &Source,
     cursor: usize,
 ) -> Vec<DocumentPoint> {
-    typst_ide::jump_from_cursor(document, source, cursor)
-        .into_iter()
-        .map(to_document_point)
-        .collect()
+    let mut positions = typst_ide::jump_from_cursor(document, source, cursor);
+    if positions.is_empty() {
+        positions = nearest_text(document, source, cursor);
+    }
+    positions.into_iter().map(to_document_point).collect()
+}
+
+fn nearest_text(
+    document: &PagedDocument,
+    source: &Source,
+    cursor: usize,
+) -> Vec<PagedPosition> {
+    fn is_text(node: &LinkedNode) -> bool {
+        matches!(node.kind(), SyntaxKind::Text | SyntaxKind::MathText)
+    }
+
+    let root = LinkedNode::new(source.root());
+    let Some(here) = root
+        .leaf_at(cursor, Side::After)
+        .or_else(|| root.leaf_at(cursor, Side::Before))
+    else {
+        return vec![];
+    };
+
+    let after = std::iter::successors(Some(here.clone()), |node| node.next_leaf())
+        .filter(is_text)
+        .take(NEAREST_TEXT_TRIES);
+    let before = std::iter::successors(here.prev_leaf(), |node| node.prev_leaf())
+        .filter(is_text)
+        .take(NEAREST_TEXT_TRIES);
+
+    // A text leaf can still be missing from the page — the body of a `#let`
+    // that is never called — so keep going until one lands. Its end offset with
+    // `Side::Before` is a cursor upstream resolves to that very leaf.
+    after
+        .chain(before)
+        .map(|leaf| typst_ide::jump_from_cursor(document, source, leaf.range().end))
+        .find(|positions| !positions.is_empty())
+        .unwrap_or_default()
 }
 
 fn to_document_point(position: PagedPosition) -> DocumentPoint {

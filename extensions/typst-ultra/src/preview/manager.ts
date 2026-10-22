@@ -338,7 +338,7 @@ export class PreviewManager implements vscode.Disposable {
   async syncToCursor(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor || !this.panel || !this.target) return;
-    await this.sendCursor(editor, true);
+    await this.sendCursor(editor);
   }
 
   /** Hand a zoom or inversion command to the panel's page. */
@@ -614,17 +614,11 @@ export class PreviewManager implements vscode.Disposable {
     if (mode !== 'both' && mode !== 'editorToPreview') return;
     if (this.guard.isPreviewOrigin()) return;
 
-    this.guard.debounce(50, () => void this.sendCursor(event.textEditor, false));
+    this.guard.debounce(50, () => void this.sendCursor(event.textEditor));
   }
 
-  private async sendCursor(
-    editor: vscode.TextEditor,
-    force: boolean,
-  ): Promise<void> {
+  private async sendCursor(editor: vscode.TextEditor): Promise<void> {
     if (!this.panel) return;
-
-    const settings = config.read(editor.document.uri);
-    if (!force && !settings.host.preview.cursorIndicator) return;
 
     const position = editor.selection.active;
     const points = await this.client.request<
@@ -634,9 +628,9 @@ export class PreviewManager implements vscode.Disposable {
       position: { line: position.line, character: position.character },
     });
 
-    // `jump_from_cursor` returns nothing for a cursor in a comment or on a
-    // keyword — leave the preview where it is rather than jumping somewhere
-    // arbitrary.
+    // The server maps a cursor off any text — a blank line, a comment — through
+    // the nearest text, so nothing comes back only when no text nearby is on
+    // the page. Leave the preview where it is then.
     const first = points?.[0];
     if (!first) return;
 

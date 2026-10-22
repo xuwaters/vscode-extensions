@@ -736,7 +736,7 @@
         "typstUltra.preview.cursorIndicator": {
           "type": "boolean",
           "default": false,
-          "description": "Flash a marker at the cursor's position on the page."
+          "description": "Flash a marker at the cursor's position on the page. The preview follows the cursor either way, as `scrollSync` allows."
         },
         "typstUltra.preview.showErrors": {
           "type": "boolean",

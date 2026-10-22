@@ -280,20 +280,65 @@ fn cursor_to_page_to_source_round_trips() {
     );
 }
 
-#[test]
-fn a_cursor_in_a_comment_maps_nowhere() {
+/// Where the cursor at `cursor` lands, and where the text `at` lands.
+fn landings(text: &str, cursor: usize, at: &str) -> (Vec<DocumentPoint>, Vec<DocumentPoint>) {
     let mut session = session("doc.typ");
     let id = file_id("doc.typ");
-    let text = "// just a comment\n\n= Heading\n";
     session.open(id, text.into());
 
     let document = session.compile(1).document.unwrap();
     let source = session.world().vfs().opened(id).unwrap().clone();
 
-    assert!(
-        jump::from_cursor(&document, &source, 5).is_empty(),
-        "the preview should stay put rather than jump somewhere arbitrary"
-    );
+    let expected = jump::from_cursor(&document, &source, text.find(at).unwrap() + 1);
+    assert!(!expected.is_empty(), "{at:?} must map to the page");
+    (jump::from_cursor(&document, &source, cursor), expected)
+}
+
+/// A blank line maps nowhere upstream; it should take the preview to the text
+/// that follows it, not leave the preview wherever it was.
+#[test]
+fn a_cursor_on_a_blank_line_maps_to_the_next_text() {
+    let text = "First paragraph.\n\n\n\nSecond paragraph.\n";
+    let blank = text.find("\n\n").unwrap() + 2;
+    let (landed, expected) = landings(text, blank, "Second");
+    assert_eq!(landed, expected);
+}
+
+#[test]
+fn a_cursor_in_a_comment_maps_to_the_next_text() {
+    let text = "// just a comment\n\n= Heading\n";
+    let (landed, expected) = landings(text, 5, "Heading");
+    assert_eq!(landed, expected);
+}
+
+/// Past the last text there is nothing after, so the text before wins.
+#[test]
+fn a_cursor_after_the_last_text_maps_to_the_text_before() {
+    let text = "Only paragraph.\n\n\n";
+    let (landed, expected) = landings(text, text.len() - 1, "Only");
+    assert_eq!(landed, expected);
+}
+
+/// Text in a function body that is never called is not on the page; the
+/// fallback must skip past it rather than give up.
+#[test]
+fn the_fallback_skips_text_that_is_not_on_the_page() {
+    let text = "#let unused() = [hidden words]\n\nVisible paragraph.\n";
+    let (landed, expected) = landings(text, 2, "Visible");
+    assert_eq!(landed, expected);
+}
+
+#[test]
+fn a_document_with_no_text_maps_nowhere() {
+    let mut session = session("doc.typ");
+    let id = file_id("doc.typ");
+    let text = "// just a comment\n\n#let x = 1\n";
+    session.open(id, text.into());
+
+    let document = session.compile(1).document.unwrap();
+    let source = session.world().vfs().opened(id).unwrap().clone();
+
+    assert!(jump::from_cursor(&document, &source, 5).is_empty());
 }
 
 #[test]
