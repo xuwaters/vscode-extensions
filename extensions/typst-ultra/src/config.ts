@@ -26,6 +26,7 @@ export interface HostSettings {
     background: 'editor' | 'white' | 'gray';
     renderMode: 'svg' | 'png' | 'auto';
     lockPreviewGroup: boolean;
+    focusOnSplit: 'editor' | 'preview';
     defaultMode: 'split' | 'preview';
   };
   export: { outputPath: string; askForLocation: boolean };
@@ -94,6 +95,7 @@ export function read(scope?: vscode.Uri): Config {
         background: config.get('preview.background', 'editor'),
         renderMode: config.get('preview.renderMode', 'svg'),
         lockPreviewGroup: config.get('preview.lockPreviewGroup', true),
+        focusOnSplit: config.get('preview.focusOnSplit', 'editor'),
         defaultMode: config.get('preview.defaultMode', 'split'),
       },
       export: {

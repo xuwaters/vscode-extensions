@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as config from '../config.js';
 import {
   activePreviewEditorUri,
   isPreviewable,
@@ -134,9 +135,11 @@ export class ModeManager implements vscode.Disposable {
           // applied to whichever group is active when it runs.
           await this.manager.revealPanel(vscode.ViewColumn.Beside, false);
           const document = await vscode.workspace.openTextDocument(uri);
+          const focusPreview =
+            config.read(uri).host.preview.focusOnSplit === 'preview';
           await vscode.window.showTextDocument(document, {
             viewColumn: this.manager.sourceColumn,
-            preserveFocus: false,
+            preserveFocus: focusPreview,
           });
         } else {
           await this.manager.show(uri, vscode.ViewColumn.Beside);

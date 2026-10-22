@@ -174,7 +174,8 @@ The preview follows whichever `.typ` you are looking at. Pin it with
 `Cmd/Ctrl+K Cmd/Ctrl+L` (from inside the preview) to keep it on one file while
 you edit another. The group the side preview opens in is locked, so files you
 open next land in the main group rather than on top of the preview
-(`preview.lockPreviewGroup`).
+(`preview.lockPreviewGroup`). Opening the side preview leaves the focus in
+the editor, so you can keep typing (`preview.focusOnSplit`).
 
 ### Reading with the keyboard
 
@@ -242,6 +243,7 @@ All under `typstUltra.`. The ones worth knowing about:
 | `preview.showErrors` | `false` | Show a bar while the document has errors |
 | `preview.defaultMode` | `"split"` | `split` · `preview` |
 | `preview.lockPreviewGroup` | `true` | Keep newly-opened files out of the preview's group |
+| `preview.focusOnSplit` | `"editor"` | `editor` · `preview` — where the focus lands when the side preview opens |
 | `export.outputPath` | `"$dir/$name"` | Supports `$dir`, `$name`, `$root` — where the export dialog opens |
 | `export.askForLocation` | `true` | Ask where to save; off writes straight to `export.outputPath` |
 | `memory.evictAge` | `1` | comemo cache age — see below |

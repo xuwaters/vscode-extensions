@@ -23,6 +23,9 @@ import { SyncGuard } from './sync.js';
 const CTX_VISIBLE = 'typstUltra.previewVisible';
 const CTX_LOCKED = 'typstUltra.previewLocked';
 
+/** How long after its page loads a new side preview's focus is still owed back. */
+const HAND_BACK_GRACE_MS = 1000;
+
 /**
  * The preview panel.
  *
@@ -52,6 +55,11 @@ export class PreviewManager implements vscode.Disposable {
   /** The last compile result the server reported, so an empty document can be
    * told apart from one that has not compiled yet. */
   private lastStatus: 'compiling' | 'ok' | 'error' | undefined;
+  /**
+   * The editor a side preview that has just opened owes the focus back to,
+   * until the page has loaded and taken the focus VSCode deferred for it.
+   */
+  private handBack: vscode.TextEditor | undefined;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly guard = new SyncGuard();
   private readonly stateEmitter = new vscode.EventEmitter<void>();
@@ -149,24 +157,26 @@ export class PreviewManager implements vscode.Disposable {
     this.target = subject;
     this.remember();
 
+    const side = column === vscode.ViewColumn.Beside;
+    const focusPreview = side && this.focusPreviewOnSplit();
+
     if (this.panel) {
       if (retargeted) this.adoptTarget(subject);
-      this.panel.reveal(this.panel.viewColumn, true);
+      this.panel.reveal(this.panel.viewColumn, !focusPreview);
       await this.refreshMetrics();
       return;
     }
 
-    this.source =
-      vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
-    const lockGroup =
-      column === vscode.ViewColumn.Beside && this.lockGroupEnabled();
+    const editor = vscode.window.activeTextEditor;
+    this.source = editor?.viewColumn ?? vscode.ViewColumn.One;
+    const lockGroup = side && this.lockGroupEnabled();
 
     const panel = vscode.window.createWebviewPanel(
       PreviewManager.viewType,
       this.title(subject),
       // Locking a group acts on the *active* group, so when we intend to lock
       // the new panel has to take focus first and hand it back below.
-      { viewColumn: column, preserveFocus: !lockGroup },
+      { viewColumn: column, preserveFocus: !lockGroup && !focusPreview },
       {
         ...webviewOptions(this.context.extensionUri),
         retainContextWhenHidden: true,
@@ -177,7 +187,13 @@ export class PreviewManager implements vscode.Disposable {
 
     this.adopt(panel);
     compileNow(this.client, subject, this.root.entry !== undefined);
-    if (lockGroup) await this.lockGroup();
+    if (lockGroup) {
+      await this.lockGroup(!focusPreview);
+      // Handing the focus back is not the end of it: VSCode holds on to the
+      // focus it owes a new webview until the page has loaded, and delivers it
+      // then — well after the hand-back, which it silently undoes.
+      if (!focusPreview) this.handBack = editor;
+    }
     await this.refreshMetrics();
   }
 
@@ -273,15 +289,21 @@ export class PreviewManager implements vscode.Disposable {
     });
 
     panel.onDidChangeViewState(() => {
-      // Coming back to this tab from the keyboard focuses the page but nothing
-      // in it, and the keys that turn the pages act on whatever holds the focus.
-      // Without this the reader has to click the page before → turns it.
-      if (panel.active) this.post({ type: 'focus' });
+      if (panel.active && this.handBack) {
+        this.handFocusBack();
+      } else if (panel.active) {
+        // Coming back to this tab from the keyboard focuses the page but
+        // nothing in it, and the keys that turn the pages act on whatever holds
+        // the focus. Without this the reader has to click the page before →
+        // turns it.
+        this.post({ type: 'focus' });
+      }
       this.stateEmitter.fire();
     });
 
     panel.onDidDispose(() => {
       this.panel = undefined;
+      this.handBack = undefined;
       void vscode.commands.executeCommand('setContext', CTX_VISIBLE, false);
       void vscode.commands.executeCommand('setContext', CTX_LOCKED, false);
       this.stateEmitter.fire();
@@ -390,6 +412,7 @@ export class PreviewManager implements vscode.Disposable {
         // editors not back yet — gets its second chance here, by which time
         // they are. Does nothing at all for a panel that has a subject.
         await this.ensureTarget(readSubject(this.context)?.uri);
+        this.settleHandBack();
         await this.refreshMetrics();
         break;
 
@@ -642,6 +665,41 @@ export class PreviewManager implements vscode.Disposable {
   /** Whether a side preview should lock the group it lands in. */
   private lockGroupEnabled(): boolean {
     return config.read(this.target).host.preview.lockPreviewGroup;
+  }
+
+  /** Whether a side preview should take the focus rather than leave it. */
+  private focusPreviewOnSplit(): boolean {
+    return config.read(this.target).host.preview.focusOnSplit === 'preview';
+  }
+
+  /** Return the focus a new side preview took to the editor it opened from. */
+  private handFocusBack(): void {
+    const editor = this.handBack;
+    this.handBack = undefined;
+    // No column means it has closed since, and the document would open in
+    // whichever group is active — the preview's.
+    if (!editor?.viewColumn) return;
+    void vscode.window.showTextDocument(editor.document, {
+      viewColumn: editor.viewColumn,
+      preserveFocus: false,
+    });
+  }
+
+  /**
+   * The page has loaded, so the deferred focus is landing about now. Already
+   * landed, it goes straight back; otherwise the debt stands a moment longer,
+   * then lapses — after that, the panel becoming active is the reader's doing.
+   */
+  private settleHandBack(): void {
+    const pending = this.handBack;
+    if (!pending) return;
+    if (this.panel?.active) {
+      this.handFocusBack();
+      return;
+    }
+    setTimeout(() => {
+      if (this.handBack === pending) this.handBack = undefined;
+    }, HAND_BACK_GRACE_MS);
   }
 
   /**

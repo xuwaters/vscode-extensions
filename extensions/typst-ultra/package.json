@@ -709,6 +709,19 @@
           "default": true,
           "description": "Lock the editor group the side preview opens in, so newly-opened files land in the main group instead of replacing the preview."
         },
+        "typstUltra.preview.focusOnSplit": {
+          "type": "string",
+          "enum": [
+            "editor",
+            "preview"
+          ],
+          "enumDescriptions": [
+            "Keep typing in the source while the preview opens beside it.",
+            "Move the focus into the preview."
+          ],
+          "default": "editor",
+          "description": "Where the focus lands when the preview opens beside the source — switching to Split mode (`Cmd/Ctrl+Shift+V`) or `Open Preview to the Side`."
+        },
         "typstUltra.preview.scrollSync": {
           "type": "string",
           "enum": [
