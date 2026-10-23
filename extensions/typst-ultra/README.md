@@ -104,6 +104,19 @@ means installing that one too, because VS Code will not activate an extension
 whose dependency is missing. System fonts are indexed in the background either
 way.
 
+**Project fonts**: a project that ships its own font files lists their
+directories in `typstUltra.fonts.paths` — the editor's equivalent of
+`typst compile --font-path`. Commit it with the project, in
+`.vscode/settings.json`:
+
+```json
+{ "typstUltra.fonts.paths": ["fonts"] }
+```
+
+Relative paths are workspace-relative, directories are searched recursively,
+and `.ttf`, `.otf`, `.ttc` and `.otc` files are picked up. Adding, replacing or
+removing a font there recompiles with it — no restart.
+
 ## Getting started
 
 Open a `.typ` file. That is the whole setup — the server starts on the first
@@ -268,6 +281,7 @@ All under `typstUltra.`. The ones worth knowing about:
 | `compile.when` | `"onType"` | `onType` · `onSave` · `never` |
 | `compile.debounce` | `150` | ms of quiet before recompiling |
 | `fonts.system` | `true` | Index installed fonts in the background |
+| `fonts.paths` | `[]` | Project font directories, workspace-relative. Watched for new and changed files |
 | `packages.enabled` | `true` | Turn off for air-gapped setups |
 | `preview.scrollSync` | `"both"` | Which way the editor and preview follow each other |
 | `preview.invertColors` | `"never"` | `never` · `always` · `auto` |

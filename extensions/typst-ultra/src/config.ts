@@ -130,6 +130,20 @@ export function resolveRoot(config: Config, document?: vscode.Uri): string {
 }
 
 /**
+ * `typstUltra.fonts.paths` as absolute directories.
+ *
+ * A relative entry is workspace-relative, not root-relative: pointing
+ * `rootPath` at a subdirectory changes what `/` means inside a document, and
+ * should not also move where the project's fonts are looked for.
+ */
+export function resolveFontPaths(config: Config, document?: vscode.Uri): string[] {
+  const base = workspaceRoot(document) ?? resolveRoot(config, document);
+  return config.host.fonts.paths.map((dir) =>
+    path.isAbsolute(dir) ? dir : path.join(base, dir),
+  );
+}
+
+/**
  * The root to use when no workspace folder answers the question.
  *
  * A file falls back to its own directory. An untitled buffer has no directory,

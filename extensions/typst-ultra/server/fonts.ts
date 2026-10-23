@@ -95,6 +95,15 @@ export class FontIndex {
     };
   }
 
+  /**
+   * Forget every indexed face, keeping the cache, so the next
+   * `addDirectories` rebuilds the list from what is on disk now. A rebuild
+   * costs one `stat` per unchanged file.
+   */
+  clear(): void {
+    this.faces = [];
+  }
+
   /** Index one file. Returns whether it had to be parsed rather than cached. */
   addFile(file: string): boolean {
     let stat: fs.Stats;

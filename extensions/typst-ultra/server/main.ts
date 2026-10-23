@@ -71,7 +71,10 @@ interface InitOptions {
   bundledFontsPath: string;
   /** Where the font index cache is kept, in global storage. */
   fontCachePath: string;
-  /** Extra font directories from `typstUltra.fonts.paths`. */
+  /**
+   * Extra font directories from `typstUltra.fonts.paths`, made absolute by the
+   * client against the workspace folder.
+   */
   extraFontPaths: string[];
   /** `typstUltra.fonts.system`. */
   systemFonts: boolean;
@@ -230,7 +233,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   if (resolved.systemFonts || resolved.extraFontPaths.length > 0) {
     // Deferred to the next tick so `initialize` returns promptly; the scan is
     // synchronous once it starts, but by then the client is already live.
-    setTimeout(() => indexMoreFonts(resolved), 0);
+    setTimeout(() => reindexFonts(false), 0);
   }
 
   connection.console.log(`typst ${wasm.TypstServer.typstVersion()} engine ready`);
@@ -287,6 +290,10 @@ connection.onNotification('typst/clearPackageCache', () => {
   scheduleCompile(0);
 });
 
+// A font file under `typstUltra.fonts.paths` was added, changed, or removed.
+// The client debounces, so a family dropped in at once is one rescan.
+connection.onNotification('typst/rescanFonts', () => reindexFonts(true));
+
 connection.onRequest('typst/heapBytes', () => engine?.wasm.TypstServer.heapBytes() ?? 0);
 
 /**
@@ -341,26 +348,41 @@ function scheduleCompile(delay: number): void {
   }, delay);
 }
 
-/** Index system and user-configured font directories, then recompile. */
-function indexMoreFonts(options: InitOptions): void {
+/**
+ * Rebuild the font list from every directory — bundled, system, and
+ * user-configured — then recompile.
+ *
+ * Always from scratch rather than appending, so the first background pass and
+ * a rescan after a file event cannot double-count each other whichever runs
+ * first, and a removed file actually goes away. The order is the same every
+ * time, which keeps font selection stable.
+ *
+ * `changed` is whether the caller already knows something moved. The first
+ * pass does not, and skips the recompile when it found nothing new; a rescan
+ * does, because a font edited in place keeps its face count.
+ */
+function reindexFonts(changed: boolean): void {
   if (!engine) return;
+  const { fonts, options } = engine;
 
   const dirs = [
+    ...(options.bundledFontsPath ? [options.bundledFontsPath] : []),
     ...(options.systemFonts ? systemFontDirs() : []),
+    // Absolute from the client; the root is the fallback for one that is not.
     ...options.extraFontPaths.map((dir) =>
       path.isAbsolute(dir) ? dir : path.join(options.rootPath, dir),
     ),
   ];
-  if (dirs.length === 0) return;
 
-  const before = engine.fonts.entries.length;
-  const stats = engine.fonts.addDirectories(dirs);
-  engine.fonts.save();
+  const before = fonts.entries.length;
+  fonts.clear();
+  const stats = fonts.addDirectories(dirs);
+  fonts.save();
 
-  if (engine.fonts.entries.length === before) return;
+  if (!changed && stats.faces === before) return;
 
   connection.console.log(
-    `indexed ${stats.faces - before} more font faces in ${stats.ms} ms ` +
+    `indexed ${stats.faces} font faces in ${stats.ms} ms ` +
       `(${stats.parsed} files parsed, the rest served from the cache)`,
   );
 

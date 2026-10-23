@@ -118,6 +118,31 @@ describe('the font index', () => {
     expect(index.descriptors).toEqual([{ info: { family: 'one' }, index: 0 }]);
   });
 
+  it('rebuilds from what is on disk now, from the cache, after a clear', () => {
+    const dir = scratch();
+    fs.writeFileSync(path.join(dir, 'one.ttf'), 'one');
+    fs.writeFileSync(path.join(dir, 'two.ttf'), 'two');
+
+    const calls: string[] = [];
+    const index = new FontIndex('', fakeParse(calls));
+    index.addDirectories([dir]);
+
+    // A project font removed and another added: the rescan must drop the one,
+    // pick up the other, and not list the survivor twice.
+    fs.rmSync(path.join(dir, 'one.ttf'));
+    fs.writeFileSync(path.join(dir, 'three.ttf'), 'three');
+    calls.length = 0;
+    index.clear();
+    const stats = index.addDirectories([dir]);
+
+    expect(index.descriptors.map((face) => face.info)).toEqual([
+      { family: 'three' },
+      { family: 'two' },
+    ]);
+    expect(stats.parsed).toBe(1);
+    expect(calls).toEqual(['three']);
+  });
+
   it('only offers font directories that exist on this machine', () => {
     for (const dir of systemFontDirs()) {
       expect(fs.statSync(dir).isDirectory()).toBe(true);

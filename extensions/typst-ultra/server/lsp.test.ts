@@ -309,3 +309,69 @@ describe.skipIf(!READY)('the built server, over LSP', () => {
     expect(published.at(-1)?.diagnostics.length).toBe(1);
   }, 60_000);
 });
+
+describe.skipIf(!READY)('project fonts, over LSP', () => {
+  let workspace: string;
+  let fontsDir: string;
+  let client: TestClient;
+
+  /** A bundled face standing in for a project's own font file. */
+  const projectFont = fs
+    .readdirSync(BUNDLED_FONTS)
+    .find((name) => name.endsWith('.ttf'))!;
+
+  /** Wait for the next `typst/fontsChanged`, dropping any already seen. */
+  const nextFontCount = async (): Promise<number> => {
+    const message = await client.waitFor('typst/fontsChanged');
+    client.notifications.splice(client.notifications.indexOf(message), 1);
+    return (message.params as { faces: number }).faces;
+  };
+
+  beforeAll(async () => {
+    workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'typst-lsp-fonts-'));
+    fontsDir = path.join(workspace, 'fonts');
+    fs.mkdirSync(path.join(fontsDir, 'nested'), { recursive: true });
+    fs.copyFileSync(
+      path.join(BUNDLED_FONTS, projectFont),
+      path.join(fontsDir, 'nested', projectFont),
+    );
+    fs.writeFileSync(path.join(workspace, 'main.typ'), 'Hello.\n');
+
+    client = new TestClient();
+    await client.request('initialize', {
+      processId: process.pid,
+      rootUri: pathToFileURL(workspace).toString(),
+      capabilities: {},
+      initializationOptions: {
+        rootPath: workspace,
+        rootUri: pathToFileURL(workspace).toString(),
+        mainPath: 'main.typ',
+        bundledFontsPath: BUNDLED_FONTS,
+        fontCachePath: path.join(workspace, 'font-index.json'),
+        extraFontPaths: [fontsDir],
+        systemFonts: false,
+        packages: { enabled: false, registry: '', cachePath: '' },
+        settings: { compile: { when: 'onType', debounce: 10 } },
+      },
+    });
+    client.notify('initialized', {});
+  }, 60_000);
+
+  afterAll(() => {
+    client?.dispose();
+    if (workspace) fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('indexes the project font directory, and follows it on rescan', async () => {
+    // The background pass after startup finds the nested project font.
+    const withFont = await nextFontCount();
+
+    fs.rmSync(path.join(fontsDir, 'nested', projectFont));
+    client.notify('typst/rescanFonts', {});
+    expect(await nextFontCount()).toBe(withFont - 1);
+
+    fs.copyFileSync(path.join(BUNDLED_FONTS, projectFont), path.join(fontsDir, projectFont));
+    client.notify('typst/rescanFonts', {});
+    expect(await nextFontCount()).toBe(withFont);
+  }, 60_000);
+});

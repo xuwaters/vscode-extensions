@@ -701,7 +701,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Extra font directories, workspace-relative or absolute."
+          "description": "Extra font directories, workspace-relative or absolute, searched recursively — the equivalent of `typst compile --font-path`. Font files added, changed, or removed there are picked up without a restart."
         },
         "typstUltra.packages.enabled": {
           "type": "boolean",

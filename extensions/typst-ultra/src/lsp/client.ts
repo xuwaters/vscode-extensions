@@ -15,12 +15,24 @@ import {
 import { namesTypstSource } from '../commands/target.js';
 import * as config from '../config.js';
 
+/**
+ * Font files, as a glob. Both cases, because the server's scan matches the
+ * extension case-insensitively and the watcher should see what it sees.
+ */
+const FONT_GLOB = '**/*.{ttf,otf,ttc,otc,TTF,OTF,TTC,OTC}';
+
+/** Quiet time before a rescan, so dropping in a family of 12 files is one. */
+const FONT_RESCAN_DEBOUNCE_MS = 300;
+
 /** The language server, started lazily and restartable. */
 export class Client implements vscode.Disposable {
   private client: LanguageClient | undefined;
   private starting: Promise<void> | undefined;
   /** Warn about missing fonts once per session, not once per restart. */
   private warnedAboutFonts = false;
+  /** Watchers on `typstUltra.fonts.paths`, for as long as the server runs. */
+  private fontWatchers: vscode.Disposable[] = [];
+  private fontRescanTimer: NodeJS.Timeout | undefined;
   private readonly notificationHandlers = new Map<
     string,
     ((params: unknown) => void)[]
@@ -64,6 +76,7 @@ export class Client implements vscode.Disposable {
   async stop(): Promise<void> {
     const client = this.client;
     this.client = undefined;
+    this.unwatchFonts();
     if (client) await client.stop();
   }
 
@@ -124,6 +137,7 @@ export class Client implements vscode.Disposable {
 
     const settings = config.read(document);
     const root = config.resolveRoot(settings, document);
+    const fontPaths = config.resolveFontPaths(settings, document);
 
     const serverOptions: ServerOptions = {
       run: { module, transport: TransportKind.ipc },
@@ -161,7 +175,7 @@ export class Client implements vscode.Disposable {
           this.context.globalStorageUri.fsPath,
           'font-index.json',
         ),
-        extraFontPaths: settings.host.fonts.paths,
+        extraFontPaths: fontPaths,
         systemFonts: settings.host.fonts.system,
         packages: settings.host.packages,
         settings: settings.server,
@@ -180,6 +194,7 @@ export class Client implements vscode.Disposable {
 
     await client.start();
     this.client = client;
+    this.watchFonts(fontPaths);
 
     for (const [method, handlers] of this.notificationHandlers) {
       client.onNotification(method, (params: unknown) => {
@@ -201,6 +216,50 @@ export class Client implements vscode.Disposable {
     });
 
     this.started.fire();
+  }
+
+  /**
+   * Rescan when a font file under `typstUltra.fonts.paths` comes, goes, or
+   * changes — a project's fonts are files in it like any other, and dropping
+   * one in should not take a restart to notice.
+   *
+   * A directory inside a workspace folder is watched through that folder, so
+   * the watch holds even if the directory does not exist yet; one outside is
+   * watched from itself.
+   */
+  private watchFonts(dirs: string[]): void {
+    const rescan = () => {
+      if (this.fontRescanTimer) clearTimeout(this.fontRescanTimer);
+      this.fontRescanTimer = setTimeout(() => {
+        this.fontRescanTimer = undefined;
+        this.notify('typst/rescanFonts', {});
+      }, FONT_RESCAN_DEBOUNCE_MS);
+    };
+
+    for (const dir of dirs) {
+      const uri = vscode.Uri.file(dir);
+      const folder = vscode.workspace.getWorkspaceFolder(uri);
+      const pattern = folder
+        ? new vscode.RelativePattern(
+            folder,
+            `${path.relative(folder.uri.fsPath, dir).split(path.sep).join('/')}/${FONT_GLOB}`,
+          )
+        : new vscode.RelativePattern(uri, FONT_GLOB);
+
+      const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+      this.fontWatchers.push(
+        watcher,
+        watcher.onDidCreate(rescan),
+        watcher.onDidChange(rescan),
+        watcher.onDidDelete(rescan),
+      );
+    }
+  }
+
+  private unwatchFonts(): void {
+    if (this.fontRescanTimer) clearTimeout(this.fontRescanTimer);
+    this.fontRescanTimer = undefined;
+    for (const disposable of this.fontWatchers.splice(0)) disposable.dispose();
   }
 
   /**
