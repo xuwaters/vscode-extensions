@@ -316,14 +316,12 @@
       },
       {
         "command": "typstUltra.pinMain",
-        "title": "Set as Main File",
-        "category": "Typst Ultra",
+        "title": "Typst Ultra: Set as Main File",
         "icon": "$(pin)"
       },
       {
         "command": "typstUltra.unpinMain",
-        "title": "Unset Main File",
-        "category": "Typst Ultra",
+        "title": "Typst Ultra: Unset Main File",
         "icon": "$(pinned-dirty)"
       },
       {

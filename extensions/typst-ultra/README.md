@@ -146,8 +146,8 @@ chapters — say which file is the document. Editing any of the other files then
 still checks and previews the whole thing, instead of compiling a page of
 `#let` bindings on its own and showing you a blank preview.
 
-- Right-click the file in the Explorer, or its editor tab, and choose **Set as
-  Main File**.
+- Right-click the file in the Explorer, or its editor tab, and choose **Typst
+  Ultra: Set as Main File**.
 - Or click **Main:** in the status bar, which opens a list of the likely
   candidates and searches the workspace as you type.
 
@@ -160,9 +160,9 @@ The status bar always says which file is being compiled. Its icon says why:
 | gear | `Main: main.typ` | The project set `main.typ` in its workspace settings |
 
 The main file also wears a **★** in the Explorer and on its tab. To go back to
-compiling whatever you are looking at, right-click it and choose **Unset Main
-File**, pick **Follow the focused editor** from the status bar, or use the
-**Unset** link in the status bar's tooltip.
+compiling whatever you are looking at, right-click it and choose **Typst Ultra:
+Unset Main File**, pick **Follow the focused editor** from the status bar, or
+use the **Unset** link in the status bar's tooltip.
 
 **Set as Main File** is yours alone. To set it for everyone who opens the
 project, use the save button beside a file in the status bar's list. It writes
