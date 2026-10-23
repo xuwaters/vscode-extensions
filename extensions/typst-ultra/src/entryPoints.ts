@@ -11,6 +11,8 @@
  * paths and map the answer back — so the rule itself is testable.
  */
 
+import * as path from 'path';
+
 /** Names projects give their entry point, often enough to bet on. */
 const CONVENTIONAL =
   /^(main|index|paper|thesis|report|book|article|slides|presentation|cv|resume)\.typc?$/i;
@@ -178,4 +180,52 @@ function withoutHalfTypedExtension(query: string): string {
   const dot = query.lastIndexOf('.');
   if (dot <= 0) return query;
   return /^t(y(pc?)?)?$/i.test(query.slice(dot + 1)) ? query.slice(0, dot) : query;
+}
+
+/**
+ * How a main file is written into `typstUltra.mainFile`: relative to the
+ * project root, with forward slashes whatever platform wrote it.
+ *
+ * Relative because the setting is checked in and the clone that reads it is
+ * somewhere else; forward slashes because the teammate reading it may be on a
+ * different operating system, and `path.join` accepts them everywhere.
+ */
+export function settingPath(root: string, file: string): string {
+  return path.relative(root, file).split(path.sep).join('/');
+}
+
+/**
+ * The document a template package's `typst.toml` names, project-relative.
+ *
+ * `[template] path` is the folder a new project is copied from and
+ * `entrypoint` the file in it that is "the compilation target" — the one the
+ * Typst web app previews. Nothing else in the manifest names a document:
+ * `[package] entrypoint` is what an `#import` evaluates, a library rather than
+ * something with pages.
+ *
+ * Reads only that one table, and only basic and literal strings, rather than
+ * carrying a TOML parser for two keys. A manifest this does not understand is
+ * one without a hint, which is what every non-template project is anyway.
+ */
+export function templateEntrypoint(manifest: string): string | undefined {
+  const keys = new Map<string, string>();
+  let inTemplate = false;
+
+  for (const raw of manifest.split(/\r?\n/)) {
+    const line = raw.trim();
+    const table = /^\[\s*([^\]]+?)\s*\]/.exec(line);
+    if (table) {
+      inTemplate = table[1] === 'template';
+      continue;
+    }
+    if (!inTemplate) continue;
+    const pair = /^([A-Za-z0-9_-]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')/.exec(line);
+    if (pair) keys.set(pair[1] as string, pair[2] ?? pair[3] ?? '');
+  }
+
+  const entrypoint = keys.get('entrypoint');
+  if (!entrypoint) return undefined;
+  const joined = path.posix.normalize(path.posix.join(keys.get('path') ?? '.', entrypoint));
+  // A manifest pointing outside its own package is not one to take a hint from.
+  return joined.startsWith('../') || path.posix.isAbsolute(joined) ? undefined : joined;
 }

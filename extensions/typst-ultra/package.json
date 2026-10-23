@@ -316,19 +316,19 @@
       },
       {
         "command": "typstUltra.pinMain",
-        "title": "Pin This File as Compile Root",
+        "title": "Set as Main File",
         "category": "Typst Ultra",
         "icon": "$(pin)"
       },
       {
         "command": "typstUltra.unpinMain",
-        "title": "Unpin Compile Root",
+        "title": "Unset Main File",
         "category": "Typst Ultra",
         "icon": "$(pinned-dirty)"
       },
       {
         "command": "typstUltra.selectMain",
-        "title": "Select Compile Root…",
+        "title": "Select Main File…",
         "category": "Typst Ultra",
         "icon": "$(file-symlink-file)"
       },
@@ -436,7 +436,7 @@
         },
         {
           "command": "typstUltra.unpinMain",
-          "when": "typstUltra.mainPinned"
+          "when": "typstUltra.mainSettled"
         },
         {
           "command": "typstUltra.selectMain",
@@ -502,6 +502,18 @@
           "group": "navigation@6"
         }
       ],
+      "editor/title/context": [
+        {
+          "command": "typstUltra.pinMain",
+          "when": "resourceExtname =~ /^\\.typc?$/ && resourcePath not in typstUltra.mainFiles",
+          "group": "typst@1"
+        },
+        {
+          "command": "typstUltra.unpinMain",
+          "when": "resourcePath in typstUltra.mainFiles",
+          "group": "typst@1"
+        }
+      ],
       "explorer/context": [
         {
           "command": "typstUltra.showPreview",
@@ -511,6 +523,16 @@
         {
           "command": "typstUltra.export",
           "when": "resourceExtname == .typ",
+          "group": "navigation"
+        },
+        {
+          "command": "typstUltra.pinMain",
+          "when": "resourceExtname =~ /^\\.typc?$/ && resourcePath not in typstUltra.mainFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "typstUltra.unpinMain",
+          "when": "resourcePath in typstUltra.mainFiles",
           "group": "navigation"
         }
       ]
@@ -606,7 +628,8 @@
         "typstUltra.mainFile": {
           "type": "string",
           "default": "",
-          "description": "Compile and preview entry point, workspace-relative. The preview shows this file whichever part of the project you are editing. Empty follows the focused editor. Outranked by the `Typst: Pin This File as Compile Root` command."
+          "scope": "resource",
+          "markdownDescription": "The document's main file, relative to the workspace folder. Every file of the project compiles and previews as part of it, whichever one you are editing. Empty follows the focused editor. Saved here by the save button in `Typst Ultra: Select Main File…`; outranked by your own `Typst Ultra: Set as Main File`."
         },
         "typstUltra.compile.when": {
           "type": "string",

@@ -239,13 +239,20 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('typstUltra.zoomOut', previewCommand('zoomOut')),
     vscode.commands.registerCommand('typstUltra.zoomReset', previewCommand('zoomReset')),
 
-    vscode.commands.registerCommand('typstUltra.pinMain', async () => {
-      const document = await requireDocument();
-      if (document) await compileRoot.pin(document.uri);
-    }),
+    // The explorer and the tab's context menu hand over the file clicked on,
+    // which need not be the one being edited.
+    vscode.commands.registerCommand(
+      'typstUltra.pinMain',
+      async (target?: vscode.Uri | string) => {
+        const named = namedSource(target);
+        if (named) return compileRoot.pin(named);
+        const document = await requireDocument();
+        if (document) await compileRoot.pin(document.uri);
+      },
+    ),
 
     vscode.commands.registerCommand('typstUltra.unpinMain', () =>
-      compileRoot.unpin(),
+      compileRoot.unset(),
     ),
 
     vscode.commands.registerCommand(

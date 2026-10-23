@@ -380,8 +380,8 @@ Some things are genuinely better in TypeScript, and putting them in the server w
 | `typstUltra.showPreview` | Typst: Show Preview | `ctrl+shift+v` / `cmd+shift+v` |
 | `typstUltra.showPreviewToSide` | Typst: Show Preview to the Side | `ctrl+k v` / `cmd+k v` |
 | `typstUltra.syncPreviewToCursor` | Typst: Sync Preview to Cursor | `ctrl+k ctrl+j` |
-| `typstUltra.pinMain` | Typst: Pin This File as Compile Root | |
-| `typstUltra.unpinMain` | Typst: Unpin Compile Root | |
+| `typstUltra.pinMain` | Typst Ultra: Set as Main File | |
+| `typstUltra.unpinMain` | Typst Ultra: Unset Main File | |
 | `typstUltra.export` | Typst: Export… (QuickPick) | |
 | `typstUltra.exportPdf` | Typst: Export PDF | |
 | `typstUltra.toggleInvertColors` | Typst: Toggle Preview Color Inversion | |

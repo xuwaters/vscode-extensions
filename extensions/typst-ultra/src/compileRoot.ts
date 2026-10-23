@@ -5,6 +5,8 @@ import * as config from './config.js';
 import {
   documentSearchGlob,
   rankEntryCandidates,
+  settingPath,
+  templateEntrypoint,
   walkForDocuments,
   type DirectoryTree,
 } from './entryPoints.js';
@@ -53,11 +55,35 @@ const SEARCH_DELAY = 150;
 /** Search hits to take. Past this the reader should type another letter. */
 const SEARCH_LIMIT = 128;
 
-/** A row of the compile-root quick pick. */
+/**
+ * Context key: the settled main file's path, in a list, so a menu can ask
+ * `resourcePath in typstUltra.mainFiles` of the file it was opened on.
+ */
+const MAIN_FILES_KEY = 'typstUltra.mainFiles';
+
+/** Context key: whether a main file is settled at all, pinned or configured. */
+const SETTLED_KEY = 'typstUltra.mainSettled';
+
+/**
+ * What marks the main file in the explorer and on its tab.
+ *
+ * Not a letter: those are git's, and `M` in particular already means
+ * "modified". No colour either, for the same reason — the file name's colour
+ * is how git says what state it is in, and that is worth more than ours.
+ */
+const MAIN_DECORATION = new vscode.FileDecoration('★', 'Typst main file');
+
+/** A row of the main-file quick pick. */
 interface PickItem extends vscode.QuickPickItem {
-  action: 'unpin' | 'pin';
+  action: 'unset' | 'pin' | 'share';
   uri?: vscode.Uri;
 }
+
+/** The row button that sets a file for everyone rather than for the reader. */
+const SHARE_BUTTON: vscode.QuickInputButton = {
+  iconPath: new vscode.ThemeIcon('save'),
+  tooltip: 'Set as main file for everyone: save it to the workspace settings',
+};
 
 /** A file to pin, labelled the way the reader thinks of it. */
 function fileItem(uri: vscode.Uri): PickItem {
@@ -65,6 +91,7 @@ function fileItem(uri: vscode.Uri): PickItem {
     label: `$(file) ${vscode.workspace.asRelativePath(uri)}`,
     action: 'pin',
     uri,
+    buttons: [SHARE_BUTTON],
   };
 }
 
@@ -135,25 +162,51 @@ export function openDocuments(): vscode.Uri[] {
  * 1. the session pin (`typstUltra.pinMain`, stored in `workspaceState`),
  * 2. `typstUltra.mainFile`, which a team can check in,
  * 3. the focused `.typ` editor.
+ *
+ * The reader calls the first two "the main file" — the Typst web app's word
+ * for it, and the one that does not collide with `typstUltra.rootPath`, which
+ * is the compile root in the `typst --root` sense.
  */
-export class CompileRoot implements vscode.Disposable, RootAdvisor {
+export class CompileRoot
+  implements vscode.Disposable, vscode.FileDecorationProvider, RootAdvisor
+{
   private readonly item: vscode.StatusBarItem;
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly decorationsChanged = new vscode.EventEmitter<vscode.Uri[]>();
+  readonly onDidChangeFileDecorations = this.decorationsChanged.event;
   private mode: RootMode = { kind: 'none' };
+  /** The file wearing the main-file badge, so the next change can take it off. */
+  private decorated: vscode.Uri | undefined;
+  /**
+   * What the running server was last told, `null` for "follow the editor" and
+   * `undefined` for nothing yet. Every `typst/setMain` recompiles, and a
+   * settings change lands here several times over.
+   */
+  private sent: string | null | undefined;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly client: Client,
   ) {
     this.item = vscode.window.createStatusBarItem(
+      'typstUltra.mainFile',
       vscode.StatusBarAlignment.Right,
       100,
     );
+    this.item.name = 'Typst Main File';
     this.item.command = 'typstUltra.selectMain';
-    this.disposables.push(this.item);
+    this.disposables.push(this.item, this.decorationsChanged);
 
     this.disposables.push(
       vscode.commands.registerCommand('typstUltra.selectMain', () => this.pick()),
+      vscode.window.registerFileDecorationProvider(this),
+      // A new server starts from its initialization options, which make the
+      // main file where it *starts* but not where it stays: the first chapter
+      // opened would take over. Only `typst/setMain` makes it stick.
+      client.onDidStart(() => {
+        this.sent = undefined;
+        this.sync();
+      }),
       vscode.window.onDidChangeActiveTextEditor((editor) => this.follow(editor)),
       // `typstUltra.mainFile` can change without the focus moving — someone
       // edits `.vscode/settings.json`, or pulls a branch that adds it — and
@@ -194,18 +247,80 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
     );
   }
 
-  /** Pin a file as the compile root. */
+  /** Pin a file as the main file, for this reader in this workspace. */
   async pin(uri: vscode.Uri): Promise<void> {
     await this.context.workspaceState.update(PIN_KEY, uri.fsPath);
-    this.client.notify('typst/setMain', { uri: uri.toString() });
-    this.refresh();
+    this.follow(vscode.window.activeTextEditor);
   }
 
-  /** Go back to following the focused editor. */
-  async unpin(): Promise<void> {
+  /**
+   * Make a file the main file for everyone who opens the project, by writing
+   * it to `typstUltra.mainFile` in the workspace settings.
+   *
+   * Clears the reader's own pin afterwards, since it outranks the setting: a
+   * pin left behind would make the setting look like it had not taken.
+   */
+  async share(uri: vscode.Uri): Promise<void> {
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    const root = config.resolveRoot(config.read(uri), uri);
+    try {
+      await vscode.workspace
+        .getConfiguration('typstUltra', uri)
+        .update(
+          'mainFile',
+          settingPath(root, uri.fsPath),
+          folder
+            ? vscode.ConfigurationTarget.WorkspaceFolder
+            : vscode.ConfigurationTarget.Workspace,
+        );
+    } catch (error) {
+      // No folder open means no workspace settings to write to.
+      void vscode.window.showErrorMessage(
+        `Typst: could not save the main file to the workspace settings. ${String(error)}`,
+      );
+      return;
+    }
     await this.context.workspaceState.update(PIN_KEY, undefined);
-    this.client.notify('typst/setMain', { uri: null });
     this.follow(vscode.window.activeTextEditor);
+  }
+
+  /**
+   * Go back to following the focused editor: drop the pin, and the workspace's
+   * `typstUltra.mainFile` with it.
+   *
+   * Clearing only the pin would leave a project that configured its main file
+   * exactly where it was, and an Unset that does nothing is the one thing this
+   * command must not be.
+   */
+  async unset(): Promise<void> {
+    const scope = this.entry ?? vscode.window.activeTextEditor?.document.uri;
+    await this.context.workspaceState.update(PIN_KEY, undefined);
+
+    const settings = vscode.workspace.getConfiguration('typstUltra', scope);
+    const set = settings.inspect<string>('mainFile');
+    const folder = scope ? vscode.workspace.getWorkspaceFolder(scope) : undefined;
+    if (set?.workspaceFolderValue && folder) {
+      await settings.update('mainFile', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    }
+    if (set?.workspaceValue) {
+      await settings.update('mainFile', undefined, vscode.ConfigurationTarget.Workspace);
+    }
+    // One in the user settings is the reader's default for every project, so
+    // it is overridden here rather than deleted from all of them.
+    if (set?.globalValue) {
+      await settings.update(
+        'mainFile',
+        '',
+        folder
+          ? vscode.ConfigurationTarget.WorkspaceFolder
+          : vscode.ConfigurationTarget.Workspace,
+      );
+    }
+    this.follow(vscode.window.activeTextEditor);
+  }
+
+  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    return this.decorated?.toString() === uri.toString() ? MAIN_DECORATION : undefined;
   }
 
   /** Update after the active editor changed. */
@@ -233,35 +348,91 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
     this.refresh();
   }
 
-  /** Show the status bar item, or hide it when there is nothing to say. */
+  /**
+   * Bring everything that shows the main file up to date: the status bar item,
+   * the explorer badge, the menus' context keys, and the server.
+   */
   refresh(): void {
-    switch (this.mode.kind) {
-      case 'pinned':
-        this.item.text = `$(pin) ${path.basename(this.mode.uri.fsPath)}`;
-        this.item.tooltip = `Typst: compiling the pinned main file. Click to change.`;
-        this.item.show();
-        break;
-      case 'setting':
-        this.item.text = `$(settings) ${path.basename(this.mode.uri.fsPath)}`;
-        this.item.tooltip =
-          'Typst: compiling the file from `typstUltra.mainFile`. Click to change.';
-        this.item.show();
-        break;
-      case 'following':
-        this.item.text = `$(eye) ${path.basename(this.mode.uri.fsPath)}`;
-        this.item.tooltip = 'Typst: following the focused editor. Click to pin.';
-        this.item.show();
-        break;
-      case 'none':
-        this.item.hide();
-        break;
+    const settled =
+      this.mode.kind === 'pinned' || this.mode.kind === 'setting'
+        ? this.mode.uri
+        : undefined;
+
+    if (this.mode.kind === 'none') {
+      this.item.hide();
+    } else {
+      const name = path.basename(this.mode.uri.fsPath);
+      const icon = { pinned: 'pin', setting: 'settings-gear', following: 'eye' }[this.mode.kind];
+      this.item.text = `$(${icon}) Main: ${name}`;
+      this.item.tooltip = this.tooltip(this.mode);
+      this.item.show();
     }
 
+    if (settled?.toString() !== this.decorated?.toString()) {
+      const changed = [this.decorated, settled].filter(
+        (uri): uri is vscode.Uri => uri !== undefined,
+      );
+      this.decorated = settled;
+      this.decorationsChanged.fire(changed);
+    }
+
+    void vscode.commands.executeCommand('setContext', SETTLED_KEY, settled !== undefined);
     void vscode.commands.executeCommand(
       'setContext',
-      'typstUltra.mainPinned',
-      this.mode.kind === 'pinned',
+      MAIN_FILES_KEY,
+      settled ? [settled.fsPath] : [],
     );
+    this.sync();
+  }
+
+  /**
+   * Tell the server the settled main file, or that there is none.
+   *
+   * The setting needs this as much as the pin does. Without it the server only
+   * *started* on the configured file, and the first chapter edited became the
+   * document in its place.
+   */
+  private sync(): void {
+    if (!this.client.running) return;
+    const uri = this.entry?.toString() ?? null;
+    if (uri === this.sent) return;
+    this.sent = uri;
+    this.client.notify('typst/setMain', { uri });
+  }
+
+  /** What the status bar item says on hover, with the way out in it. */
+  private tooltip(mode: Exclude<RootMode, { kind: 'none' }>): vscode.MarkdownString {
+    const file = vscode.workspace.asRelativePath(mode.uri);
+    const tip = new vscode.MarkdownString(undefined, true);
+    tip.isTrusted = { enabledCommands: ['typstUltra.selectMain', 'typstUltra.unpinMain'] };
+    switch (mode.kind) {
+      case 'pinned':
+        tip.appendMarkdown(`**Typst main file:** \`${file}\`\n\n`);
+        tip.appendMarkdown(
+          'Set by you, for this workspace. Every file of the project compiles and previews as part of it.\n\n',
+        );
+        tip.appendMarkdown(
+          '[Change…](command:typstUltra.selectMain) · [Unset](command:typstUltra.unpinMain)',
+        );
+        break;
+      case 'setting':
+        tip.appendMarkdown(`**Typst main file:** \`${file}\`\n\n`);
+        tip.appendMarkdown(
+          'From `typstUltra.mainFile` in the workspace settings. Every file of the project compiles and previews as part of it.\n\n',
+        );
+        tip.appendMarkdown(
+          '[Change…](command:typstUltra.selectMain) · [Unset](command:typstUltra.unpinMain)',
+        );
+        break;
+      case 'following':
+        tip.appendMarkdown(`**Typst main file:** the focused editor, \`${file}\`\n\n`);
+        tip.appendMarkdown(
+          'For a document split over several files, set its main file, so editing any part still checks and previews the whole.\n\n',
+        );
+        tip.appendMarkdown('[Set a main file…](command:typstUltra.selectMain)');
+        break;
+    }
+    return tip;
   }
 
   /**
@@ -278,8 +449,9 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
   async pick(): Promise<void> {
     const active = this.focused();
     const picker = vscode.window.createQuickPick<PickItem>();
-    picker.title = 'Typst: compile root';
-    picker.placeholder = 'Which file should be compiled? Type to search the workspace';
+    picker.title = 'Typst: main file';
+    picker.placeholder =
+      'Which file is the document? Type to search; the save button sets it for everyone';
 
     const head = this.actions(active);
     // The rows that are on screen whatever the query is, so a search hit does
@@ -361,6 +533,7 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
 
     const choice = await new Promise<PickItem | undefined>((resolve) => {
       picker.onDidAccept(() => resolve(picker.selectedItems[0]));
+      picker.onDidTriggerItemButton((event) => resolve({ ...event.item, action: 'share' }));
       picker.onDidHide(() => resolve(undefined));
     });
 
@@ -369,8 +542,10 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
     picker.dispose();
 
     if (!choice) return;
-    if (choice.action === 'unpin') {
-      await this.unpin();
+    if (choice.action === 'unset') {
+      await this.unset();
+    } else if (choice.uri && choice.action === 'share') {
+      await this.share(choice.uri);
     } else if (choice.uri) {
       await this.pin(choice.uri);
     }
@@ -404,8 +579,8 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
     await this.context.workspaceState.update(SUGGESTED_KEY, true);
 
     const choice = await vscode.window.showInformationMessage(
-      `Typst: ${path.basename(blank.fsPath)} compiles to no pages, so it looks like part of a larger document rather than one of its own. Preview ${vscode.workspace.asRelativePath(best)} instead?`,
-      `Pin ${path.basename(best.fsPath)}`,
+      `Typst: ${path.basename(blank.fsPath)} compiles to no pages, so it looks like part of a larger document rather than one of its own. Make ${vscode.workspace.asRelativePath(best)} the main file and preview that instead?`,
+      `Use ${path.basename(best.fsPath)}`,
       'Choose a file…',
     );
     if (choice === 'Choose a file…') {
@@ -436,19 +611,32 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
   /** The rows that need nothing looked up, so the menu can open on them. */
   private actions(active: vscode.Uri | undefined): PickItem[] {
     const items: PickItem[] = [];
-    if (this.mode.kind === 'pinned') {
+    const settled =
+      this.mode.kind === 'pinned' || this.mode.kind === 'setting'
+        ? this.mode.uri
+        : undefined;
+    if (settled) {
       items.push({
         label: '$(eye) Follow the focused editor',
-        description: 'Unpin the compile root',
-        action: 'unpin',
+        description: `Unset ${path.basename(settled.fsPath)} as the main file`,
+        action: 'unset',
       });
     }
-    if (active) {
+    if (this.mode.kind === 'pinned') {
       items.push({
-        label: `$(pin) Pin ${path.basename(active.fsPath)}`,
+        label: `$(save) Share ${path.basename(this.mode.uri.fsPath)} with the project`,
+        description: 'Save it to the workspace settings, for everyone who opens it',
+        action: 'share',
+        uri: this.mode.uri,
+      });
+    }
+    if (active && active.toString() !== settled?.toString()) {
+      items.push({
+        label: `$(pin) Set ${path.basename(active.fsPath)} as main file`,
         description: 'The file you are looking at',
         action: 'pin',
         uri: active,
+        buttons: [SHARE_BUTTON],
       });
     }
     return items;
@@ -519,8 +707,8 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
   }
 
   /**
-   * Offer to pin `main.typ` once, the first time someone opens a chapter in a
-   * project that clearly has one.
+   * Offer to settle the main file once, the first time someone opens a chapter
+   * in a project that clearly names its document.
    *
    * One-shot per workspace: an offer that comes back is nagging, and the
    * command and the status bar are both still there for anyone who declines.
@@ -531,21 +719,45 @@ export class CompileRoot implements vscode.Disposable, RootAdvisor {
     const folder = vscode.workspace.getWorkspaceFolder(current);
     if (!folder) return;
 
-    const main = vscode.Uri.joinPath(folder.uri, 'main.typ');
-    if (main.fsPath === current.fsPath) return;
-    try {
-      await vscode.workspace.fs.stat(main);
-    } catch {
-      return;
-    }
+    const main = await this.namedEntry(folder.uri);
+    if (!main || main.fsPath === current.fsPath) return;
 
     await this.context.workspaceState.update(SUGGESTED_KEY, true);
 
+    const name = path.basename(main.fsPath);
     const choice = await vscode.window.showInformationMessage(
-      'This project has a `main.typ`. Pin it as the compile root so editing a chapter still checks the whole document?',
-      'Pin main.typ',
+      `This project's document looks like ${vscode.workspace.asRelativePath(main)}. Make it the main file, so editing any part of the project still checks and previews the whole?`,
+      `Use ${name}`,
       'Not now',
     );
-    if (choice === 'Pin main.typ') await this.pin(main);
+    if (choice === `Use ${name}`) await this.pin(main);
+  }
+
+  /**
+   * The document a project names outright, if it does: a template package's
+   * `typst.toml` entry point, else a `main.typ` at the top.
+   */
+  private async namedEntry(folder: vscode.Uri): Promise<vscode.Uri | undefined> {
+    const named: vscode.Uri[] = [];
+    try {
+      const manifest = await vscode.workspace.fs.readFile(
+        vscode.Uri.joinPath(folder, 'typst.toml'),
+      );
+      const hint = templateEntrypoint(new TextDecoder().decode(manifest));
+      if (hint) named.push(vscode.Uri.joinPath(folder, hint));
+    } catch {
+      // No manifest, which is most projects.
+    }
+    named.push(vscode.Uri.joinPath(folder, 'main.typ'));
+
+    for (const uri of named) {
+      try {
+        await vscode.workspace.fs.stat(uri);
+        return uri;
+      } catch {
+        // Named but not there; try the next.
+      }
+    }
+    return undefined;
   }
 }

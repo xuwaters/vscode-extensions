@@ -25,6 +25,14 @@ export class Client implements vscode.Disposable {
     string,
     ((params: unknown) => void)[]
   >();
+  private readonly started = new vscode.EventEmitter<void>();
+
+  /**
+   * Fires each time a server comes up, restarts included. A new server knows
+   * only what the initialization options told it, so anything the host has
+   * since said by notification has to be said again.
+   */
+  readonly onDidStart = this.started.event;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -101,6 +109,7 @@ export class Client implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.started.dispose();
     void this.stop();
   }
 
@@ -190,6 +199,8 @@ export class Client implements vscode.Disposable {
           if (choice === 'Show Log') this.output.show(true);
         });
     });
+
+    this.started.fire();
   }
 
   /**

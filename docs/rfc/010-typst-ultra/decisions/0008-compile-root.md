@@ -92,3 +92,28 @@ imported by another file.
   avoidable.
 - The auto-suggest prompt proves annoying rather than helpful; the fallback is to drop it and rely on the
   status bar alone.
+
+## Amendment — 2026-10-23: "main file", menus, and the server keeping it
+
+Readers could not find the pin: it lived only in the command palette, and the status bar item showed a
+bare file name with nothing saying what it was. Changed:
+
+- **Named "main file"** in everything a reader sees — `Set as Main File`, `Unset Main File`,
+  `Select Main File…`, `Main: main.typ` in the status bar. "Compile root" is `typstUltra.rootPath`
+  (`typst --root`), and "pin" was already the preview's lock. Command IDs are unchanged.
+- **Right-click entry points**: the explorer and the editor tab's context menu offer Set, or Unset on the
+  file that is the main file (`resourcePath in typstUltra.mainFiles`).
+- **A `★` file decoration** on the main file, in the explorer and on its tab.
+- **Share** — a row button in the picker writes `typstUltra.mainFile` to the folder's settings and drops
+  the pin. **Unset clears both** the pin and the workspace's setting; an Unset that left a configured
+  main file in force did nothing visible.
+- **The setting now holds on the server.** It was only the *initial* main path, so the first chapter
+  opened replaced it, and the same went for a pin after a window reload. `typst/setMain` is now sent for
+  whatever is settled, on every server start and every change.
+
+No project manifest after all. `typst.toml` is a package manifest — `[package] name`/`version`/
+`entrypoint` are required by the compiler, and `typst compile` never reads one for a plain document —
+and `tinymist.lock` is Tinymist's compile history, not a hand-written file. `.vscode/settings.json` is
+the shared answer. The one thing taken from `typst.toml` is a hint: a template package's
+`[template] path` + `entrypoint` names its document, and the one-shot offer suggests it ahead of
+`main.typ`.

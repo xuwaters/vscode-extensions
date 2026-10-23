@@ -107,7 +107,7 @@ way.
 ## Getting started
 
 Open a `.typ` file. That is the whole setup — the server starts on the first
-typst document, and the compile root follows whichever file you are looking at.
+typst document, and it compiles whichever file you are looking at.
 
 A new untitled file works too, once you set its language to Typst — it compiles,
 previews and exports like anything else, and becomes an ordinary file the moment
@@ -122,19 +122,44 @@ bibliography. Opening a `.bib` in a workspace with no typst files in it does
 nothing at all — a LaTeX project's bibliography is none of this extension's
 business.
 
-For a project of several files — an entry point plus its data, template, and
-chapters — say which file is the document: click the status bar item, or run
-**Typst Ultra: Pin This File as Compile Root**. Editing any of the other files
-then still checks and previews the whole thing, instead of compiling a page of
-`#let` bindings on its own and showing you a blank preview. `typstUltra.mainFile`
-is the same answer written down, so a project can check it into
-`.vscode/settings.json` and everyone who clones it gets it. The extension offers
-to settle this for you once per workspace: when it first sees a project with a
-`main.typ`, or when a preview compiles cleanly to no pages at all.
-
 `Cmd/Ctrl+Shift+V` puts the preview beside the editor; press it again from
 either side and you are still in Split. The editor title bar carries the same
 three modes as buttons, plus Export.
+
+### The main file
+
+For a project of several files — a main file plus its data, template, and
+chapters — say which file is the document. Editing any of the other files then
+still checks and previews the whole thing, instead of compiling a page of
+`#let` bindings on its own and showing you a blank preview.
+
+- Right-click the file in the Explorer, or its editor tab, and choose **Set as
+  Main File**.
+- Or click **Main:** in the status bar, which opens a list of the likely
+  candidates and searches the workspace as you type.
+
+The status bar always says which file is being compiled. Its icon says why:
+
+| Icon | Status bar | Meaning |
+| --- | --- | --- |
+| eye | `Main: chapter.typ` | No main file; compiling the file you are looking at |
+| pin | `Main: main.typ` | You set `main.typ`, for yourself, in this workspace |
+| gear | `Main: main.typ` | The project set `main.typ` in its workspace settings |
+
+The main file also wears a **★** in the Explorer and on its tab. To go back to
+compiling whatever you are looking at, right-click it and choose **Unset Main
+File**, pick **Follow the focused editor** from the status bar, or use the
+**Unset** link in the status bar's tooltip.
+
+**Set as Main File** is yours alone. To set it for everyone who opens the
+project, use the save button beside a file in the status bar's list. It writes
+`typstUltra.mainFile` to `.vscode/settings.json`, ready to check in. Unset
+clears that setting as well.
+
+The extension offers to set the main file for you once per workspace: when it
+first sees a project with a `main.typ` (or a template package whose
+`typst.toml` names its document), or when a preview compiles cleanly to no
+pages at all.
 
 ### If you have never written Typst
 
@@ -225,9 +250,9 @@ All under the **Typst Ultra** category.
 | Typst Ultra: Switch to Edit View / Preview View / Switch View Mode… | |
 | Typst Ultra: Export… | |
 | Typst Ultra: Export PDF | |
-| Typst Ultra: Pin This File as Compile Root | |
-| Typst Ultra: Unpin Compile Root | |
-| Typst Ultra: Select Compile Root… | |
+| Typst Ultra: Set as Main File | |
+| Typst Ultra: Unset Main File | |
+| Typst Ultra: Select Main File… | |
 | Typst Ultra: Toggle Preview Color Inversion | |
 | Typst Ultra: Restart Language Server | |
 | Typst Ultra: Show Log | |
@@ -239,7 +264,7 @@ All under `typstUltra.`. The ones worth knowing about:
 
 | Setting | Default | |
 | --- | --- | --- |
-| `mainFile` | `""` | Compile and preview entry point, workspace-relative. Empty follows the focused editor |
+| `mainFile` | `""` | The document's main file, workspace-relative. Empty follows the focused editor |
 | `compile.when` | `"onType"` | `onType` · `onSave` · `never` |
 | `compile.debounce` | `150` | ms of quiet before recompiling |
 | `fonts.system` | `true` | Index installed fonts in the background |

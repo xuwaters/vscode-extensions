@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   documentSearchGlob,
   rankEntryCandidates,
+  settingPath,
+  templateEntrypoint,
   walkForDocuments,
   type DirectoryTree,
   type WalkBudget,
@@ -189,5 +191,57 @@ describe('documentSearchGlob', () => {
 
   it('takes glob characters in a name as the typos they are', () => {
     expect(documentSearchGlob('ma*in{')).toBe('**/*main*.{typ,typc}');
+  });
+});
+
+describe('settingPath', () => {
+  it('writes the main file relative to the project root', () => {
+    expect(settingPath('/w', '/w/main.typ')).toBe('main.typ');
+  });
+
+  it('keeps the folders between them, with forward slashes', () => {
+    expect(settingPath('/w', '/w/book/main.typ')).toBe('book/main.typ');
+  });
+
+  it('climbs out of a root the file is not under', () => {
+    expect(settingPath('/w/src', '/w/main.typ')).toBe('../main.typ');
+  });
+});
+
+describe('templateEntrypoint', () => {
+  it('joins the template folder and its entry point', () => {
+    const manifest = [
+      '[package]',
+      'name = "letter"',
+      'entrypoint = "lib.typ"',
+      '',
+      '[template]',
+      'path = "template"',
+      'entrypoint = "main.typ"',
+      'thumbnail = "thumb.png"',
+    ].join('\n');
+    expect(templateEntrypoint(manifest)).toBe('template/main.typ');
+  });
+
+  it('is nothing for a package that is not a template', () => {
+    expect(templateEntrypoint('[package]\nname = "x"\nentrypoint = "lib.typ"\n')).toBe(
+      undefined,
+    );
+  });
+
+  it('reads literal strings, comments and spacing', () => {
+    const manifest = "[ template ] # copied on init\npath='.'\n  entrypoint = './doc.typ' # here\n";
+    expect(templateEntrypoint(manifest)).toBe('doc.typ');
+  });
+
+  it('stops at the next table', () => {
+    const manifest = '[template]\npath = "t"\n[tool.other]\nentrypoint = "x.typ"\n';
+    expect(templateEntrypoint(manifest)).toBe(undefined);
+  });
+
+  it('refuses an entry point outside the package', () => {
+    expect(templateEntrypoint('[template]\npath = ".."\nentrypoint = "main.typ"\n')).toBe(
+      undefined,
+    );
   });
 });
