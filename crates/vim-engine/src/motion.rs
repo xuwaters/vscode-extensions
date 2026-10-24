@@ -75,6 +75,237 @@ impl<'a> Walker<'a> {
     }
 }
 
+// ---- Vim's cursor arithmetic -----------------------------------------------
+//
+// The sentence motion and the text objects are ports of Vim's search.c and
+// textobject.c, whose stopping rules lean on exactly how `inc()`/`dec()`
+// step: a position may rest on a line's end, which Vim sees as the line's
+// NUL. Porting them over these keeps every off-by-one where Vim has it.
+
+/// What `gchar` reports at a line's end: Vim's NUL.
+pub(crate) const NUL: char = '\0';
+
+/// The char at `p`, or `NUL` at (or past) its line's end.
+pub(crate) fn gchar(buf: &Buffer, p: Pos) -> char {
+    buf.char_at(p).unwrap_or(NUL)
+}
+
+/// Vim's `VIM_ISWHITE`: only space and tab count.
+pub(crate) fn is_white(ch: char) -> bool {
+    ch == ' ' || ch == '\t'
+}
+
+/// Vim's `inc()`: one char forward, resting on the line's end before
+/// crossing to the next line. Returns 0 inside a line, 2 on landing on its
+/// end, 1 on crossing a line break, and -1 (unmoved) at the buffer's end.
+pub(crate) fn inc(buf: &Buffer, p: &mut Pos) -> i32 {
+    let len = buf.line_len(p.line);
+    if p.col < len {
+        p.col += buf.char_at(*p).map_or(1, char::len_utf16);
+        return if p.col < len { 0 } else { 2 };
+    }
+    if p.line < buf.last_line() {
+        *p = Pos::new(p.line + 1, 0);
+        1
+    } else {
+        -1
+    }
+}
+
+/// Vim's `dec()`: one char back; from column 0 onto the previous line's
+/// end. Returns 1 on crossing a line, -1 (unmoved) at the buffer's start.
+pub(crate) fn dec(buf: &Buffer, p: &mut Pos) -> i32 {
+    if p.col > 0 {
+        let line = buf.line(p.line);
+        let byte = crate::buffer::utf16_to_byte(line, p.col);
+        let prev = line[..byte].char_indices().next_back().map_or(0, |(b, _)| b);
+        p.col = crate::buffer::byte_to_utf16(line, prev);
+        0
+    } else if p.line > 0 {
+        p.line -= 1;
+        p.col = buf.line_len(p.line);
+        1
+    } else {
+        -1
+    }
+}
+
+/// Vim's `incl()`: `inc()` that skips a non-empty line's end.
+pub(crate) fn incl(buf: &Buffer, p: &mut Pos) -> i32 {
+    let r = inc(buf, p);
+    if r >= 1 && p.col != 0 { inc(buf, p) } else { r }
+}
+
+/// Vim's `decl()`: `dec()` that skips a non-empty line's end.
+pub(crate) fn decl(buf: &Buffer, p: &mut Pos) -> i32 {
+    let r = dec(buf, p);
+    if r == 1 && p.col != 0 { dec(buf, p) } else { r }
+}
+
+/// Vim's `linewhite()`: a line holding nothing but blanks. `ip`/`ap` take
+/// these as paragraph boundaries, though `{`/`}` don't (`:help ap`).
+pub(crate) fn line_white(buf: &Buffer, line: usize) -> bool {
+    buf.line(line).chars().all(is_white)
+}
+
+/// Vim's default `'paragraphs'` and `'sections'`: nroff macros, two chars
+/// each, that start a paragraph or section when they follow a `.` in
+/// column 0 (`:help paragraph`).
+const PARAGRAPH_MACROS: &str = "IPLPPPQPP TPHPLIPpLpItpplpipbp";
+const SECTION_MACROS: &str = "SHNHH HUnhsh";
+
+/// Vim's `startPS(lnum, NUL, FALSE)`: whether `line` starts a paragraph or
+/// section — an empty line, a form feed in column 0, or one of the nroff
+/// macros above. These are sentence boundaries too (`:help sentence`).
+pub(crate) fn starts_paragraph(buf: &Buffer, line: usize) -> bool {
+    let s = buf.line(line).as_bytes();
+    match s.first() {
+        None | Some(b'\x0c') => true,
+        Some(b'.') => in_macro(SECTION_MACROS, &s[1..]) || in_macro(PARAGRAPH_MACROS, &s[1..]),
+        _ => false,
+    }
+}
+
+/// Vim's `inmacro()`: does `s` (the line after its `.`) name one of the
+/// two-char macros in `opt`? A space in the option matches a space in the
+/// line or the line ending there.
+fn in_macro(opt: &str, s: &[u8]) -> bool {
+    let m = opt.as_bytes();
+    let s0 = s.first().copied().unwrap_or(0);
+    let s1 = if s0 == 0 { 0 } else { s.get(1).copied().unwrap_or(0) };
+    let mut i = 0;
+    while i < m.len() {
+        let (m0, m1) = (m[i], m.get(i + 1).copied().unwrap_or(0));
+        if (m0 == s0 || (m0 == b' ' && (s0 == 0 || s0 == b' ')))
+            && (m1 == s1 || ((m1 == 0 || m1 == b' ') && (s0 == 0 || s1 == 0 || s1 == b' ')))
+        {
+            return true;
+        }
+        i += 2;
+    }
+    false
+}
+
+/// `(` / `)`: the start of the `count`-th sentence backward or forward —
+/// Vim's `findsent()`. A sentence ends at a `.`, `!` or `?` followed by
+/// any number of `)`, `]`, `"`, `'` and then a line end, space or tab; empty
+/// lines and the other paragraph starts are sentences of their own
+/// (`:help sentence`).
+///
+/// The result may sit on a line's end (the buffer's last sentence runs to
+/// it): normal mode clamps that, an operator takes it as the exclusive end.
+/// None when the count runs past the buffer's end, as Vim fails then; running
+/// out going backward stops at the buffer's start instead.
+pub fn sentence(buf: &Buffer, pos: Pos, forward: bool, count: usize) -> Option<Pos> {
+    let step = |p: &mut Pos| if forward { incl(buf, p) } else { decl(buf, p) };
+    let mut pos = pos;
+    let mut count = count.max(1);
+    let mut noskip = false; // don't skip blanks: we stopped at the buffer's end
+    while count > 0 {
+        count -= 1;
+        let prev_pos = pos;
+        'found: {
+            if gchar(buf, pos) == NUL {
+                // On an empty line: skip to a non-empty one.
+                while step(&mut pos) != -1 && gchar(buf, pos) == NUL {}
+                if forward {
+                    break 'found;
+                }
+            } else if forward && pos.col == 0 && starts_paragraph(buf, pos.line) {
+                // On a paragraph start going forward: the next line is the
+                // next sentence.
+                if pos.line == buf.last_line() {
+                    return None;
+                }
+                pos.line += 1;
+                break 'found;
+            } else if !forward {
+                decl(buf, &mut pos);
+            }
+
+            // Go back to the previous non-white, non-punctuation char.
+            let mut found_dot = false;
+            loop {
+                let c = gchar(buf, pos);
+                if !(is_white(c) || ".!?)]\"'".contains(c)) {
+                    break;
+                }
+                let mut tpos = pos;
+                if decl(buf, &mut tpos) == -1 || (buf.line_len(tpos.line) == 0 && forward) {
+                    break;
+                }
+                if found_dot {
+                    break;
+                }
+                if ".!?".contains(c) {
+                    found_dot = true;
+                }
+                if ")]\"'".contains(c) && !".!?)]\"'".contains(gchar(buf, tpos)) {
+                    break;
+                }
+                decl(buf, &mut pos);
+            }
+
+            // Find the end of the sentence.
+            let start_line = pos.line;
+            loop {
+                let c = gchar(buf, pos);
+                if c == NUL || (pos.col == 0 && starts_paragraph(buf, pos.line)) {
+                    if !forward && pos.line != start_line {
+                        pos.line += 1;
+                    }
+                    break;
+                }
+                if c == '.' || c == '!' || c == '?' {
+                    let mut tpos = pos;
+                    let mut at_end = false;
+                    let after = loop {
+                        if inc(buf, &mut tpos) == -1 {
+                            at_end = true;
+                            break NUL;
+                        }
+                        let c = gchar(buf, tpos);
+                        if !")]\"'".contains(c) {
+                            break c;
+                        }
+                    };
+                    if at_end || is_white(after) || after == NUL {
+                        pos = tpos;
+                        if gchar(buf, pos) == NUL {
+                            inc(buf, &mut pos);
+                        }
+                        break;
+                    }
+                }
+                if step(&mut pos) == -1 {
+                    if count > 0 {
+                        return None;
+                    }
+                    noskip = true;
+                    break;
+                }
+            }
+        }
+        // Skip the blanks before the sentence.
+        while !noskip && is_white(gchar(buf, pos)) {
+            if incl(buf, &mut pos) == -1 {
+                break;
+            }
+        }
+        if pos == prev_pos {
+            // Didn't actually move: advance one char and try again.
+            if step(&mut pos) == -1 {
+                if count > 0 {
+                    return None;
+                }
+                break;
+            }
+            count += 1;
+        }
+    }
+    Some(pos)
+}
+
 /// The char position immediately before `pos`, crossing line boundaries
 /// (where it lands on the previous line's end). Start of buffer is returned
 /// unchanged.
@@ -178,6 +409,39 @@ pub fn word_end(buf: &Buffer, pos: Pos, big: bool, count: usize) -> Pos {
         }
     }
     w.pos
+}
+
+/// `ge` / `gE`: end of the previous word (Vim's `bckend_word`). Off the word
+/// the cursor is in, then back over blanks to the last char of the one
+/// before; an empty line counts as a word and stops it.
+///
+/// The flag is Vim's FAIL: a count that runs out of buffer *between* words
+/// fails the motion (an operator is dropped), one that runs out halfway
+/// through a word does not — both still land on the first char.
+pub fn word_end_back(buf: &Buffer, pos: Pos, big: bool, count: usize) -> (Pos, bool) {
+    let mut w = Walker::new(buf, pos);
+    for _ in 0..count {
+        let start = class(w.char(), big);
+        if !w.prev() {
+            return (w.pos, false);
+        }
+        if start != CharClass::Ws {
+            while class(w.char(), big) == start {
+                if !w.prev() {
+                    return (w.pos, true);
+                }
+            }
+        }
+        while class(w.char(), big) == CharClass::Ws {
+            if w.on_empty_line() {
+                break;
+            }
+            if !w.prev() {
+                return (w.pos, true);
+            }
+        }
+    }
+    (w.pos, true)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -347,11 +611,12 @@ pub fn unmatched_bracket(
 /// from where the scan *enters* the line — a scan starting inside a string
 /// counts as outside it, which is Vim's own "complicated, isn't it?" rule.
 /// `'x'` character literals are stepped over the same way. Text objects turn
-/// this off, as Vim does by forcing `cpo` to `%` around them.
+/// this off while they look for the opening bracket, as Vim does by forcing
+/// `cpo` to `%` around that search (and only that one).
 ///
 /// `escaped` says the scan started from a backslash-escaped bracket; only
 /// brackets escaped the same way then count.
-fn find_unmatched(
+pub(crate) fn find_unmatched(
     buf: &Buffer,
     start: Pos,
     nested: char,
@@ -462,26 +727,6 @@ fn quotes_pair_up(cols: &[(usize, char)]) -> bool {
     quotes.is_multiple_of(2)
 }
 
-pub(crate) fn scan_match(buf: &Buffer, start: Pos, open: char, close: char, forward: bool) -> Option<Pos> {
-    let mut w = Walker::new(buf, start);
-    let mut depth = 0i32;
-    loop {
-        let ch = w.char();
-        if ch == open {
-            depth += if forward { 1 } else { -1 };
-        } else if ch == close {
-            depth += if forward { -1 } else { 1 };
-        }
-        if depth == 0 && (ch == open || ch == close) {
-            return Some(w.pos);
-        }
-        let moved = if forward { w.next() } else { w.prev() };
-        if !moved {
-            return None;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,6 +772,22 @@ mod tests {
         assert_eq!(word_end(&b, Pos::new(0, 2), false, 1), Pos::new(0, 6));
         assert_eq!(word_end(&b, Pos::new(0, 6), false, 1), Pos::new(0, 7));
         assert_eq!(word_end(&b, Pos::new(0, 0), false, 3), Pos::new(0, 7));
+    }
+
+    #[test]
+    fn word_end_back_basic() {
+        let b = buf("foo bar+baz\n\n  qux");
+        let ge = |line, col, big, count| word_end_back(&b, Pos::new(line, col), big, count);
+        assert_eq!(ge(0, 9, false, 1), (Pos::new(0, 7), true)); // baz -> +
+        assert_eq!(ge(0, 9, true, 1), (Pos::new(0, 2), true)); // WORD: back to foo
+        assert_eq!(ge(0, 9, false, 2), (Pos::new(0, 6), true));
+        // An empty line is a word end of its own.
+        assert_eq!(ge(2, 3, false, 1), (Pos::new(1, 0), true));
+        assert_eq!(ge(2, 3, false, 2), (Pos::new(0, 10), true));
+        // Out of buffer partway through a word lands on the first char.
+        assert_eq!(ge(0, 1, false, 1), (Pos::new(0, 0), true));
+        // Already at the start: the motion fails.
+        assert_eq!(ge(0, 0, false, 1), (Pos::new(0, 0), false));
     }
 
     #[test]

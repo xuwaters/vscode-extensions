@@ -3,6 +3,8 @@ import type {
   Effects,
   EngineCommand,
   EngineEasyUi,
+  EngineFileCommand,
+  EngineListRow,
   EngineMode,
   EngineSearchUi,
   EngineSelection,
@@ -51,7 +53,68 @@ function readEasyMotion(): EasyMotionSettings {
   };
 }
 
+/**
+ * How many registers may be running inside one another. A register that
+ * runs itself as its last key — the recursive macro, `qa…@aq` — leaves its
+ * own place first and never gets deeper; one that runs itself anywhere else
+ * does, and this is where it stops, with Vim's message for it.
+ */
+const MAX_RUN_DEPTH = 1000;
+
+/**
+ * How many keys one run may type. A register that runs itself with nothing
+ * in it that can fail never ends on its own (Vim's waits for ctrl-c); this
+ * one stops, and `<esc>` stops it sooner.
+ */
+const MAX_RUN_KEYS = 100_000;
+
+/** The scroll keys, which are this side's (see `scroll`), and what they do. */
+const SCROLL_KEYS: Record<string, ['up' | 'down', 'half' | 'page']> = {
+  '<c-d>': ['down', 'half'],
+  '<c-u>': ['up', 'half'],
+  '<c-f>': ['down', 'page'],
+  '<c-b>': ['up', 'page'],
+};
+
+/** A register being run: its keys, how far it has got, how many more times. */
+interface RunFrame {
+  keys: string[];
+  at: number;
+  left: number;
+}
+
+/** A run of registers in progress (see `execute`). */
+interface Run {
+  /** The registers being run, the innermost last: Vim's typeahead. */
+  frames: RunFrame[];
+  /** Settles when the run ends; keys typed meanwhile wait for it. */
+  done: Promise<void>;
+  /** `<esc>` was typed: stop at the next key. */
+  stop: boolean;
+}
+
+/**
+ * What a key typed in insert mode puts in, when it is a plain character;
+ * null for the keys that are not text.
+ */
+function insertedText(key: string): string | null {
+  if (key === '<cr>') return '\n';
+  if (key === '<space>') return ' ';
+  if (key === '<tab>') return '\t';
+  return Array.from(key).length === 1 ? key : null;
+}
+
 type IndentCommand = Extract<EngineCommand, { kind: 'indentLines' }>;
+type GotoMarkCommand = Extract<EngineCommand, { kind: 'gotoMark' }>;
+
+/**
+ * A `:registers` / `:marks` / `:jumps` row as a QuickPick item. A file mark
+ * in another document names it the way the explorer does.
+ */
+function listItem(row: EngineListRow): vscode.QuickPickItem {
+  const detail = row.uri ? vscode.workspace.asRelativePath(vscode.Uri.parse(row.uri)) : row.detail;
+  return { label: row.label, description: row.description, detail };
+}
 
 /** Did the user draw this selection, or did a command leave it behind? */
 function byHand(kind: vscode.TextEditorSelectionChangeKind | undefined): boolean {
@@ -97,12 +160,60 @@ function dimRanges(
   return out;
 }
 
+/** A document's name as Vim's messages give it: relative to the workspace. */
+function displayName(doc: vscode.TextDocument): string {
+  return doc.isUntitled ? doc.uri.path : vscode.workspace.asRelativePath(doc.uri);
+}
+
+/**
+ * What Vim reports after `:w`: `"src/a.ts" 12L, 340B written`. A final line
+ * break ends the last line rather than starting another, as Vim counts.
+ */
+function writtenMessage(doc: vscode.TextDocument): string {
+  const last = doc.lineCount - 1;
+  const lines = doc.lineAt(last).text === '' ? last : doc.lineCount;
+  const bytes = Buffer.byteLength(doc.getText(), 'utf8');
+  return `"${displayName(doc)}" ${lines}L, ${bytes}B written`;
+}
+
+/** Whether another editor tab holds the document too. */
+function openElsewhere(doc: vscode.TextDocument): boolean {
+  const uri = doc.uri.toString();
+  let tabs = 0;
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === uri) tabs++;
+    }
+  }
+  return tabs > 1;
+}
+
 /** Editor selections as the engine takes them; both count UTF-16 columns. */
 function enginePositions(sels: readonly vscode.Selection[]): EngineSelection[] {
   return sels.map((s) => ({
     anchor: { line: s.anchor.line, col: s.anchor.character },
     active: { line: s.active.line, col: s.active.character },
   }));
+}
+
+/**
+ * The next key a run types, taking it from the innermost register that has
+ * keys left, or undefined once none has. The last key of a register's last
+ * time round leaves the stack as it is taken, before it runs: a register
+ * whose last key runs it again replaces itself rather than nesting.
+ */
+function nextKey(run: Run): string | undefined {
+  for (;;) {
+    const top = run.frames.at(-1);
+    if (!top) return undefined;
+    if (top.at < top.keys.length) {
+      const key = top.keys[top.at++];
+      if (top.at === top.keys.length && top.left <= 1) run.frames.pop();
+      return key;
+    }
+    top.at = 0;
+    if (--top.left <= 0 || top.keys.length === 0) run.frames.pop();
+  }
 }
 
 /**
@@ -148,6 +259,17 @@ export class VimController implements vscode.Disposable {
   private enabled: boolean;
   /** The engine's last report; shown until the next key produces one. */
   private message = '';
+  /**
+   * The system clipboard being read for a key that wants it (see
+   * `sendKey`); keys typed meanwhile wait behind it.
+   */
+  private clipboardRead: Promise<void> | null = null;
+  /** The register being run, if one is (see `execute`). */
+  private run: Run | null = null;
+  /** The last key sent came back `failed`. */
+  private failed = false;
+  /** The register a `q` is recording into, as the engine last said. */
+  private recording = '';
 
   constructor(
     private readonly bridge: SessionFactory,
@@ -207,18 +329,26 @@ export class VimController implements vscode.Disposable {
 
   /** The `type` command override: printable keys while an editor has focus. */
   async type(text: string): Promise<void> {
+    if (this.run) await this.runDone();
     const editor = vscode.window.activeTextEditor;
     const session = this.usableSession(editor);
     if (!editor || !session || session.mode() === 'insert') {
       return vscode.commands.executeCommand('default:type', { text });
     }
     for (const key of typedKeys(text)) {
-      await this.sendKey(editor, session, key);
+      // `ZZ` in a pasted run of keys closes the editor the rest were for.
+      if (!(await this.sendKey(editor, session, key))) break;
     }
   }
 
   /** Keybinding-driven keys: `<esc>`, `<cr>`, `<bs>`, `<c-r>`. */
   async key(key: string): Promise<void> {
+    // `<esc>` stops a register being run, as ctrl-c stops Vim's.
+    if (this.run && key === '<esc>') {
+      this.run.stop = true;
+      return;
+    }
+    if (this.run) await this.runDone();
     const editor = vscode.window.activeTextEditor;
     const session = this.usableSession(editor);
     if (!editor || !session) return;
@@ -227,9 +357,19 @@ export class VimController implements vscode.Disposable {
 
   /** Ctrl-d/u/f/b: scroll by half/full pages, keeping visual selections. */
   async scroll(dir: 'up' | 'down', by: 'half' | 'page'): Promise<void> {
+    if (this.run) await this.runDone();
     const editor = vscode.window.activeTextEditor;
     const session = this.usableSession(editor);
     if (!editor || !session) return;
+    await this.scrollBy(editor, session, dir, by);
+  }
+
+  private async scrollBy(
+    editor: vscode.TextEditor,
+    session: EngineSession,
+    dir: 'up' | 'down',
+    by: 'half' | 'page',
+  ): Promise<void> {
     const visible = editor.visibleRanges[0];
     const height = visible ? visible.end.line - visible.start.line : 20;
     const value = Math.max(1, by === 'half' ? Math.floor(height / 2) : height);
@@ -263,31 +403,60 @@ export class VimController implements vscode.Disposable {
 
   // ---- key -> effects ------------------------------------------------------
 
+  /**
+   * One key; false once the editor it was for has been closed.
+   *
+   * The clipboard registers are a pull. The engine answers synchronously and
+   * VSCode's clipboard does not, so before every key the engine is asked
+   * whether that key would read `"+` / `"*` — a `"+p`, a `:pu +` — and if
+   * it would, the clipboard is read and handed over first. Keys typed while
+   * that read is in flight wait for it, so they still reach the engine in
+   * the order they were typed. (Writing goes the other way, as a
+   * `setClipboard` command in the key's effects.)
+   */
   private async sendKey(
     editor: vscode.TextEditor,
     session: EngineSession,
     key: string,
-  ): Promise<void> {
+    fed = false,
+  ): Promise<boolean> {
+    while (this.clipboardRead) await this.clipboardRead;
+    if (session.wantsClipboard(key)) {
+      const read = this.readClipboard(session);
+      this.clipboardRead = read;
+      try {
+        await read;
+      } finally {
+        this.clipboardRead = null;
+      }
+    }
     // A key acts from where the cursor actually is. Any move the engine never
     // heard about — an event that arrived while another editor was active, a
     // position VSCode restored after handing us the editor — is caught here,
     // before the key runs from a stale place.
     this.syncCursors(editor, session);
     this.reportView(editor, session);
-    const fx = session.key(key);
-    if (!fx) return;
+    const fx = fed ? session.feed(key) : session.key(key);
+    this.failed = fx?.failed ?? false;
+    if (!fx) return true;
     // Only keys refresh the message, so an incidental cursor sync (or the
     // selection change our own edit causes) does not wipe it.
     this.message = fx.message ?? '';
-    await this.applyEffects(editor, session, fx);
+    return this.applyEffects(editor, session, fx);
   }
 
+  /**
+   * Apply one engine response. False when one of its commands closed the
+   * editor (`:q`, `ZZ`), after which neither the editor nor its session —
+   * which may be disposed by then — is touched again: whichever editor took
+   * its place was set up by `onActiveEditor`.
+   */
   private async applyEffects(
     editor: vscode.TextEditor,
     session: EngineSession,
     fx: Effects,
     external = false,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (fx.edits.length > 0) {
       const eol = editor.document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
       this.applyingEdits = true;
@@ -313,7 +482,7 @@ export class VimController implements vscode.Disposable {
         // The document refused the edit (readonly, conflict): the mirror has
         // already advanced past reality, so rebuild it.
         this.resync(editor, session);
-        return;
+        return true;
       }
     }
     // While a search prompt is open the cursor stays put and the *viewport*
@@ -339,11 +508,123 @@ export class VimController implements vscode.Disposable {
     const indents = fx.commands.filter((c) => c.kind === 'indentLines');
     if (indents.length > 0) await this.indentLines(editor, session, indents);
     for (const cmd of fx.commands) {
-      if (cmd.kind !== 'indentLines') await this.runCommand(editor, cmd);
+      if (cmd.kind !== 'indentLines' && (await this.runCommand(editor, cmd))) return false;
     }
     this.applySearchUi(editor, fx.search, external);
     this.applyEasyUi(editor, fx.easy);
+    this.recording = fx.recording ?? '';
     this.updateUi(editor, fx.mode, fx.pending, editor.selections.length);
+    return true;
+  }
+
+  /** Wait out a register being run, and any run started behind it. */
+  private async runDone(): Promise<void> {
+    while (this.run) await this.run.done;
+  }
+
+  /**
+   * `@a` (and `.` after `o`, which comes back as keys): run the keys as
+   * though they were typed, one at a time, each waiting for the one before
+   * it to land — an edit applied, a line opened by the line-insert, the
+   * clipboard read — so they take the path typed keys take. False once a key
+   * closed the editor.
+   *
+   * Vim runs a register by putting it in front of its typeahead; here the
+   * typeahead is a stack of registers, the innermost on top, so a register
+   * run from inside another goes in front of what is left of that one. A key
+   * that fails flushes the lot, which is what ends a recursive macro: the
+   * motion that finds nothing more to do.
+   *
+   * In insert mode a run of plain characters goes in with `insertText`, as
+   * one edit at every cursor, rather than through `default:type`: a
+   * recording holds the text an insert left behind, after the editor's
+   * auto-indent and auto-closing were done with it, and typing it again
+   * would apply them twice. A `<bs>` is the editor's own `deleteLeft`; the
+   * other insert-mode specials (`<c-w>`, the arrows) are not recorded and
+   * are passed over.
+   */
+  private async execute(
+    editor: vscode.TextEditor,
+    session: EngineSession,
+    keys: string[],
+    count: number,
+  ): Promise<boolean> {
+    if (this.run) {
+      if (this.run.frames.length >= MAX_RUN_DEPTH) {
+        this.run.frames.length = 0;
+        this.message = 'E169: Command too recursive';
+      } else {
+        this.run.frames.push({ keys, at: 0, left: count });
+      }
+      return true;
+    }
+    let finish = (): void => {};
+    const run: Run = {
+      frames: [{ keys, at: 0, left: count }],
+      done: new Promise<void>((resolve) => (finish = resolve)),
+      stop: false,
+    };
+    this.run = run;
+    let open = true;
+    let typed = 0;
+    try {
+      for (let key = nextKey(run); open && key !== undefined && !run.stop; key = nextKey(run)) {
+        if (++typed > MAX_RUN_KEYS) {
+          this.message = `stopped after ${MAX_RUN_KEYS} keys: the register never stops on its own`;
+          break;
+        }
+        if (session.mode() === 'insert' && key !== '<esc>') {
+          let text = insertedText(key);
+          if (text === null) {
+            if (key === '<bs>') await vscode.commands.executeCommand('deleteLeft');
+            continue;
+          }
+          // The plain characters after it, in the same register, go too.
+          for (;;) {
+            const top = run.frames.at(-1);
+            const more = top && top.at < top.keys.length ? insertedText(top.keys[top.at]) : null;
+            if (more === null) break;
+            text += more;
+            nextKey(run);
+            typed++;
+          }
+          open = await this.insertText(editor, session, text);
+          continue;
+        }
+        const scroll = SCROLL_KEYS[key];
+        if (scroll) {
+          await this.scrollBy(editor, session, ...scroll);
+          continue;
+        }
+        open = await this.sendKey(editor, session, key, true);
+        if (this.failed) break;
+      }
+    } finally {
+      this.run = null;
+      finish();
+    }
+    return open;
+  }
+
+  /** Text a register being run types in insert mode (see `execute`). */
+  private async insertText(
+    editor: vscode.TextEditor,
+    session: EngineSession,
+    text: string,
+  ): Promise<boolean> {
+    this.syncCursors(editor, session);
+    const fx = session.insertText(text);
+    return fx ? this.applyEffects(editor, session, fx) : true;
+  }
+
+  /** Hand the engine the system clipboard; unreadable leaves it as it was. */
+  private async readClipboard(session: EngineSession): Promise<void> {
+    try {
+      session.setClipboard(await vscode.env.clipboard.readText());
+    } catch {
+      // No clipboard to read (a remote host without one, say): `"+p` puts
+      // what the register last held.
+    }
   }
 
   /** The lines the editor has on screen, which is all a jump may label. */
@@ -490,8 +771,14 @@ export class VimController implements vscode.Disposable {
     );
   }
 
-  private async runCommand(editor: vscode.TextEditor, cmd: EngineCommand): Promise<void> {
+  /** Run one engine command; true when it closed the editor. */
+  private async runCommand(editor: vscode.TextEditor, cmd: EngineCommand): Promise<boolean> {
     switch (cmd.kind) {
+      case 'file':
+        return this.fileCommand(editor, cmd);
+      case 'reload':
+        await this.reload(editor.document, cmd.force);
+        break;
       case 'undo':
       case 'redo':
         await vscode.commands.executeCommand(cmd.kind);
@@ -516,7 +803,152 @@ export class VimController implements vscode.Disposable {
       case 'showHover':
         await vscode.commands.executeCommand('editor.action.showHover');
         break;
+      // `ctrl+e`/`ctrl+y`: the view moves, the text under the cursor does
+      // not. `revealCursor` is Vim's habit of dragging the cursor along when
+      // it would leave the screen; VSCode does that by collapsing every
+      // selection into one bare cursor, so the engine turns it off in
+      // visual mode and with several cursors.
+      case 'scrollLines':
+        await vscode.commands.executeCommand('editorScroll', {
+          to: cmd.down ? 'down' : 'up',
+          by: 'line',
+          value: cmd.lines,
+          revealCursor: cmd.moveCursor,
+        });
+        break;
+      // `gd`: the language server's definition, as vscode-vim binds it.
+      case 'gotoDefinition':
+        await vscode.commands.executeCommand('editor.action.revealDefinition');
+        break;
+      case 'setClipboard':
+        await vscode.env.clipboard.writeText(cmd.text);
+        break;
+      // `:reg`, `:marks`, `:jumps`. The status bar holds one line, so the
+      // listing goes up as a QuickPick, which `escape` (or picking a row)
+      // takes down again — Vim's "press ENTER" listing, in VSCode's terms.
+      // Not awaited: the key is done once the list is up.
+      case 'showList':
+        void vscode.window.showQuickPick(cmd.rows.map(listItem), {
+          title: cmd.title,
+          matchOnDescription: true,
+          matchOnDetail: true,
+        });
+        break;
+      case 'gotoMark':
+        return this.gotoMark(cmd);
+      case 'execute': {
+        const session = this.sessions.get(editor.document.uri.toString());
+        return session ? !(await this.execute(editor, session, cmd.keys, cmd.count)) : false;
+      }
     }
+    return false;
+  }
+
+  /**
+   * `'A` / `` `A ``: file mark A is in another document. Open it with the
+   * cursor on the mark — or, for `'A`, on its line's first non-blank, which
+   * only this side can see. The new editor's session takes it from there;
+   * true, since this editor is no longer the one in front.
+   */
+  private async gotoMark(cmd: GotoMarkCommand): Promise<boolean> {
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(cmd.uri));
+      const line = Math.min(cmd.line, doc.lineCount - 1);
+      const text = doc.lineAt(line);
+      const col = cmd.firstNonBlank
+        ? text.firstNonWhitespaceCharacterIndex
+        : Math.min(cmd.col, text.text.length);
+      await vscode.window.showTextDocument(doc, {
+        selection: new vscode.Range(line, col, line, col),
+      });
+      return true;
+    } catch {
+      // The document is gone (deleted, renamed): Vim's answer for a file
+      // mark it cannot reach.
+      this.message = `E20: Mark not set`;
+      return false;
+    }
+  }
+
+  /**
+   * `:w :q :x :wq :wa :qa :up`, `ZZ` and `ZQ`, decided the way Vim decides
+   * them: by whether there are unsaved changes, which only this side knows.
+   * Writing is VSCode's own save, so format-on-save and the other save
+   * participants run. True when the editor was closed or replaced.
+   */
+  private async fileCommand(editor: vscode.TextEditor, cmd: EngineFileCommand): Promise<boolean> {
+    if (cmd.all) return this.fileCommandAll(editor, cmd);
+    const doc = editor.document;
+    if (cmd.write === 'always' || (cmd.write === 'ifModified' && doc.isDirty)) {
+      const untitled = doc.isUntitled;
+      await vscode.commands.executeCommand('workbench.action.files.save');
+      // Saving a new document is Save As, which opens the file it wrote in
+      // a new editor; this one is gone.
+      if (vscode.window.activeTextEditor !== editor) return true;
+      // Refused, or the Save As dialog was cancelled: nothing to close over.
+      if (doc.isDirty) return false;
+      if (!untitled) this.message = writtenMessage(doc);
+    }
+    if (!cmd.close) return false;
+    // Closing loses nothing while another editor still shows the document;
+    // Vim's `:q` closes a window on a modified buffer shown elsewhere too.
+    const elsewhere = openElsewhere(doc);
+    if (doc.isDirty && !cmd.force && !elsewhere) {
+      this.message = 'E37: No write since last change (add ! to override)';
+      return false;
+    }
+    await vscode.commands.executeCommand(
+      doc.isDirty && !elsewhere
+        ? 'workbench.action.revertAndCloseActiveEditor'
+        : 'workbench.action.closeActiveEditor',
+    );
+    return true;
+  }
+
+  /**
+   * `:wa`, `:qa`, `:wqa` / `:xa` and their `!`s. Vim's `:qa` quits; here it
+   * closes every editor, which is as far as an extension should go. Without
+   * `!` it refuses while any document has unsaved changes and shows the
+   * first of them, as Vim does with E162.
+   */
+  private async fileCommandAll(editor: vscode.TextEditor, cmd: EngineFileCommand): Promise<boolean> {
+    if (cmd.write !== 'never') {
+      await vscode.commands.executeCommand('workbench.action.files.saveAll');
+    }
+    if (!cmd.close) return false;
+    const dirty = vscode.workspace.textDocuments.filter((d) => d.isDirty);
+    if (dirty.length > 0 && !cmd.force) {
+      this.message = `E162: No write since last change for buffer "${displayName(dirty[0])}"`;
+      if (dirty[0] === editor.document) return false;
+      await vscode.window.showTextDocument(dirty[0]);
+      return true;
+    }
+    // `:qa!` throws every change away: revert each modified document
+    // first, or closing them would stop to ask about each one.
+    for (const doc of dirty) {
+      await vscode.window.showTextDocument(doc);
+      await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+    }
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    return true;
+  }
+
+  /**
+   * `:e` / `:e!`: read the document back from disk. Without `!`, unsaved
+   * changes stop it (Vim's E37); a document that was never saved has
+   * nothing to read back (E32).
+   */
+  private async reload(doc: vscode.TextDocument, force: boolean): Promise<void> {
+    if (doc.isUntitled) {
+      this.message = 'E32: No file name';
+      return;
+    }
+    if (doc.isDirty && !force) {
+      this.message = 'E37: No write since last change (add ! to override)';
+      return;
+    }
+    // The new text reaches the engine as an outside change, like an undo.
+    await vscode.commands.executeCommand('workbench.action.files.revert');
   }
 
   /**
@@ -537,9 +969,12 @@ export class VimController implements vscode.Disposable {
     });
     this.mirrored = serializeSelections(spans);
     editor.selections = spans;
-    await vscode.commands.executeCommand(
-      cmds[0].dedent ? 'editor.action.outdentLines' : 'editor.action.indentLines',
-    );
+    // `:>>` shifts twice; everything else once.
+    for (let i = 0; i < Math.max(1, cmds[0].times); i++) {
+      await vscode.commands.executeCommand(
+        cmds[0].dedent ? 'editor.action.outdentLines' : 'editor.action.indentLines',
+      );
+    }
     const cursors = cmds.map((c) => {
       const col = doc.lineAt(c.startLine).firstNonWhitespaceCharacterIndex;
       return new vscode.Selection(c.startLine, col, c.startLine, col);
@@ -640,6 +1075,7 @@ export class VimController implements vscode.Disposable {
         editor.selection.active.character,
       );
       if (!created) return null;
+      created.setDocument(key);
       this.configureEasy(created);
       this.sessions.set(key, created);
       session = created;
@@ -674,7 +1110,7 @@ export class VimController implements vscode.Disposable {
     pending: string,
     cursors: number,
   ): void {
-    this.status.text = modeLabel(mode, pending, this.message, cursors);
+    this.status.text = modeLabel(mode, pending, this.message, cursors, this.recording);
     this.status.show();
     this.setCursorStyle(editor, mode);
     void vscode.commands.executeCommand('setContext', 'vimUltra.mode', mode);

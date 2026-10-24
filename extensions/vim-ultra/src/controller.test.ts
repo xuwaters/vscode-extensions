@@ -8,12 +8,19 @@ import {
   EndOfLine,
   Range,
   Selection,
+  TabInputText,
   TextEditorCursorStyle,
   TextEditorSelectionChangeKind as Kind,
   resetStub,
+  stubClipboard,
+  stubCommandEffects,
   stubCommands,
+  stubDocuments,
   stubEvents,
+  stubQuickPicks,
+  stubStatus,
   window,
+  workspace,
   type StubDocument,
   type StubEditor,
 } from './vscodeStub';
@@ -39,16 +46,22 @@ function sessionFactory(): SessionFactory {
   };
 }
 
-/** A stub editor that remembers what was painted on it, newest per type. */
+/**
+ * A stub editor that remembers what was painted on it, newest per type, and
+ * the text of every edit it was asked to make, in order.
+ */
 interface DecoratedEditor extends StubEditor {
   decorations: Map<unknown, Range[]>;
+  edits: string[];
 }
 
 function makeEditor(uri: string, text: string, line: number, col: number): DecoratedEditor {
   const lines = text.split('\n');
   const document: StubDocument = {
-    uri: { scheme: 'file', toString: () => uri },
+    uri: { scheme: 'file', path: uri.replace(/^\w+:\/\//, ''), toString: () => uri },
     eol: EndOfLine.LF,
+    isDirty: false,
+    isUntitled: false,
     getText: () => text,
     lineCount: lines.length,
     lineAt: (n: number) => ({
@@ -57,6 +70,7 @@ function makeEditor(uri: string, text: string, line: number, col: number): Decor
     }),
   };
   const decorations = new Map<unknown, Range[]>();
+  const edits: string[] = [];
   return {
     document,
     selections: [new Selection(line, col, line, col)],
@@ -66,7 +80,11 @@ function makeEditor(uri: string, text: string, line: number, col: number): Decor
     options: {},
     visibleRanges: [new Range(0, 0, lines.length - 1, 0)],
     decorations,
-    edit: () => Promise.resolve(true),
+    edits,
+    edit: (cb: (b: unknown) => void) => {
+      cb({ replace: (_range: Range, text: string) => edits.push(text) });
+      return Promise.resolve(true);
+    },
     revealRange: () => {},
     setDecorations: (type: unknown, ranges: Range[]) => void decorations.set(type, ranges),
   };
@@ -306,5 +324,498 @@ describe.skipIf(!built)('vim controller', () => {
 
     select(doc, new Selection(0, 0, 0, 5), Kind.Mouse);
     expect(contextMode()).toBe('visual');
+  });
+
+  describe('file commands', () => {
+    /** Type `:{line}` and run it, the way the keys arrive. */
+    async function ex(line: string): Promise<void> {
+      await controller.type(`:${line}`);
+      await controller.key('<cr>');
+    }
+
+    function didRun(command: string): boolean {
+      return stubCommands.some((c) => c.command === command);
+    }
+
+    /** Saving clears the dirty flag of whatever the active editor shows. */
+    function saveClears(): void {
+      stubCommandEffects.set('workbench.action.files.save', () => {
+        if (window.activeTextEditor) window.activeTextEditor.document.isDirty = false;
+      });
+    }
+
+    /** Closing takes the editor away, and VSCode says so. */
+    function closeRemoves(): void {
+      for (const command of [
+        'workbench.action.closeActiveEditor',
+        'workbench.action.revertAndCloseActiveEditor',
+      ]) {
+        stubCommandEffects.set(command, () => {
+          window.activeTextEditor = undefined;
+          stubEvents.activeEditor.fire(undefined);
+        });
+      }
+    }
+
+    /** Nothing touched the editor's UI after the close: no stale session use. */
+    function nothingAfter(command: string): void {
+      const at = stubCommands.findIndex((c) => c.command === command);
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(stubCommands.slice(at + 1).map((c) => c.command)).not.toContain('setContext');
+    }
+
+    it(':w saves through VSCode and reports it the way Vim does', async () => {
+      const doc = makeEditor('file:///src/a.ts', 'one\ntwo', 0, 0);
+      doc.document.isDirty = true;
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+      saveClears();
+
+      await ex('w');
+      expect(didRun('workbench.action.files.save')).toBe(true);
+      expect(stubStatus.text).toBe('"src/a.ts" 2L, 7B written');
+      expect(didRun('workbench.action.closeActiveEditor')).toBe(false);
+    });
+
+    it(':w with a file name says it is not supported and writes nothing', async () => {
+      const doc = makeEditor('file:///a.ts', 'one', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await ex('w other.ts');
+      expect(didRun('workbench.action.files.save')).toBe(false);
+      expect(stubStatus.text).toBe('file names are not supported: other.ts');
+    });
+
+    it(':q refuses a modified document, and :q! throws the changes away', async () => {
+      const doc = makeEditor('file:///a.ts', 'one', 0, 0);
+      doc.document.isDirty = true;
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+      closeRemoves();
+
+      await ex('q');
+      expect(stubStatus.text).toBe('E37: No write since last change (add ! to override)');
+      expect(didRun('workbench.action.closeActiveEditor')).toBe(false);
+
+      await ex('q!');
+      expect(didRun('workbench.action.revertAndCloseActiveEditor')).toBe(true);
+      nothingAfter('workbench.action.revertAndCloseActiveEditor');
+    });
+
+    it(':q closes a modified document shown in another editor without losing it', async () => {
+      const doc = makeEditor('file:///a.ts', 'one', 0, 0);
+      doc.document.isDirty = true;
+      const tab = { input: new TabInputText(doc.document.uri) };
+      window.tabGroups.all = [{ tabs: [tab] }, { tabs: [tab] }];
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+      closeRemoves();
+
+      await ex('q!');
+      expect(didRun('workbench.action.revertAndCloseActiveEditor')).toBe(false);
+      expect(didRun('workbench.action.closeActiveEditor')).toBe(true);
+    });
+
+    it('ZZ and :x write only when modified, then close; :wq always writes', async () => {
+      const clean = makeEditor('file:///a.ts', 'one\ntwo', 0, 0);
+      window.activeTextEditor = clean;
+      controller = new VimController(sessionFactory(), true);
+      saveClears();
+      closeRemoves();
+
+      await controller.type('ZZ');
+      expect(didRun('workbench.action.files.save')).toBe(false);
+      expect(didRun('workbench.action.closeActiveEditor')).toBe(true);
+      nothingAfter('workbench.action.closeActiveEditor');
+
+      const dirty = makeEditor('file:///b.ts', 'x', 0, 0);
+      dirty.document.isDirty = true;
+      activate(dirty);
+      stubCommands.length = 0;
+      await ex('x');
+      expect(stubCommands.map((c) => c.command)).toEqual(
+        expect.arrayContaining(['workbench.action.files.save', 'workbench.action.closeActiveEditor']),
+      );
+      expect(dirty.document.isDirty).toBe(false);
+
+      const again = makeEditor('file:///c.ts', 'y', 0, 0);
+      activate(again);
+      stubCommands.length = 0;
+      await ex('wq');
+      expect(didRun('workbench.action.files.save')).toBe(true);
+      expect(didRun('workbench.action.closeActiveEditor')).toBe(true);
+    });
+
+    it('drops the keys that follow ZZ in the same burst', async () => {
+      const doc = makeEditor('file:///a.ts', 'one\ntwo', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+      closeRemoves();
+
+      await controller.type('ZZj');
+      expect(doc.selections[0].active).toEqual({ line: 0, character: 0 });
+    });
+
+    it('ZQ closes without writing', async () => {
+      const doc = makeEditor('file:///a.ts', 'one', 0, 0);
+      doc.document.isDirty = true;
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+      closeRemoves();
+
+      await controller.type('ZQ');
+      expect(didRun('workbench.action.files.save')).toBe(false);
+      expect(didRun('workbench.action.revertAndCloseActiveEditor')).toBe(true);
+    });
+
+    it(':qa refuses while any document is modified and shows it; :qa! discards', async () => {
+      const doc = makeEditor('file:///a.ts', 'one', 0, 0);
+      const other = makeEditor('file:///b.ts', 'two', 0, 0);
+      other.document.isDirty = true;
+      workspace.textDocuments = [doc.document, other.document];
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await ex('qa');
+      expect(stubCommands.find((c) => c.command === 'showTextDocument')?.args[0]).toBe(
+        other.document,
+      );
+      expect(didRun('workbench.action.closeAllEditors')).toBe(false);
+      activate(other); // VSCode switches to the editor it was asked to show
+      expect(stubStatus.text).toBe('E162: No write since last change for buffer "b.ts"');
+
+      activate(doc);
+      stubCommands.length = 0;
+      await ex('qa!');
+      expect(stubCommands.map((c) => c.command).filter((c) => !c.startsWith('setContext'))).toEqual([
+        'showTextDocument',
+        'workbench.action.revertAndCloseActiveEditor',
+        'workbench.action.closeAllEditors',
+      ]);
+    });
+
+    it(':wa saves everything and closes nothing; :wqa saves and closes', async () => {
+      const doc = makeEditor('file:///a.ts', 'one', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await ex('wa');
+      expect(didRun('workbench.action.files.saveAll')).toBe(true);
+      expect(didRun('workbench.action.closeAllEditors')).toBe(false);
+      await ex('wqa');
+      expect(didRun('workbench.action.closeAllEditors')).toBe(true);
+    });
+
+    it(':e reloads from disk, but not over unsaved changes without !', async () => {
+      const doc = makeEditor('file:///a.ts', 'one', 0, 0);
+      doc.document.isDirty = true;
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await ex('e');
+      expect(stubStatus.text).toBe('E37: No write since last change (add ! to override)');
+      expect(didRun('workbench.action.files.revert')).toBe(false);
+      await ex('e!');
+      expect(didRun('workbench.action.files.revert')).toBe(true);
+    });
+
+    it(':>> shifts twice', async () => {
+      const doc = makeEditor('file:///a.ts', 'one\ntwo', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await ex('%>>');
+      const shifts = stubCommands.filter((c) => c.command === 'editor.action.indentLines');
+      expect(shifts).toHaveLength(2);
+      expect(doc.selections[0].active).toEqual({ line: 0, character: 0 });
+    });
+  });
+
+  it('scrolls by lines with ctrl+e and ctrl+y, keeping a selection', async () => {
+    const doc = makeEditor('file:///a.ts', 'a\nb\nc\nd', 1, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    await controller.type('3');
+    await controller.key('<c-e>');
+    expect(ran('editorScroll')).toEqual([
+      { to: 'down', by: 'line', value: 3, revealCursor: true },
+    ]);
+
+    // VSCode reveals the cursor by collapsing the selection: not in visual.
+    stubCommands.length = 0;
+    await controller.type('v');
+    await controller.key('<c-y>');
+    expect(ran('editorScroll')).toEqual([
+      { to: 'up', by: 'line', value: 1, revealCursor: false },
+    ]);
+    expect(contextMode()).toBe('visual');
+  });
+
+  it('goes to the definition on gd', async () => {
+    const doc = makeEditor('file:///a.ts', 'let x = foo();', 0, 8);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    await controller.type('g');
+    await controller.type('d');
+    expect(stubCommands.map((c) => c.command)).toContain('editor.action.revealDefinition');
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 8 });
+  });
+
+  describe('registers and marks', () => {
+    it('puts a yank into "+ on the system clipboard', async () => {
+      const doc = makeEditor('file:///a.ts', 'one\ntwo', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await controller.type('"+yy');
+      await controller.type('"*yiw');
+      await controller.type('yy'); // the unnamed register stays off the clipboard
+      expect(stubClipboard.writes).toEqual(['one\n', 'one']);
+    });
+
+    it('reads the system clipboard before a key that puts from it', async () => {
+      const doc = makeEditor('file:///a.ts', 'one\ntwo', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+      stubClipboard.text = 'pasted\r\n'; // linewise, and Windows line breaks
+
+      await controller.type('"+p');
+      expect(doc.edits).toEqual(['pasted\n']);
+      await controller.type(':pu *');
+      await controller.key('<cr>');
+      expect(doc.edits.at(-1)).toBe('pasted\n');
+    });
+
+    it('holds the keys typed during a clipboard read back until it lands', async () => {
+      const doc = makeEditor('file:///a.ts', 'one\ntwo', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+      let settle: (text: string) => void = () => {};
+      stubClipboard.read = () => new Promise((resolve) => (settle = resolve));
+
+      await controller.type('"+');
+      const put = controller.type('P'); // waits on the clipboard...
+      const del = controller.type('x'); // ...and this waits on it
+      await Promise.resolve();
+      expect(doc.edits).toEqual([]);
+      settle('x\n');
+      await Promise.all([put, del]);
+      // The put went in first, and `x` took its character.
+      expect(doc.edits).toEqual(['x\n', '']);
+    });
+
+    it('lists the registers in a QuickPick', async () => {
+      const doc = makeEditor('file:///a.ts', 'one\ntwo', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await controller.type('"ayy');
+      await controller.type(':reg a');
+      await controller.key('<cr>');
+      expect(stubQuickPicks).toHaveLength(1);
+      expect(stubQuickPicks[0].options).toMatchObject({ title: ':registers' });
+      expect(stubQuickPicks[0].items).toEqual([{ label: '"a', description: 'line', detail: 'one^J' }]);
+    });
+
+    it("opens the document a file mark is in and lands on it", async () => {
+      const a = makeEditor('file:///src/a.ts', 'one\n  two', 1, 3);
+      const b = makeEditor('file:///src/b.ts', 'x', 0, 0);
+      stubDocuments.set('file:///src/a.ts', a.document);
+      window.activeTextEditor = a;
+      controller = new VimController(sessionFactory(), true);
+
+      await controller.type('mA');
+      activate(b);
+      stubCommands.length = 0;
+      await controller.type("'A");
+      const shown = stubCommands.find((c) => c.command === 'showTextDocument');
+      expect(shown?.args[0]).toBe(a.document);
+      // `'A` is linewise: the first non-blank, which only the host can see.
+      expect((shown?.args[1] as { selection: Range }).selection.start).toEqual({ line: 1, character: 2 });
+
+      // `:marks` names the other document the way the explorer does.
+      await controller.type(':marks A');
+      await controller.key('<cr>');
+      expect(stubQuickPicks.at(-1)?.items).toEqual([
+        { label: 'A', description: 'line 2, col 3', detail: 'src/a.ts' },
+      ]);
+    });
+
+    it('walks the jumplist with ctrl+o and ctrl+i', async () => {
+      const doc = makeEditor('file:///a.ts', 'a\nb\nc\nd', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await controller.type('G');
+      await controller.key('<c-o>');
+      expect(doc.selections[0].active.line).toBe(0);
+      await controller.key('<c-i>');
+      expect(doc.selections[0].active.line).toBe(3);
+    });
+  });
+
+  describe('dot-repeat and macros', () => {
+    /** Insert-mode typing as VSCode delivers it: the change, then the move. */
+    function typeInsert(editor: StubEditor, text: string): void {
+      const at = editor.selections[0].active;
+      stubEvents.docChange.fire({
+        document: editor.document,
+        contentChanges: [{ range: new Range(at.line, at.character, at.line, at.character), text }],
+      });
+      moveCursor(editor, at.line, at.character + text.length);
+    }
+
+    it('records with q, saying so, and runs the register with @', async () => {
+      const doc = makeEditor('file:///a.ts', 'foo bar\nbaz qux\nend', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await controller.type('qa');
+      expect(stubStatus.text).toBe('-- NORMAL -- recording @a');
+      await controller.type('ciw');
+      expect(stubStatus.text).toBe('-- INSERT -- recording @a');
+      typeInsert(doc, 'X');
+      await controller.key('<esc>');
+      await controller.type('jq');
+      expect(stubStatus.text).toBe('-- NORMAL --');
+      await controller.type(':reg a');
+      await controller.key('<cr>');
+      expect(stubQuickPicks.at(-1)?.items).toEqual([
+        { label: '"a', description: 'char', detail: 'ciwX<esc>j' },
+      ]);
+
+      doc.edits.length = 0;
+      stubCommands.length = 0;
+      await controller.type('@a');
+      // The word goes, and the text typed in its place goes in as an edit of
+      // the engine's — not through the editor's typing, which would
+      // auto-indent and auto-close it all over again.
+      expect(doc.edits).toEqual(['', 'X']);
+      expect(ran('default:type')).toEqual([]);
+      expect(doc.selections[0].active).toEqual({ line: 2, character: 0 });
+      expect(contextMode()).toBe('normal');
+    });
+
+    it('stops the register at a key that fails', async () => {
+      const doc = makeEditor('file:///a.ts', 'abc', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      await controller.type('qbfZxq'); // the `f` finds nothing even now
+      doc.edits.length = 0;
+      await controller.type('@b');
+      expect(doc.edits).toEqual([]);
+    });
+
+    it('repeats o through the line-insert, then puts the text in', async () => {
+      const doc = makeEditor('file:///a.ts', 'a\nb', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+      // The line-insert opens a line under the cursor; its change and move
+      // come back as events, the way VSCode's do.
+      stubCommandEffects.set('editor.action.insertLineAfter', () => {
+        const line = doc.selections[0].active.line;
+        const end = 1; // every line here is one character long
+        stubEvents.docChange.fire({
+          document: doc.document,
+          contentChanges: [{ range: new Range(line, end, line, end), text: '\n' }],
+        });
+        moveCursor(doc, line + 1, 0);
+      });
+
+      await controller.type('o');
+      typeInsert(doc, 'foo');
+      await controller.key('<esc>');
+      await controller.type('j');
+      doc.edits.length = 0;
+      await controller.type('.');
+      expect(ran('editor.action.insertLineAfter')).toHaveLength(2);
+      expect(doc.edits).toEqual(['foo']);
+      expect(contextMode()).toBe('normal');
+      expect(doc.selections[0].active).toEqual({ line: 3, character: 2 });
+    });
+
+    it('stops a register that runs itself too deep', async () => {
+      const doc = makeEditor('file:///a.ts', 'abc', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+
+      // `@z` while recording runs the empty `z`, which does nothing: `z`
+      // ends up running itself before it gets to its `l`, forever.
+      await controller.type('qz@zlq');
+      await controller.type('@z');
+      expect(stubStatus.text).toBe('E169: Command too recursive');
+      expect(doc.selections[0].active).toEqual({ line: 0, character: 1 });
+    });
+
+    it('stops a register on <esc> and holds typed keys back until it ends', async () => {
+      const doc = makeEditor('file:///a.ts', 'one\ntwo\nthree', 0, 0);
+      window.activeTextEditor = doc;
+      controller = new VimController(sessionFactory(), true);
+      await controller.type('qy"+Pjq');
+      expect(doc.selections[0].active.line).toBe(1);
+
+      let reading = false;
+      let settle: (text: string) => void = () => {};
+      stubClipboard.read = () => {
+        reading = true;
+        return new Promise((resolve) => (settle = resolve));
+      };
+      doc.edits.length = 0;
+      const run = controller.type('@y');
+      for (let i = 0; i < 100 && !reading; i++) await new Promise((r) => setTimeout(r, 0));
+      expect(reading).toBe(true);
+      const esc = controller.key('<esc>'); // stops the run...
+      const k = controller.type('k'); // ...and this waits for it
+      settle('x');
+      await Promise.all([run, esc, k]);
+      // The put waiting on the clipboard landed; the `j` after it never ran,
+      // and the `k` typed meanwhile ran once the register had stopped.
+      expect(doc.edits).toEqual(['x']);
+      expect(doc.selections[0].active.line).toBe(0);
+    });
+  });
+
+  it('lands on the last digit after ctrl+a', async () => {
+    const doc = makeEditor('file:///a.ts', 'x = 41;', 0, 0);
+    window.activeTextEditor = doc;
+    controller = new VimController(sessionFactory(), true);
+
+    await controller.key('<c-a>');
+    expect(doc.selections[0].active).toEqual({ line: 0, character: 5 });
+  });
+});
+
+/** The arguments of every run of `command`, oldest first. */
+function ran(command: string): unknown[] {
+  return stubCommands.filter((c) => c.command === command).map((c) => c.args[0]);
+}
+
+describe('keybindings', () => {
+  interface Binding {
+    key: string;
+    command: string;
+    args?: unknown;
+    when?: string;
+  }
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
+  ) as { contributes: { keybindings: Binding[] } };
+  const keys = manifest.contributes.keybindings.filter((b) => b.command === 'vimUltra.key');
+
+  it('leaves the ctrl keys to the editor while typing', () => {
+    // `ctrl+a`/`ctrl+e` are line start/end in a macOS text field, `ctrl+y`
+    // and `ctrl+x` are VSCode's own: insert mode must not lose them.
+    const ctrl = keys.filter((b) => b.key.startsWith('ctrl+'));
+    expect(ctrl.map((b) => b.key)).toEqual(
+      expect.arrayContaining(['ctrl+a', 'ctrl+x', 'ctrl+e', 'ctrl+y', 'ctrl+o', 'ctrl+i']),
+    );
+    for (const b of ctrl) {
+      expect(b.when, b.key).toMatch(/vimUltra\.mode (!= 'insert'|== 'normal')/);
+      expect(b.args).toBe(`<c-${b.key.slice('ctrl+'.length)}>`);
+    }
   });
 });

@@ -21,6 +21,7 @@ impl Key {
                 "cr" | "enter" | "return" => Some(Key::Enter),
                 "bs" => Some(Key::Backspace),
                 "space" => Some(Key::Char(' ')),
+                "tab" => Some(Key::Char('\t')),
                 "lt" => Some(Key::Char('<')),
                 _ => name
                     .strip_prefix("c-")
@@ -41,6 +42,21 @@ impl Key {
             Key::Enter => "<cr>".to_string(),
             Key::Backspace => "<bs>".to_string(),
             Key::Ctrl(c) => format!("<c-{c}>"),
+        }
+    }
+
+    /// How a key is spelled in a recorded register (`:help recording`):
+    /// Vim's `<>` notation for the keys that have no character of their own,
+    /// so `:reg a` reads `ciwfoo<esc>w` and `"ap` puts something that can be
+    /// edited and yanked back. `<` itself is `<lt>`, which keeps a typed
+    /// `<esc>` from being read back as the key; a space stays a space.
+    pub fn notation(self) -> String {
+        match self {
+            Key::Char('<') => "<lt>".to_string(),
+            Key::Char('\t') => "<tab>".to_string(),
+            Key::Char('\n') => "<cr>".to_string(),
+            Key::Char(c) => c.to_string(),
+            other => other.label(),
         }
     }
 }
@@ -97,6 +113,14 @@ mod tests {
     }
 
     #[test]
+    fn notation_reads_back_as_the_same_keys() {
+        let keys = [Key::Char('c'), Key::Char('<'), Key::Char(' '), Key::Char('\t'), Key::Esc, Key::Ctrl('a')];
+        let spelled: String = keys.iter().map(|k| k.notation()).collect();
+        assert_eq!(spelled, "c<lt> <tab><esc><c-a>");
+        assert_eq!(parse_sequence(&spelled), keys);
+    }
+
+    #[test]
     fn parses_specials_and_chars() {
         assert_eq!(Key::parse("a"), Some(Key::Char('a')));
         assert_eq!(Key::parse("<"), Some(Key::Char('<')));
@@ -104,6 +128,7 @@ mod tests {
         assert_eq!(Key::parse("<c-r>"), Some(Key::Ctrl('r')));
         assert_eq!(Key::parse("<C-U>"), Some(Key::Ctrl('u')));
         assert_eq!(Key::parse("<lt>"), Some(Key::Char('<')));
+        assert_eq!(Key::parse("<Tab>"), Some(Key::Char('\t')));
         assert_eq!(Key::parse(""), None);
     }
 }

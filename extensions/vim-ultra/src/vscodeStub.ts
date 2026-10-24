@@ -73,11 +73,29 @@ class Emitter<T> {
 }
 
 export interface StubDocument {
-  uri: { scheme: string; toString(): string };
+  uri: { scheme: string; path: string; toString(): string };
   eol: number;
+  isDirty: boolean;
+  isUntitled: boolean;
   getText(): string;
   lineCount: number;
   lineAt(line: number): { text: string; firstNonWhitespaceCharacterIndex: number };
+}
+
+/** `vscode.Uri`, as far as a URI string goes. */
+export const Uri = {
+  parse(value: string) {
+    return {
+      scheme: value.split(':')[0],
+      path: value.replace(/^\w+:\/\//, ''),
+      toString: () => value,
+    };
+  },
+};
+
+/** A tab showing a text document, as `window.tabGroups` lists it. */
+export class TabInputText {
+  constructor(readonly uri: { toString(): string }) {}
 }
 
 export interface StubEditor {
@@ -102,30 +120,79 @@ export const stubEvents = {
 /** Commands the controller ran, newest last. */
 export const stubCommands: { command: string; args: unknown[] }[] = [];
 
+/**
+ * What running a command does to the stub world, by command id — a save
+ * that clears the dirty flag, a close that takes the editor away. Commands
+ * without one are only recorded.
+ */
+export const stubCommandEffects = new Map<string, (...args: unknown[]) => void>();
+
+/** The one status bar item the controller makes; tests read its text. */
+export const stubStatus = { name: '', text: '', show() {}, hide() {}, dispose() {} };
+
+/** Every QuickPick shown, newest last: the items and the options. */
+export const stubQuickPicks: { items: unknown[]; options: unknown }[] = [];
+
+/** Documents `workspace.openTextDocument` can open, by URI string. */
+export const stubDocuments = new Map<string, StubDocument>();
+
+/**
+ * The system clipboard. `read` is what `readText` answers with — a test can
+ * swap in a promise it settles itself, to hold a read in flight.
+ */
+export const stubClipboard = {
+  text: '',
+  writes: [] as string[],
+  read: (): Promise<string> => Promise.resolve(stubClipboard.text),
+};
+
 export const window = {
   activeTextEditor: undefined as StubEditor | undefined,
-  createStatusBarItem: () => ({
-    name: '',
-    text: '',
-    show() {},
-    hide() {},
-    dispose() {},
-  }),
+  /** Open tabs, by group: what tells the controller a document is shown twice. */
+  tabGroups: { all: [] as { tabs: { input: unknown }[] }[] },
+  createStatusBarItem: () => stubStatus,
   createTextEditorDecorationType: () => ({ dispose() {} }),
   showWarningMessage: () => Promise.resolve(undefined),
+  showTextDocument: (doc: StubDocument, options?: unknown) => {
+    stubCommands.push({ command: 'showTextDocument', args: options ? [doc, options] : [doc] });
+    return Promise.resolve(undefined);
+  },
+  showQuickPick: (items: unknown[], options: unknown) => {
+    stubQuickPicks.push({ items, options });
+    return Promise.resolve(undefined);
+  },
   onDidChangeTextEditorSelection: stubEvents.selection.event,
   onDidChangeActiveTextEditor: stubEvents.activeEditor.event,
 };
 
 export const workspace = {
+  /** Every open document, as the controller checks them for `:qa`. */
+  textDocuments: [] as StubDocument[],
+  asRelativePath: (uri: { path: string }) => uri.path.replace(/^\//, ''),
+  openTextDocument: (uri: { toString(): string }) => {
+    const doc = stubDocuments.get(uri.toString());
+    return doc ? Promise.resolve(doc) : Promise.reject(new Error(`cannot open ${uri.toString()}`));
+  },
   onDidChangeTextDocument: stubEvents.docChange.event,
   onDidCloseTextDocument: stubEvents.closeDoc.event,
   getConfiguration: () => ({ get: <T>(_key: string, fallback: T) => fallback }),
 };
 
+export const env = {
+  clipboard: {
+    readText: () => stubClipboard.read(),
+    writeText: (text: string) => {
+      stubClipboard.text = text;
+      stubClipboard.writes.push(text);
+      return Promise.resolve();
+    },
+  },
+};
+
 export const commands = {
   executeCommand: (command: string, ...args: unknown[]) => {
     stubCommands.push({ command, args });
+    stubCommandEffects.get(command)?.(...args);
     return Promise.resolve(undefined);
   },
   registerCommand: () => ({ dispose() {} }),
@@ -134,5 +201,14 @@ export const commands = {
 /** Reset the module-level state between tests. */
 export function resetStub(): void {
   window.activeTextEditor = undefined;
+  window.tabGroups.all = [];
+  workspace.textDocuments = [];
   stubCommands.length = 0;
+  stubCommandEffects.clear();
+  stubStatus.text = '';
+  stubQuickPicks.length = 0;
+  stubDocuments.clear();
+  stubClipboard.text = '';
+  stubClipboard.writes.length = 0;
+  stubClipboard.read = () => Promise.resolve(stubClipboard.text);
 }

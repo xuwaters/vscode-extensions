@@ -49,6 +49,11 @@ struct EffectsMsg<'a> {
     #[serde(flatten)]
     fx: &'a crate::Effects,
     edit_count: usize,
+    /// The register a `q` is recording into, for the status bar. The
+    /// recording is the editor's, not one session's, so every response
+    /// carries it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recording: Option<char>,
 }
 
 /// A per-document editing session; holds modal state and the text mirror.
@@ -83,6 +88,25 @@ impl Session {
             }
             None => "null".to_string(),
         }
+    }
+
+    /// A key from a register being run (`@a`, or the keys `.` hands back
+    /// after `o`): like `key`, but a recording in progress leaves it out.
+    pub fn feed(&mut self, key: &str) -> String {
+        match Key::parse(key) {
+            Some(k) => {
+                let fx = self.inner.feed(k);
+                self.effects_json(fx)
+            }
+            None => "null".to_string(),
+        }
+    }
+
+    /// Text a register being run types in insert mode, put in at every
+    /// cursor as the engine's own edit; returns `Effects` JSON.
+    pub fn insert_text(&mut self, text: &str) -> String {
+        let fx = self.inner.insert_text(text);
+        self.effects_json(fx)
     }
 
     /// The edits of the last effects as one binary block, drained: a u32
@@ -184,6 +208,37 @@ impl Session {
         self.inner.set_easy_motion(enabled, trigger, keys);
     }
 
+    /// The document this session mirrors, by URI, which file marks (`mA`)
+    /// remember so that `'A` from another document can name it.
+    pub fn set_document(&mut self, uri: &str) {
+        self.inner.set_document(uri);
+    }
+
+    /// Whether `key` would read the system clipboard (`"+p`, `:pu +`), so
+    /// the host has to hand it over with `set_clipboard` before sending the
+    /// key. See `Command::SetClipboard` for the whole protocol.
+    pub fn wants_clipboard(&self, key: &str) -> bool {
+        Key::parse(key).is_some_and(|k| self.inner.wants_clipboard(k))
+    }
+
+    /// The system clipboard's text, as the host just read it.
+    pub fn set_clipboard(&mut self, text: &str) {
+        self.inner.set_clipboard(text);
+    }
+
+    /// Register `name` as JSON — `{text, linewise, parts?}` — or `null` when
+    /// it is empty or there is no such register.
+    pub fn register(&self, name: char) -> String {
+        let reg = self.inner.register(name);
+        serde_json::to_string(&reg).unwrap_or_else(|_| "null".to_string())
+    }
+
+    /// Write register `name` as a recording would (uppercase appends);
+    /// false for a register that cannot be written.
+    pub fn set_register(&mut self, name: char, text: &str, linewise: bool) -> bool {
+        self.inner.set_register(name, text, linewise)
+    }
+
     /// Current mode label ("normal" | "insert" | "visual" | "visualLine").
     pub fn mode(&self) -> String {
         self.inner.mode_label().to_string()
@@ -199,7 +254,7 @@ impl Session {
     /// Stash the edits for `take_edits` and serialize the rest.
     fn effects_json(&mut self, mut fx: crate::Effects) -> String {
         self.edits = std::mem::take(&mut fx.edits);
-        let msg = EffectsMsg { fx: &fx, edit_count: self.edits.len() };
+        let msg = EffectsMsg { fx: &fx, edit_count: self.edits.len(), recording: self.inner.recording() };
         serde_json::to_string(&msg).unwrap_or_else(|_| "null".to_string())
     }
 }

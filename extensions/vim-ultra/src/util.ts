@@ -46,15 +46,19 @@ export function serializeSelections(sels: readonly SelectionLike[]): string {
  * ":s" counts, errors) replaces the whole label until the next key, and an
  * open command line ("/pat", "?pat", ":cmd") replaces the mode text, shown
  * with a `|` cursor. More than one cursor says so, since every key runs at
- * all of them.
+ * all of them. A `q` recording says which register it is going into, as
+ * Vim's "recording @a" does, through messages too: it lasts until the `q`
+ * that ends it.
  */
 export function modeLabel(
   mode: string,
   pending: string,
   message = '',
   cursors = 1,
+  recording = '',
 ): string {
-  if (message) return message;
+  const rec = recording ? `recording @${recording}` : '';
+  if (message) return rec ? `${message} | ${rec}` : message;
   if (/^[/?:]/.test(pending)) return `${pending}|`;
   const base =
     mode === 'insert'
@@ -65,5 +69,5 @@ export function modeLabel(
           ? '-- VISUAL LINE --'
           : '-- NORMAL --';
   const multi = cursors > 1 ? `(${cursors} cursors)` : '';
-  return [base, pending, multi].filter(Boolean).join(' ');
+  return [base, pending, multi, rec].filter(Boolean).join(' ');
 }

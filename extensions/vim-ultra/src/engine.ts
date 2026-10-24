@@ -23,10 +23,76 @@ export interface EngineEdit {
 export type EngineCommand =
   | { kind: 'undo' }
   | { kind: 'redo' }
-  | { kind: 'indentLines'; startLine: number; endLine: number; dedent: boolean }
+  | {
+      kind: 'indentLines';
+      startLine: number;
+      endLine: number;
+      dedent: boolean;
+      /** How many shifts: more than one only for `:>>` and longer. */
+      times: number;
+    }
   | { kind: 'scroll'; to: 'center' | 'top' | 'bottom' }
   | { kind: 'openLine'; above: boolean }
-  | { kind: 'showHover' };
+  | { kind: 'showHover' }
+  | EngineFileCommand
+  /** `:e` / `:e!`: read the document back from disk. */
+  | { kind: 'reload'; force: boolean }
+  | { kind: 'scrollLines'; down: boolean; lines: number; moveCursor: boolean }
+  | { kind: 'gotoDefinition' }
+  /**
+   * A yank or delete into `"+` / `"*`: put `text` on the system clipboard.
+   * Linewise text ends in a line break. The other direction is a pull: see
+   * `EngineSession.wantsClipboard`.
+   */
+  | { kind: 'setClipboard'; text: string }
+  /** `:registers`, `:marks`, `:jumps`: a listing for the host to show. */
+  | { kind: 'showList'; title: string; rows: EngineListRow[] }
+  /**
+   * `'A` / `` `A ``: file mark A is in another document. Open it with the
+   * cursor at `line`/`col`, or on the line's first non-blank.
+   */
+  | { kind: 'gotoMark'; uri: string; line: number; col: number; firstNonBlank: boolean }
+  /**
+   * `@a`, and `.` after `o`/`O`: run `keys` (spelled as `key` takes them),
+   * `count` times over, as though typed — each through `feed`, once the one
+   * before it has landed. A run of plain characters in insert mode goes in
+   * with `insertText` instead. A key that comes back `failed` stops the run.
+   */
+  | { kind: 'execute'; keys: string[]; count: number };
+
+/** One row of a `showList`: `"a` / `'b`, a note beside it, its content. */
+export interface EngineListRow {
+  label: string;
+  description: string;
+  detail: string;
+  /** A file mark in another document, which the row's content names. */
+  uri?: string;
+}
+
+/** What a register holds (crates/vim-engine `Register`). */
+export interface EngineRegister {
+  text: string;
+  linewise: boolean;
+  /** One piece per cursor, when a multi-cursor key filled it. */
+  parts?: string[];
+}
+
+/**
+ * `:w :q :x :wq :wa :qa :up`, `ZZ`, `ZQ`: what was asked for. Whether the
+ * document has unsaved changes — which only the host knows — decides what
+ * actually happens.
+ */
+export interface EngineFileCommand {
+  kind: 'file';
+  /** `ifModified` is `:x` and `:up`, which write only when there are changes. */
+  write: 'never' | 'always' | 'ifModified';
+  /** Close the editor afterwards. */
+  close: boolean;
+  /** Every document (`:wa`, `:qa`, `:xa`). */
+  all: boolean;
+  /** `!`: close even with unsaved changes, discarding them. */
+  force: boolean;
+}
 
 /**
  * Incremental-search UI state, present while a `/` or `?` prompt is open and
@@ -62,12 +128,19 @@ export interface Effects {
   edits: EngineEdit[];
   commands: EngineCommand[];
   pending: string;
-  /** Status-bar report: `:s` counts, ex errors, a search that found nothing. */
+  /** Status-bar report: ex counts and errors, a search that found nothing. */
   message?: string;
   /** Search-typing UI state; absent outside a `/`/`?` prompt's lifetime. */
   search?: EngineSearchUi;
   /** EasyMotion overlay; absent outside a jump's lifetime. */
   easy?: EngineEasyUi;
+  /**
+   * The key failed the way a Vim command beeps (a motion with nowhere to
+   * go, a pattern not found): a register being run stops there.
+   */
+  failed?: boolean;
+  /** The register a `q` is recording into, if one is. */
+  recording?: string;
 }
 
 export interface EngineChange {
@@ -81,6 +154,8 @@ export interface EngineChange {
 /** Shape of the wasm-bindgen `Session` handle. */
 interface WasmSession {
   key(key: string): string;
+  feed(key: string): string;
+  insert_text(text: string): string;
   reset(text: string, line: number, col: number): void;
   apply_changes(changesJson: string): void;
   set_position(line: number, col: number): string;
@@ -94,6 +169,11 @@ interface WasmSession {
   set_cursors(selectionsJson: string, byHand: boolean): string;
   set_view(first: number, last: number): void;
   set_easy_motion(enabled: boolean, trigger: string, keys: string): void;
+  set_document(uri: string): void;
+  wants_clipboard(key: string): boolean;
+  set_clipboard(text: string): void;
+  register(name: string): string;
+  set_register(name: string, text: string, linewise: boolean): boolean;
   take_edits(): Uint8Array;
   mode(): string;
   text(): string;
@@ -158,6 +238,25 @@ export class EngineSession {
 
   key(key: string): Effects | null {
     return this.parse(() => this.session?.key(key));
+  }
+
+  /**
+   * A key from a register being run: `key`, except that a recording in
+   * progress leaves it out, as Vim records what is typed and not what a
+   * register replays.
+   */
+  feed(key: string): Effects | null {
+    return this.parse(() => this.session?.feed(key));
+  }
+
+  /**
+   * Text a register being run types in insert mode, put in at every cursor
+   * as the engine's own edit — not through the editor's typing, whose
+   * auto-indent and auto-closing already shaped the text when it was
+   * recorded.
+   */
+  insertText(text: string): Effects | null {
+    return this.parse(() => this.session?.insert_text(text));
   }
 
   reset(text: string, line: number, col: number): void {
@@ -235,6 +334,63 @@ export class EngineSession {
       this.session?.set_easy_motion(enabled, trigger, keys);
     } catch (e) {
       console.error('vim-engine set_easy_motion failed:', e);
+    }
+  }
+
+  /**
+   * The document this session mirrors, by URI: file marks (`mA`) remember
+   * it, and `'A` from another document hands it back in a `gotoMark`.
+   */
+  setDocument(uri: string): void {
+    try {
+      this.session?.set_document(uri);
+    } catch (e) {
+      console.error('vim-engine set_document failed:', e);
+    }
+  }
+
+  /**
+   * Whether `key` would read the system clipboard (`"+p`, `:pu +`). The
+   * engine runs a key to completion while the clipboard API is async, so the
+   * host asks before every key, and when the answer is yes reads the
+   * clipboard and hands it over with `setClipboard` before sending the key.
+   */
+  wantsClipboard(key: string): boolean {
+    try {
+      return this.session?.wants_clipboard(key) ?? false;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The system clipboard's text, as just read for a key that wants it. */
+  setClipboard(text: string): void {
+    try {
+      this.session?.set_clipboard(text);
+    } catch (e) {
+      console.error('vim-engine set_clipboard failed:', e);
+    }
+  }
+
+  /** What register `name` holds; `null` when it is empty. */
+  register(name: string): EngineRegister | null {
+    try {
+      const json = this.session?.register(name);
+      return json ? (JSON.parse(json) as EngineRegister | null) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Write register `name` as a recording does: uppercase appends, `""`
+   * stays where it pointed. False for one that cannot be written.
+   */
+  setRegister(name: string, text: string, linewise: boolean): boolean {
+    try {
+      return this.session?.set_register(name, text, linewise) ?? false;
+    } catch {
+      return false;
     }
   }
 

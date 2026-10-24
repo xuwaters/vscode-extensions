@@ -20,6 +20,10 @@
 //! escaped JSON, milliseconds to write and more to `JSON.parse` — which is
 //! why wasm_api.rs now ships them as one binary block, measured below.
 //!
+//! `:g` edits the mirror once per line it visits, and each edit splices the
+//! line vector, so it grows faster than linearly: deleting 12k of the 20k
+//! lines takes ~65 ms, reversing all of them (`:g/^/m0`) ~0.4 s.
+//!
 //! The number worth watching is the backtracking one that no literal can
 //! filter. A backtracking VM has no linear-time guarantee to fall back on,
 //! so that case cost 3.7 s here — a frozen editor — until the operation
@@ -203,6 +207,16 @@ fn perf() {
         ms(t),
         block.len() / 1024
     );
+
+    // `:g` runs its command once per line, each one an edit to the mirror,
+    // and then works out the one edit the host is handed.
+    println!("\n== :g over the whole buffer ==");
+    for command in [r":g/value_/d", r":g/^/m0", r":g/handler/s/fn/FN/"] {
+        let mut session = Session::new(&text);
+        let t = Instant::now();
+        let effects = type_ex(&mut session, command);
+        println!("  {command:22}         {} {:?}", ms(t), effects.message);
+    }
 
     println!("\n== per-line overhead (allocation) ==");
     let t = Instant::now();

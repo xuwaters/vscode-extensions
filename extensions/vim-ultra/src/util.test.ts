@@ -68,4 +68,9 @@ describe('modeLabel', () => {
     );
     expect(modeLabel('normal', '', 'match 11 of 11')).toBe('match 11 of 11');
   });
+  it('keeps saying a recording is going on', () => {
+    expect(modeLabel('normal', '', '', 1, 'a')).toBe('-- NORMAL -- recording @a');
+    expect(modeLabel('insert', '', '', 2, 'q')).toBe('-- INSERT -- (2 cursors) recording @q');
+    expect(modeLabel('normal', '', 'match 1 of 2', 1, 'a')).toBe('match 1 of 2 | recording @a');
+  });
 });

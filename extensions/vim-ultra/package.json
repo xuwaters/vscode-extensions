@@ -1,7 +1,7 @@
 {
   "name": "wx-vsce-vim-ultra",
   "displayName": "Vim Ultra",
-  "description": "Modal Vim editing on a Rust/WASM engine — motions, operators, text objects, counts, registers, visual modes, multiple cursors, EasyMotion jumps, regex search (/ ? n N * #) and search-and-replace (:s). Partial Vim: no other ex commands, macros, marks, dot-repeat, named registers, replace mode, or block visual.",
+  "description": "Modal Vim editing on a Rust/WASM engine — motions, operators, text objects, counts, named, numbered and clipboard registers, marks and the jumplist (ctrl-o / ctrl-i), visual modes, multiple cursors, dot-repeat (.), macros (q, @, @@, @:), counted inserts, EasyMotion jumps, regex search (/ ? n N * #), search-and-replace (:s), line commands (:d :y :pu :m :t :j :> :sort) and :g / :v over them, :reg / :marks / :jumps, and file commands (:w :q :x :wq :wa :qa ZZ ZQ). Partial Vim: no replace mode, block visual, :normal, or ex commands beyond those.",
   "version": "0.8.2",
   "private": true,
   "publisher": "weixu",
@@ -74,6 +74,42 @@
         "command": "vimUltra.key",
         "args": "<c-r>",
         "when": "editorTextFocus && vimUltra.active && vimUltra.mode == 'normal'"
+      },
+      {
+        "key": "ctrl+a",
+        "command": "vimUltra.key",
+        "args": "<c-a>",
+        "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
+      },
+      {
+        "key": "ctrl+x",
+        "command": "vimUltra.key",
+        "args": "<c-x>",
+        "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
+      },
+      {
+        "key": "ctrl+e",
+        "command": "vimUltra.key",
+        "args": "<c-e>",
+        "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
+      },
+      {
+        "key": "ctrl+y",
+        "command": "vimUltra.key",
+        "args": "<c-y>",
+        "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
+      },
+      {
+        "key": "ctrl+o",
+        "command": "vimUltra.key",
+        "args": "<c-o>",
+        "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
+      },
+      {
+        "key": "ctrl+i",
+        "command": "vimUltra.key",
+        "args": "<c-i>",
+        "when": "editorTextFocus && vimUltra.active && vimUltra.mode != 'insert'"
       },
       {
         "key": "ctrl+n",
