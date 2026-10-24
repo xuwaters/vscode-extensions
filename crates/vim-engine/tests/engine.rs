@@ -92,6 +92,21 @@ fn dollar_stays_sticky() {
 }
 
 #[test]
+fn ctrl_n_and_ctrl_p_are_j_and_k() {
+    let mut s = session("abc\nde\nfghij");
+    feed(&mut s, "ll<c-n>");
+    assert_eq!(s.cursor(), Pos::new(1, 1));
+    feed(&mut s, "<c-n>"); // the sticky column, as j
+    assert_eq!(s.cursor(), Pos::new(2, 2));
+    feed(&mut s, "2<c-p>");
+    assert_eq!(s.cursor(), Pos::new(0, 2));
+    feed(&mut s, "d<c-n>"); // linewise, as dj
+    assert_eq!(s.text(), "fghij");
+    feed(&mut s, "/<c-p>x<esc>"); // nothing in the search prompt
+    assert_eq!(s.text(), "fghij");
+}
+
+#[test]
 fn counts_multiply() {
     let mut s = session("a b c d e f g h");
     feed(&mut s, "3w");

@@ -2132,8 +2132,9 @@ impl Session {
                 target => self.do_motion(target, MotionKind::Inclusive, edits, commands),
             },
             // -- vertical motions
-            Key::Char('j') => self.vertical(count as isize, false, edits, commands),
-            Key::Char('k') => self.vertical(-(count as isize), false, edits, commands),
+            // CTRL-N / CTRL-P are j / k (`:help CTRL-N`)
+            Key::Char('j') | Key::Ctrl('n') => self.vertical(count as isize, false, edits, commands),
+            Key::Char('k') | Key::Ctrl('p') => self.vertical(-(count as isize), false, edits, commands),
             Key::Enter | Key::Char('+') => self.vertical(count as isize, true, edits, commands),
             Key::Char('-') => self.vertical(-(count as isize), true, edits, commands),
             // The jumps (`:help jump-motions`) leave `''` and a jumplist entry

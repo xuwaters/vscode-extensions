@@ -10,9 +10,18 @@ use wasm_bindgen::prelude::*;
 use crate::buffer::{Pos, utf16_len};
 use crate::keys::Key;
 
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console, js_name = error)]
+    fn console_error(message: &str);
+}
+
+/// Log a panic's message through `console.error` before the trap, without
+/// the `console_error_panic_hook` crate: Node (the extension host) and the
+/// browser both have it.
 #[wasm_bindgen(start)]
 fn init() {
-    console_error_panic_hook::set_once();
+    std::panic::set_hook(Box::new(|info| console_error(&format!("vim-engine: {info}"))));
 }
 
 #[derive(Deserialize)]
