@@ -2,7 +2,7 @@
   "name": "wx-vsce-vim-ultra",
   "displayName": "Vim Ultra",
   "description": "Modal Vim editing on a Rust/WASM engine — motions, operators, text objects, counts, named, numbered and clipboard registers, marks and the jumplist (ctrl-o / ctrl-i), visual modes, multiple cursors, dot-repeat (.), macros (q, @, @@, @:), counted inserts, EasyMotion jumps, regex search (/ ? n N * #), search-and-replace (:s), line commands (:d :y :pu :m :t :j :> :sort) and :g / :v over them, :reg / :marks / :jumps, and file commands (:w :q :x :wq :wa :qa ZZ ZQ). Partial Vim: no replace mode, block visual, :normal, or ex commands beyond those.",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
