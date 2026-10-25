@@ -104,13 +104,14 @@ means installing that one too, because VS Code will not activate an extension
 whose dependency is missing. System fonts are indexed in the background either
 way.
 
-**Project fonts**: a project that ships its own font files lists their
-directories in `typstUltra.fonts.paths` — the editor's equivalent of
-`typst compile --font-path`. Commit it with the project, in
+**Project fonts**: font files in the workspace's `fonts` directory are picked
+up with no setup — the editor's equivalent of `typst compile --font-path fonts`.
+A project that keeps them elsewhere lists its directories in
+`typstUltra.fonts.paths`, committed with the project in
 `.vscode/settings.json`:
 
 ```json
-{ "typstUltra.fonts.paths": ["fonts"] }
+{ "typstUltra.fonts.paths": ["assets/fonts"] }
 ```
 
 Relative paths are workspace-relative, directories are searched recursively,
@@ -281,7 +282,7 @@ All under `typstUltra.`. The ones worth knowing about:
 | `compile.when` | `"onType"` | `onType` · `onSave` · `never` |
 | `compile.debounce` | `150` | ms of quiet before recompiling |
 | `fonts.system` | `true` | Index installed fonts in the background |
-| `fonts.paths` | `[]` | Project font directories, workspace-relative. Watched for new and changed files |
+| `fonts.paths` | `["fonts"]` | Project font directories, workspace-relative. Watched for new and changed files |
 | `packages.enabled` | `true` | Turn off for air-gapped setups |
 | `preview.scrollSync` | `"both"` | Which way the editor and preview follow each other |
 | `preview.invertColors` | `"never"` | `never` · `always` · `auto` |

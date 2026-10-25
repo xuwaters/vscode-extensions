@@ -80,7 +80,7 @@ export function read(scope?: vscode.Uri): Config {
       mainFile: config.get('mainFile', ''),
       fonts: {
         system: config.get('fonts.system', true),
-        paths: config.get('fonts.paths', [] as string[]),
+        paths: config.get('fonts.paths', ['fonts']),
       },
       packages: {
         enabled: config.get('packages.enabled', true),
