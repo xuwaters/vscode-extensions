@@ -712,7 +712,7 @@ fn inner_block_leaves_out_the_brace_lines() {
     let mut s = at(block, 1, 2);
     feed(&mut s, "ci{");
     type_ins(&mut s, "X");
-    assert_eq!(s.text(), "if x {\nX\n}");
+    assert_eq!(s.text(), "if x {\n  X\n}");
     let mut s = at("if x {\n  a\n}", 1, 2);
     feed(&mut s, "yi{P");
     assert_eq!(s.text(), "if x {\n  a\n  a\n}");
@@ -946,7 +946,8 @@ fn s_and_big_s() {
     assert_eq!((s.mode_label(), s.text().as_str()), ("insert", "c"));
     let mut s = at("  indented", 0, 5);
     feed(&mut s, "S");
-    assert_eq!((s.mode_label(), s.text().as_str()), ("insert", ""));
+    assert_eq!((s.mode_label(), s.text().as_str()), ("insert", "  "));
+    assert_eq!(s.cursor(), Pos::new(0, 2));
 }
 
 #[test]
@@ -1174,6 +1175,17 @@ fn change_linewise_keeps_line() {
     feed(&mut s, "<esc>jc2c");
     assert_eq!(s.text(), "\n");
     assert_eq!(s.mode_label(), "insert");
+    // The first line's indent stays, as 'autoindent' keeps it.
+    let mut s = at("{\n\t  one\n    two\n}", 1, 4);
+    feed(&mut s, "2cc");
+    assert_eq!(s.text(), "{\n\t  \n}");
+    assert_eq!((s.mode_label(), s.cursor()), ("insert", Pos::new(1, 3)));
+    // `.` keeps the indent of the line it is on.
+    let mut s = at("    a\n  b", 0, 0);
+    feed(&mut s, "cc");
+    type_ins(&mut s, "x");
+    feed(&mut s, "<esc>j.");
+    assert_eq!(s.text(), "    x\n  x");
 }
 
 #[test]

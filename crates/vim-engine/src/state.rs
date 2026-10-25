@@ -4439,16 +4439,19 @@ impl Session {
     fn linewise_change(&mut self, l1: usize, count: usize, edits: &mut Vec<Edit>) {
         let l2 = (l1 + count - 1).min(self.buf.last_line());
         self.yank_lines(self.pending.register, l1, l2, true);
-        // The first line stays, emptied; the marks on the others go with
-        // them, as Vim deletes those lines.
-        let (s, e) = (Pos::new(l1, 0), Pos::new(l2, self.buf.line_len(l2)));
+        // The first line stays, emptied but for its indent, as Vim's
+        // 'autoindent' keeps it (`:help cc`); the marks on the others go
+        // with them, as Vim deletes those lines.
+        let line = self.buf.line(l1);
+        let indent = utf16_len(line) - utf16_len(line.trim_start_matches([' ', '\t']));
+        let (s, e) = (Pos::new(l1, indent), Pos::new(l2, self.buf.line_len(l2)));
         let edit = Edit { start: s, end: e, text: String::new() };
         let shift = Shift::new(&self.buf, s, e, "");
         let shift = if l2 > l1 { shift.removing(l1 + 1, l2) } else { shift };
         self.edit_mirror(shift, &edit);
         edits.push(edit);
         self.clear_pending();
-        self.enter_insert(Pos::new(l1, 0));
+        self.enter_insert(s);
     }
 
     // ---- standalone edit actions ---------------------------------------------
