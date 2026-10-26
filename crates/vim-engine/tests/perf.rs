@@ -146,7 +146,7 @@ fn perf() {
         println!("  vim-engine  {pattern:16}  {} {c:?}", ms(t));
     }
 
-    println!("\n== :%s/…/…/g over the whole buffer ==");
+    println!("\n== :%s/.../.../g over the whole buffer ==");
     let pat = Pattern::parse(r"value_\d\+").expect("compiles");
     pat.budget_for(&buf);
     let t = Instant::now();

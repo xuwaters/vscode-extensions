@@ -454,7 +454,7 @@ mod tests {
         // Empty matches step forward one char instead of spinning.
         assert_eq!(spans("x*", "ab", true), vec![(0, 0), (1, 1), (2, 2)]);
         assert_eq!(spans(r"\d\+", "a1b22c", true), vec![(1, 2), (3, 5)]);
-        // …but not where the previous match just ended: `:s/x*/-/g` over
+        // ...but not where the previous match just ended: `:s/x*/-/g` over
         // "axb" is Vim's "-a-b-", not "-a--b-".
         assert_eq!(spans("x*", "axb", true), vec![(0, 0), (1, 2), (3, 3)]);
         assert_eq!(spans("a*", "a", true), vec![(0, 1)]);

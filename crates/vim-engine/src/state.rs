@@ -155,7 +155,7 @@ pub enum Command {
     /// everything queued behind it, the way an error flushes Vim's typeahead
     /// (`:help @`); a register run from inside one goes in front of what is
     /// left of it. That is what ends a recursive macro (`qaq`, then
-    /// `qa…@aq`): the motion that finds no more to do.
+    /// `qa...@aq`): the motion that finds no more to do.
     Execute { keys: Vec<String>, count: usize },
 }
 
@@ -3235,7 +3235,7 @@ impl Session {
         }
     }
 
-    /// Write register `name` the way a recording or `:let @a = …` does: an
+    /// Write register `name` the way a recording or `:let @a = ...` does: an
     /// uppercase name appends, `""` keeps pointing where it did, and the
     /// numbered registers do not shift. `"/` sets the pattern `n` repeats.
     /// False for a name that cannot be written: `"_`, `".`, `":`.
@@ -3308,7 +3308,7 @@ impl Session {
 
     fn run_ex(&mut self, line: &str, edits: &mut Vec<Edit>, commands: &mut Vec<Command>) {
         // A selection in play becomes `'<`/`'>`, and running the command
-        // leaves visual mode, as `:'<,'>s/…` does in Vim.
+        // leaves visual mode, as `:'<,'>s/...` does in Vim.
         if let Some(area) = self.visual_area() {
             let (s, _) = ordered(self.anchor, self.cursor);
             self.last_area = Some(area);
@@ -5092,7 +5092,7 @@ fn printable(text: &str, linewise: bool) -> String {
     let mut out = String::new();
     for (i, ch) in text.chars().enumerate() {
         if i == LIMIT {
-            out.push('…');
+            out.push('...');
             return out;
         }
         match ch {

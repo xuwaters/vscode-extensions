@@ -1185,7 +1185,7 @@ fn in_html_tag(buf: &Buffer, p: Pos, end_tag: bool) -> bool {
 /// Vim's `searchpair()` for tags, as current_tagblock runs it: backward,
 /// the first start tag no end tag between closes; forward, the first end
 /// tag no start tag between opens. Without a `name` any tag counts (Vim's
-/// `<[^ \t>/!]\+\%(…\)` and `</[^>]*>`); with one, only tags of that name,
+/// `<[^ \t>/!]\+\%(...\)` and `</[^>]*>`); with one, only tags of that name,
 /// ignoring case. Like any search, a match at `from` itself doesn't count.
 fn tag_pair(buf: &Buffer, from: Pos, forward: bool, name: Option<&[char]>) -> Option<Pos> {
     let mut nest = 1usize;
@@ -1417,7 +1417,7 @@ mod tests {
         let start = |col| start_tag(&b, Pos::new(0, col), None);
         assert!(start(0));
         assert!(!start(13)); // <br/>
-        assert!(!start(19)); // <img … />
+        assert!(!start(19)); // <img ... />
         assert!(!start(33)); // </A>
         assert!(start(38)); // <div at the line's end
         assert!(end_tag(&b, Pos::new(0, 33), Some(&['a'])));

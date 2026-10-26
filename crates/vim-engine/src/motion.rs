@@ -607,7 +607,7 @@ pub fn unmatched_bracket(
 /// reports it.
 ///
 /// `smart_quotes` is Vim's default `'cpoptions'` (no `%`): brackets inside a
-/// `"…"` string are ignored, but only on lines whose quotes pair up, and only
+/// `"..."` string are ignored, but only on lines whose quotes pair up, and only
 /// from where the scan *enters* the line — a scan starting inside a string
 /// counts as outside it, which is Vim's own "complicated, isn't it?" rule.
 /// `'x'` character literals are stepped over the same way. Text objects turn

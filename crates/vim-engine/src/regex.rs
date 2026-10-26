@@ -3,7 +3,7 @@
 //! Vim's dialect is not PCRE: which characters are operators depends on the
 //! *magic level* (`\v` very magic, `\m` magic — the default, `\M` nomagic,
 //! `\V` very nomagic), so quantifiers are spelled `\+ \? \{n,m}`, groups are
-//! `\(…\)`, alternation is `\|`, and `\zs`/`\ze` trim the reported match.
+//! `\(...\)`, alternation is `\|`, and `\zs`/`\ze` trim the reported match.
 //! Patterns compile to a flat instruction program run by a backtracking VM
 //! over one line's chars, which keeps a general regex crate (and its Unicode
 //! tables) out of the WASM bundle.
@@ -76,7 +76,7 @@ fn chars_eq(a: char, b: char, ignore_case: bool) -> bool {
 
 // ---- character classes ------------------------------------------------------
 
-/// A named character class (`\w`, `\d`, `[:alpha:]`, …).
+/// A named character class (`\w`, `\d`, `[:alpha:]`, ...).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
     Word,
@@ -135,7 +135,7 @@ enum Item {
     Kind(Kind),
 }
 
-/// A one-character matcher: a `[…]` collection or a `\w`-style class.
+/// A one-character matcher: a `[...]` collection or a `\w`-style class.
 #[derive(Clone, Debug)]
 struct Class {
     neg: bool,
@@ -200,7 +200,7 @@ enum Node {
     MatchEnd,
     Seq(Vec<Node>),
     Alt(Vec<Node>),
-    /// `Some(n)` captures into group `n`; `None` is `\%(…\)`.
+    /// `Some(n)` captures into group `n`; `None` is `\%(...\)`.
     Group(Option<usize>, Box<Node>),
     Repeat {
         node: Box<Node>,
@@ -271,7 +271,7 @@ fn nullable(node: &Node) -> bool {
 
 // ---- parser -----------------------------------------------------------------
 
-/// One lexed unit. `Nothing` covers the settings escapes (`\c`, `\v`, …),
+/// One lexed unit. `Nothing` covers the settings escapes (`\c`, `\v`, ...),
 /// which change how the rest parses but contribute no atom.
 enum Tok {
     End,
@@ -468,7 +468,7 @@ impl Parser {
                     self.close_group()?;
                     Node::Group(Some(n), Box::new(inner))
                 }
-                // `\%(…\)`: group without capturing.
+                // `\%(...\)`: group without capturing.
                 Tok::Op('%') => {
                     if !self.eat('(') {
                         return Err(r"\%( is the only \% form supported".into());
@@ -520,7 +520,7 @@ impl Parser {
         Ok(Node::Repeat { node: Box::new(node), min, max, greedy })
     }
 
-    /// The body of `\{…}`: `n`, `n,m`, `n,`, `,m`, empty (= `*`), each
+    /// The body of `\{...}`: `n`, `n,m`, `n,`, `,m`, empty (= `*`), each
     /// optionally prefixed with `-` for the non-greedy form. Closing brace
     /// may be written `}` or `\}`.
     fn parse_braces(&mut self) -> Result<(u32, u32, bool), String> {
@@ -553,7 +553,7 @@ impl Parser {
         (self.i > start).then_some(n)
     }
 
-    /// A `[…]` collection. An unterminated `[` is a literal `[`, like Vim's.
+    /// A `[...]` collection. An unterminated `[` is a literal `[`, like Vim's.
     fn parse_bracket(&mut self) -> Result<Node, String> {
         let open = self.i;
         let mut items = Vec::new();
@@ -894,7 +894,7 @@ impl Regex {
         self.ignore_case
     }
 
-    /// How many capture groups the pattern has: the highest `\1`…`\9` a
+    /// How many capture groups the pattern has: the highest `\1`...`\9` a
     /// caller need ask a match about.
     pub fn group_count(&self) -> usize {
         self.groups

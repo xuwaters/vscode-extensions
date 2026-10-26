@@ -232,7 +232,7 @@ pub fn parse(src: &str, ctx: &Context) -> Result<Command, String> {
             p.bump();
             c.to_string()
         }
-        // `:ka` is `:k a` — but `:ke…` is `:keepmarks` and its kin, as in
+        // `:ka` is `:k a` — but `:ke...` is `:keepmarks` and its kin, as in
         // Vim, so mark e has to be set with a space or with `:mark`.
         Some('k') if p.src.get(p.i + 1).is_some_and(|&c| c.is_ascii_alphabetic() && c != 'e') => {
             p.bump();
@@ -609,7 +609,7 @@ struct Range {
     addresses: u8,
 }
 
-/// `%`, `1,5`, `.,+2`, `'<,'>`, `'a,'b`, … — `None` when no address was
+/// `%`, `1,5`, `.,+2`, `'<,'>`, `'a,'b`, ... — `None` when no address was
 /// typed. The flag says the last address was line 0, above the first line,
 /// which only `:pu` makes anything of.
 fn parse_range(p: &mut Cursor, ctx: &Context) -> Result<(Option<Range>, bool), String> {
@@ -671,7 +671,7 @@ fn parse_line(p: &mut Cursor, ctx: &Context) -> Result<Option<isize>, String> {
         let line = ctx.marks.iter().find(|&&(m, _)| m == mark).map(|&(_, l)| l);
         base = Some(line.ok_or("E20: Mark not set")? as isize);
     }
-    // `+`/`-` offsets, which may also stand alone (`:+2s/…`).
+    // `+`/`-` offsets, which may also stand alone (`:+2s/...`).
     while let Some(sign) = p.peek().filter(|&c| c == '+' || c == '-') {
         p.bump();
         let n = if p.peek().is_some_and(|c| c.is_ascii_digit()) {
@@ -686,7 +686,7 @@ fn parse_line(p: &mut Cursor, ctx: &Context) -> Result<Option<isize>, String> {
 }
 
 /// Build the text a match is replaced with. `&` and `\0` stand for the whole
-/// match, `\1`…`\9` for capture groups, `\r`/`\n` for a line break, and
+/// match, `\1`...`\9` for capture groups, `\r`/`\n` for a line break, and
 /// `\u \l \U \L \E` change the case of what follows (`:help sub-replace`).
 /// `line` is the line `m` was found in, which its groups point into.
 pub fn expand(replacement: &str, line: &str, m: &LineMatch) -> String {

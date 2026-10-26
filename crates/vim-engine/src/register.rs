@@ -187,7 +187,7 @@ pub fn store(name: Option<char>, reg: Register, kind: Kind) {
     });
 }
 
-/// Write `name` the way a recording or `:let @a = …` does: an uppercase
+/// Write `name` the way a recording or `:let @a = ...` does: an uppercase
 /// name appends, nothing else is touched, and `""` stays where it pointed.
 /// False for a name that cannot be written (`"_`, `".`, `":`, and `"/`,
 /// which state.rs handles itself). `"` writes `"0` and points `""` at it.

@@ -62,7 +62,7 @@ impl Key {
 }
 
 /// Parse a key sequence the way a Vim mapping is written: `<space><space>`,
-/// `\\`, `,w`. Unknown `<…>` names are dropped rather than taken apart, and a
+/// `\\`, `,w`. Unknown `<...>` names are dropped rather than taken apart, and a
 /// `<` with no `>` after it is the character itself.
 pub fn parse_sequence(s: &str) -> Vec<Key> {
     let mut out = Vec::new();
