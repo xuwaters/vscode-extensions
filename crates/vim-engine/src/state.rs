@@ -5092,7 +5092,7 @@ fn printable(text: &str, linewise: bool) -> String {
     let mut out = String::new();
     for (i, ch) in text.chars().enumerate() {
         if i == LIMIT {
-            out.push('...');
+            out.push_str("...");
             return out;
         }
         match ch {
