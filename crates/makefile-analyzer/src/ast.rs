@@ -65,6 +65,8 @@ pub struct Rule {
 
 #[derive(Debug, Clone)]
 pub struct RecipeLine {
+    /// Source text of the line, recipe prefix and backslash-newlines
+    /// included.
     pub text: String,
     pub span: ByteSpan,
 }

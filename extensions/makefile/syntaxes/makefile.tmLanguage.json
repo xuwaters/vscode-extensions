@@ -41,7 +41,8 @@
       ]
     },
     "define-block": {
-      "begin": "^\\s*((?:(?:export|unexport|override|private)\\s+)*)(define)(?=\\s|$)\\s*(.*?)\\s*(:::=|::=|:=|\\?=|\\+=|!=|=)?\\s*(?=#|$)",
+      "comment": "`define = 1` assigns a variable named define rather than opening a block.",
+      "begin": "^\\s*((?:(?:export|unexport|override|private)\\s+)*)(define)(?=\\s|$)(?!\\s*(?:[?+!]?=|:{1,3}=))\\s*(.*?)\\s*(:::=|::=|:=|\\?=|\\+=|!=|=)?\\s*(?=#|$)",
       "beginCaptures": {
         "1": { "patterns": [{ "include": "#modifier-keyword" }] },
         "2": { "name": "keyword.control.define.makefile" },

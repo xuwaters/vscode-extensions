@@ -10,10 +10,10 @@ use crate::spans::ByteSpan;
 
 #[derive(Debug, Clone)]
 pub struct LogicalLine {
-    /// Joined source text, with escaped newlines replaced by a single
-    /// space (matching GNU Make's behaviour for non-recipe lines). For
-    /// recipe lines the original text is preserved verbatim including
-    /// the leading tab.
+    /// Joined source text, with escaped newlines collapsed the way GNU
+    /// Make does for non-recipe lines. Whether a line is a recipe depends
+    /// on the rule context and `.RECIPEPREFIX`, so every line is joined
+    /// this way; the parser takes recipe text from the source instead.
     pub text: String,
     /// Full physical extent of this logical line in the original source,
     /// including any trailing newline that terminated it.

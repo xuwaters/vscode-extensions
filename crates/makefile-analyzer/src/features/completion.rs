@@ -87,15 +87,17 @@ pub fn completions(
     };
 
     // Source slice from the start of the (joined) recipe line up to the
-    // cursor. We use the original source — recipe_line.text is identical
-    // for non-continuation lines, and the joined version replaces the
-    // backslash continuation with a literal space which is fine here.
+    // cursor.
     let start = recipe_line.span.start as usize;
     let end = (cursor_offset as usize).min(parsed.source.len());
     if start >= end {
         return Vec::new();
     }
-    let prefix_text = recipe_text_for_completion(&parsed.source[start..end]);
+    let raw = &parsed.source[start..end];
+    // A recipe line starts with the recipe prefix — TAB, or whatever
+    // `.RECIPEPREFIX` set — unless it was indented with spaces (MAKE001).
+    let recipe_prefix = raw.chars().next().filter(|&c| c != ' ');
+    let prefix_text = recipe_text_for_completion(raw, recipe_prefix);
 
     let segment = last_command_segment(&prefix_text);
     let tokens = shell_tokenise(segment);
@@ -183,10 +185,15 @@ fn span_contains_inclusive(start: u32, end: u32, cursor: u32) -> bool {
     cursor >= start && cursor <= end
 }
 
-/// Strip the leading TAB and any GNU Make recipe prefix bytes (`@-+`)
-/// from the start of a recipe text. Returns a `String` because we may
-/// also need to collapse `\<newline>` continuations into spaces.
-fn recipe_text_for_completion(raw: &str) -> String {
+/// Strip the recipe prefix, leading blanks and any GNU Make recipe
+/// modifiers (`@-+`) from the start of a recipe text. Returns a `String`
+/// because we may also need to collapse `\<newline>` continuations into
+/// spaces.
+fn recipe_text_for_completion(raw: &str, recipe_prefix: Option<char>) -> String {
+    let raw = match recipe_prefix {
+        Some(p) => raw.strip_prefix(p).unwrap_or(raw),
+        None => raw,
+    };
     // Drop leading TABs / spaces.
     let trimmed = raw.trim_start_matches(|c| c == '\t' || c == ' ');
     // Strip GNU recipe modifiers — they can appear in any order.
@@ -209,8 +216,11 @@ fn recipe_text_for_completion(raw: &str) -> String {
                 out.push(' ');
             }
             i += 2;
-            // Skip a leading TAB on the continuation line — recipe
-            // lines start with a tab even when continued.
+            // GNU Make drops a recipe prefix that starts the
+            // continuation line; blanks after it are skipped too.
+            if let Some(p) = recipe_prefix.filter(|&p| s[i..].starts_with(p)) {
+                i += p.len_utf8();
+            }
             while i < bytes.len() && (bytes[i] == b'\t' || bytes[i] == b' ') {
                 i += 1;
             }
@@ -582,6 +592,14 @@ mod tests {
         // Tab + '@' + "curl --" — cursor at col 9 sits after "--".
         let labels = complete_at(src, 1, 9);
         assert_eq!(labels, vec!["--anyauth", "--user-agent", "--verbose"]);
+    }
+
+    #[test]
+    fn custom_recipe_prefix_is_skipped() {
+        let src = ".RECIPEPREFIX = >\nbuild:\n>curl --\n>curl \\\n>--\n";
+        assert_eq!(complete_at(src, 2, 7), vec!["--anyauth", "--user-agent", "--verbose"]);
+        // On a continuation line the prefix is dropped as well.
+        assert_eq!(complete_at(src, 4, 3), vec!["--anyauth", "--user-agent", "--verbose"]);
     }
 
     #[test]

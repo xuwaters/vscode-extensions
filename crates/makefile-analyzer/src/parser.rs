@@ -34,19 +34,18 @@ pub struct Parser<'a> {
     phony: Vec<String>,
     /// First byte of a recipe line — TAB unless `.RECIPEPREFIX` changes it.
     recipe_prefix: u8,
-    /// Conditional nesting depth of the line being parsed.
-    depth: usize,
     /// True while recipe lines would be attached to a rule.
     rule_open: bool,
-    /// Conditional depth at which the open rule was declared.
-    rule_depth: usize,
-    /// Bumped every time a new rule context starts, so a parse level can
-    /// tell whether the rule it owns is still the open one.
-    rule_serial: u32,
-    /// Recipe lines found inside a conditional nested under the open
-    /// rule, tagged with that rule's serial. The level owning the rule
-    /// collects them once the conditional closes.
-    nested_recipes: Vec<(u32, RecipeLine)>,
+    /// Document-order index of the rule that recipe lines go to; `None`
+    /// while the open rule context has no targets, whose recipe GNU Make
+    /// ignores.
+    open_rule: Option<usize>,
+    /// Number of rules parsed so far.
+    rule_count: usize,
+    /// Recipe lines tagged with the document-order index of their rule.
+    /// They are attached once the whole file is parsed, because the rule
+    /// may sit in a conditional branch that has already been closed.
+    recipes: Vec<(usize, RecipeLine)>,
     /// Set when the last statement was not recognised as anything.
     unrecognised: bool,
 }
@@ -79,11 +78,10 @@ impl<'a> Parser<'a> {
             diagnostics: Vec::new(),
             phony: Vec::new(),
             recipe_prefix: b'\t',
-            depth: 0,
             rule_open: false,
-            rule_depth: 0,
-            rule_serial: 0,
-            nested_recipes: Vec::new(),
+            open_rule: None,
+            rule_count: 0,
+            recipes: Vec::new(),
             unrecognised: false,
         }
     }
@@ -106,6 +104,11 @@ impl<'a> Parser<'a> {
         let mut items = self.parse_items(&[]);
         // `.PHONY` applies to a target wherever it is declared.
         mark_phony(&mut items, &self.phony);
+        let mut recipes = vec![Vec::new(); self.rule_count];
+        for (rule, rl) in self.recipes.drain(..) {
+            recipes[rule].push(rl);
+        }
+        attach_recipes(&mut items, &mut 0, &mut recipes, None);
         File { items, span: ByteSpan::new(start, end) }
     }
 
@@ -113,8 +116,6 @@ impl<'a> Parser<'a> {
     /// `terminators` (used to recurse into conditional branches).
     fn parse_items(&mut self, terminators: &[&str]) -> Vec<Item> {
         let mut out = Vec::new();
-        // `(index in out, rule_serial)` of the rule declared at this level.
-        let mut own_rule: Option<(usize, u32)> = None;
         while self.pos < self.lines.len() {
             let line = &self.lines[self.pos];
             if line.kind == LineKind::Blank {
@@ -122,19 +123,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
             if self.rule_open && self.is_recipe_line(line) {
-                let rl = self.recipe_line_from(line);
-                if self.rule_depth == self.depth {
-                    if let Some((idx, serial)) = own_rule {
-                        if serial == self.rule_serial {
-                            if let Some(Item::Rule(r)) = out.get_mut(idx) {
-                                r.span.end = line.span.end;
-                                r.recipe_lines.push(rl);
-                            }
-                        }
-                    }
-                } else if self.rule_depth < self.depth {
-                    self.nested_recipes.push((self.rule_serial, rl));
-                }
+                self.push_recipe(line);
                 self.pos += 1;
                 continue;
             }
@@ -148,61 +137,34 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 continue;
             }
-            if terminators.contains(&first_word(text)) {
+            // Assignments are checked first, so `endif := 1` is a variable.
+            if terminators.contains(&first_word(text)) && parse_var_assignment(text, false).is_none() {
                 return out;
+            }
+            if self.rule_open && line.kind == LineKind::RecipeWithSpaces && looks_like_recipe(text) {
+                self.diagnostics.push(MakeDiagnostic::error(
+                    DiagnosticCode::RecipeUsesSpaces,
+                    "recipe line uses spaces where a tab is required",
+                    line.span,
+                ));
+                self.push_recipe(line);
+                self.pos += 1;
+                continue;
             }
 
             match self.parse_statement(line, text) {
-                Some(Item::Rule(r)) => {
-                    // Track .PHONY targets so subsequent rules can be
-                    // marked is_phony in the outline.
-                    if r.targets.first().is_some_and(|t| t.name == ".PHONY") {
-                        self.phony.extend(r.prerequisites.iter().map(|p| p.name.clone()));
-                    }
-                    own_rule = Some((out.len(), self.rule_serial));
-                    out.push(Item::Rule(r));
-                }
-                Some(Item::Conditional(c)) => {
-                    // Recipe lines inside the conditional belong to the
-                    // rule that was open when it started.
-                    if let Some((idx, serial)) = own_rule {
-                        let mut taken = Vec::new();
-                        self.nested_recipes.retain(|(s, rl)| {
-                            if *s == serial {
-                                taken.push(rl.clone());
-                                false
-                            } else {
-                                true
-                            }
-                        });
-                        if let Some(Item::Rule(r)) = out.get_mut(idx) {
-                            if !taken.is_empty() {
-                                r.span.end = r.span.end.max(c.span.end);
-                                r.recipe_lines.extend(taken);
-                            }
+                Some(item) => {
+                    // Track .PHONY targets so rules can be marked is_phony
+                    // in the outline.
+                    if let Item::Rule(r) = &item {
+                        if r.targets.first().is_some_and(|t| t.name == ".PHONY") {
+                            self.phony.extend(r.prerequisites.iter().map(|p| p.name.clone()));
                         }
                     }
-                    out.push(Item::Conditional(c));
+                    out.push(item);
                 }
-                Some(item) => out.push(item),
                 None => {
-                    // An unrecognised space-indented line right after a
-                    // rule is most likely a recipe typed with spaces.
-                    let owned = own_rule.filter(|&(_, s)| {
-                        self.rule_open && self.rule_depth == self.depth && s == self.rule_serial
-                    });
-                    if let (LineKind::RecipeWithSpaces, Some((idx, _))) = (line.kind, owned) {
-                        self.diagnostics.push(MakeDiagnostic::error(
-                            DiagnosticCode::RecipeUsesSpaces,
-                            "recipe line uses spaces where a tab is required",
-                            line.span,
-                        ));
-                        let rl = self.recipe_line_from(line);
-                        if let Some(Item::Rule(r)) = out.get_mut(idx) {
-                            r.span.end = line.span.end;
-                            r.recipe_lines.push(rl);
-                        }
-                    } else if self.unrecognised && !text.contains('$') {
+                    if self.unrecognised && !text.contains('$') {
                         // A `$` reference might expand to a separator or to
                         // nothing at all, so only literal text is reported.
                         let message = if line.text.starts_with("        ") {
@@ -229,7 +191,7 @@ impl<'a> Parser<'a> {
         if let Some(var) = parse_var_assignment(text, false) {
             // Any variable statement ends the previous rule.
             self.rule_open = false;
-            return Some(self.parse_var_line(line, var));
+            return self.parse_var_line(line, var);
         }
 
         if let Some(kind) = match_conditional_open(text) {
@@ -279,30 +241,38 @@ impl<'a> Parser<'a> {
         item
     }
 
-    fn parse_var_line(&mut self, line: &LogicalLine, var: VarLine<'_>) -> Item {
+    /// A variable statement; `None` when GNU Make would reject it for
+    /// having an empty name.
+    fn parse_var_line(&mut self, line: &LogicalLine, var: VarLine<'_>) -> Option<Item> {
         match var {
             VarLine::Assign { modifiers, rest, def } => {
                 let a = self.make_assignment(line, modifiers, Vec::new(), rest, def, None);
+                self.pos += 1;
+                let a = a?;
                 if a.name.name == ".RECIPEPREFIX" {
                     self.recipe_prefix = a.value.bytes().next().unwrap_or(b'\t');
                 }
-                self.pos += 1;
-                Item::Assignment(a)
+                Some(Item::Assignment(a))
             }
-            VarLine::Define { modifiers, rest } => Item::Define(self.parse_define(line, modifiers, rest)),
+            VarLine::Define { modifiers, rest } => {
+                let d = self.parse_define(line, modifiers, rest);
+                (!d.name.name.is_empty()).then_some(Item::Define(d))
+            }
             VarLine::Undefine { rest, keyword } => {
                 let name_span = self.locate(line, keyword, "undefine");
                 self.pos += 1;
-                Item::Directive(Directive {
+                Some(Item::Directive(Directive {
                     kind: DirectiveKind::Undefine,
                     arguments: rest.trim().to_string(),
                     span: line.span,
                     name_span,
-                })
+                }))
             }
         }
     }
 
+    /// `after_semi` is the text after a `;` on a target-specific variable
+    /// line. Returns `None` (and reports it) when the name is empty.
     fn make_assignment(
         &mut self,
         line: &LogicalLine,
@@ -310,8 +280,8 @@ impl<'a> Parser<'a> {
         targets: Vec<Identifier>,
         rest: &str,
         def: VarDef,
-        inline_recipe: Option<&str>,
-    ) -> Assignment {
+        after_semi: Option<&str>,
+    ) -> Option<Assignment> {
         let name = rest[..def.name_end].trim_end();
         if name.is_empty() {
             self.diagnostics.push(MakeDiagnostic::error(
@@ -319,22 +289,23 @@ impl<'a> Parser<'a> {
                 "empty variable name",
                 line.span,
             ));
+            return None;
         }
         let name_span = self.locate(line, rest, name);
-        let mut value = rest[def.op_end..].trim().to_string();
-        // A `;` in a target-specific variable line is part of the value.
-        if let Some(r) = inline_recipe {
-            value.push(';');
-            value.push_str(r);
-        }
-        Assignment {
+        let value = match after_semi {
+            // GNU Make puts the `;` and everything after it back into the
+            // value, blanks and `#` comment included.
+            Some(tail) => format!("{};{tail}", &rest[def.op_end..]).trim().to_string(),
+            None => rest[def.op_end..].trim().to_string(),
+        };
+        Some(Assignment {
             modifiers,
             targets,
             name: Identifier { name: name.to_string(), span: name_span },
             op: def.op,
             value,
             span: line.span,
-        }
+        })
     }
 
     fn parse_conditional(&mut self, open: &LogicalLine, text: &str, kind: ConditionalKind) -> Conditional {
@@ -344,7 +315,6 @@ impl<'a> Parser<'a> {
         self.check_condition(open, text, kind);
         let mut span = open.span;
         self.pos += 1;
-        self.depth += 1;
 
         let then_branch = self.parse_items(&["else", "endif"]);
         let mut else_branch = Vec::new();
@@ -386,7 +356,6 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        self.depth -= 1;
 
         if chained {
             // The nested conditional consumed (or diagnosed) the `endif`.
@@ -532,8 +501,8 @@ impl<'a> Parser<'a> {
     fn try_parse_rule(&mut self, line: &LogicalLine) -> Option<Item> {
         let raw = line.text.trim_start();
         // A `;` starts an inline recipe unless a `#` comes first.
-        let (header, inline_recipe) = match find_unquoted(raw, b";#") {
-            Some(i) if raw.as_bytes()[i] == b';' => (&raw[..i], Some(raw[i + 1..].trim())),
+        let (header, after_semi) = match find_unquoted(raw, b";#") {
+            Some(i) if raw.as_bytes()[i] == b';' => (&raw[..i], Some(&raw[i + 1..])),
             Some(i) => (&raw[..i], None),
             None => (raw, None),
         };
@@ -561,8 +530,9 @@ impl<'a> Parser<'a> {
 
         if let Some(VarLine::Assign { modifiers, rest, def }) = parse_var_assignment(rest, true) {
             self.rule_open = false;
-            let a = self.make_assignment(line, modifiers, targets, rest, def, inline_recipe);
-            return Some(Item::Assignment(a));
+            return self
+                .make_assignment(line, modifiers, targets, rest, def, after_semi)
+                .map(Item::Assignment);
         }
 
         // Static pattern rule: `targets: target-pattern: prereq-patterns`.
@@ -584,12 +554,15 @@ impl<'a> Parser<'a> {
         let prerequisites = self.identifiers(line, normal.trim());
         let order_only = self.identifiers(line, order_only.trim());
 
-        let is_pattern = static_pattern.is_some() || targets.iter().any(|t| t.name.contains('%'));
+        // A static pattern rule's targets are ordinary file names.
+        let is_pattern = targets.iter().any(|t| t.name.contains('%'));
         let name_span = targets
             .first()
             .map(|t| t.span)
             .unwrap_or_else(|| ByteSpan::new(line.content_start, line.content_start));
 
+        self.open_rule = Some(self.rule_count);
+        self.rule_count += 1;
         Some(Item::Rule(Rule {
             targets,
             prerequisites,
@@ -599,7 +572,7 @@ impl<'a> Parser<'a> {
             is_grouped,
             static_pattern,
             order_only,
-            inline_recipe: inline_recipe.map(str::to_string),
+            inline_recipe: after_semi.map(|r| r.trim().to_string()),
             recipe_lines: Vec::new(),
             span: line.span,
             name_span,
@@ -608,8 +581,14 @@ impl<'a> Parser<'a> {
 
     fn start_rule_context(&mut self) {
         self.rule_open = true;
-        self.rule_depth = self.depth;
-        self.rule_serial += 1;
+        self.open_rule = None;
+    }
+
+    fn push_recipe(&mut self, line: &LogicalLine) {
+        if let Some(rule) = self.open_rule {
+            let rl = self.recipe_line_from(line);
+            self.recipes.push((rule, rl));
+        }
     }
 
     fn starts_with_prefix(&self, line: &LogicalLine) -> bool {
@@ -620,8 +599,13 @@ impl<'a> Parser<'a> {
         line.kind != LineKind::Blank && self.starts_with_prefix(line)
     }
 
+    /// Recipe text is taken from the source, not the lexer's joined text:
+    /// GNU Make hands backslash-newlines in a recipe to the shell as is.
     fn recipe_line_from(&self, line: &LogicalLine) -> RecipeLine {
-        RecipeLine { text: line.text.clone(), span: line.span }
+        let text = self.source[line.span.start as usize..line.span.end as usize]
+            .trim_end_matches('\n')
+            .trim_end_matches('\r');
+        RecipeLine { text: text.to_string(), span: line.span }
     }
 
     /// Validate a conditional's arguments the way `conditional_line()`
@@ -706,6 +690,69 @@ fn mark_phony(items: &mut [Item], phony: &[String]) {
                 mark_phony(&mut c.else_branch, phony);
             }
             _ => {}
+        }
+    }
+}
+
+/// Hand each rule, in document order, the recipe lines collected for it.
+/// A rule's span grows to cover its recipe, including any conditional
+/// that holds part of it, but never past `limit` — the end of the
+/// conditional the rule itself sits in — so folding ranges stay nested.
+fn attach_recipes(items: &mut [Item], next: &mut usize, recipes: &mut [Vec<RecipeLine>], limit: Option<u32>) {
+    for item in items.iter_mut() {
+        match item {
+            Item::Rule(r) => {
+                r.recipe_lines = std::mem::take(&mut recipes[*next]);
+                *next += 1;
+                if let Some(last) = r.recipe_lines.last() {
+                    r.span.end = r.span.end.max(last.span.end);
+                }
+            }
+            Item::Conditional(c) => {
+                let end = Some(c.span.end);
+                attach_recipes(&mut c.then_branch, next, recipes, end);
+                attach_recipes(&mut c.else_branch, next, recipes, end);
+            }
+            _ => {}
+        }
+    }
+    for i in 0..items.len() {
+        let Item::Rule(r) = &items[i] else { continue };
+        let mut end = r.span.end;
+        for item in &items[i + 1..] {
+            match item {
+                Item::Conditional(c) if c.span.start < end => end = end.max(c.span.end),
+                _ => break,
+            }
+        }
+        if let Some(limit) = limit {
+            end = end.min(limit);
+        }
+        if let Item::Rule(r) = &mut items[i] {
+            r.span.end = end;
+        }
+    }
+}
+
+/// Whether a space-indented line in a rule context reads as a recipe
+/// typed with spaces. Conditionals, directives, `define` and assignments
+/// keep their meaning — except `NAME=value args`, which is the shape of
+/// a shell command with an environment prefix.
+fn looks_like_recipe(text: &str) -> bool {
+    match parse_var_assignment(text, false) {
+        Some(VarLine::Assign { rest, def, .. }) => {
+            def.op == AssignOp::Recursive
+                && rest.as_bytes()[def.name_end] == b'='
+                && rest[def.op_end..].trim().contains([' ', '\t'])
+        }
+        Some(_) => false,
+        None => {
+            match_conditional_open(text).is_none()
+                && match_directive(text).is_none()
+                && !matches!(
+                    first_word(text),
+                    "else" | "endif" | "endef" | "include" | "-include" | "sinclude"
+                )
         }
     }
 }
@@ -887,7 +934,8 @@ fn match_conditional_open(text: &str) -> Option<ConditionalKind> {
 
 /// The argument forms `conditional_line()` accepts for `ifeq` / `ifneq`:
 /// `(a,b)`, or two strings each quoted with `"` or `'`. Returns whether
-/// text follows the arguments, or `None` if they are malformed.
+/// text follows the arguments, or `None` if they are malformed. Like
+/// GNU Make, only bare parentheses are counted — `$` is not special.
 fn parse_ifeq_args(args: &str) -> Option<bool> {
     let b = args.as_bytes();
     let termin = match *b.first()? {
@@ -896,10 +944,19 @@ fn parse_ifeq_args(args: &str) -> Option<bool> {
         _ => return None,
     };
     let mut i = 1;
-    while i < b.len() && b[i] != termin {
-        if b[i] == b'$' {
-            i = skip_reference(b, i + 1);
-        } else {
+    if termin == b',' {
+        let mut count = 0;
+        while i < b.len() {
+            match b[i] {
+                b'(' => count += 1,
+                b')' => count -= 1,
+                b',' if count <= 0 => break,
+                _ => {}
+            }
+            i += 1;
+        }
+    } else {
+        while i < b.len() && b[i] != termin {
             i += 1;
         }
     }
@@ -1444,7 +1501,7 @@ mod tests {
         assert_eq!(r.targets[0].name, "$(OBJS)");
         assert_eq!(r.static_pattern.as_ref().unwrap().name, "%.o");
         assert_eq!(names(&r.prerequisites), vec!["%.c"]);
-        assert!(r.is_pattern);
+        assert!(!r.is_pattern);
         let Item::Rule(r) = &file.items[2] else { panic!() };
         assert!(r.is_grouped);
         assert_eq!(names(&r.targets), vec!["x.tab.c", "x.tab.h"]);
@@ -1604,5 +1661,90 @@ mod tests {
         assert_clean(&diags);
         assert!(matches!(&file.items[0], Item::Directive(d) if d.kind == DirectiveKind::Load));
         assert!(matches!(&file.items[1], Item::Rule(_)));
+    }
+
+    #[test]
+    fn empty_variable_name_produces_no_item() {
+        for src in ["= foo\n", "+= -g\n", "foo: = bar\n", "define\nx\nendef\n"] {
+            let (file, diags) = parse(src);
+            assert!(file.items.is_empty(), "{src:?}: {:?}", file.items);
+            let codes: Vec<_> = diags.iter().map(|d| d.code).collect();
+            assert_eq!(codes, vec![DiagnosticCode::EmptyVariableName], "{src:?}");
+        }
+    }
+
+    #[test]
+    fn space_indented_commands_after_rule_are_recipes() {
+        let src = "all:\n\
+                   \x20   docker run -v $(PWD):/src img\n\
+                   \x20   @echo \"Done: ok\"\n\
+                   \x20   FOO=1 ./run\n\
+                   \x20 BAR = 2\n";
+        let (file, diags) = parse(src);
+        let codes: Vec<_> = diags.iter().map(|d| d.code).collect();
+        assert_eq!(codes, vec![DiagnosticCode::RecipeUsesSpaces; 3]);
+        assert_eq!(file.items.len(), 2);
+        let Item::Rule(r) = &file.items[0] else { panic!() };
+        assert_eq!(r.recipe_lines.len(), 3);
+        assert!(matches!(&file.items[1], Item::Assignment(a) if a.name.name == "BAR"));
+    }
+
+    #[test]
+    fn recipe_after_conditional_goes_to_last_rule() {
+        let src = "ifeq ($(OS),Windows_NT)\nclean:\nelse\nclean:\nendif\n\trm -rf build\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let Item::Conditional(c) = &file.items[0] else { panic!() };
+        let Item::Rule(r) = &c.else_branch[0] else { panic!() };
+        assert_eq!(r.recipe_lines.len(), 1);
+        assert_eq!(r.recipe_lines[0].text, "\trm -rf build");
+        // The rule's span stays inside its conditional.
+        assert_eq!(r.span.end, c.span.end);
+    }
+
+    #[test]
+    fn recipe_in_else_branch_goes_to_rule_in_then_branch() {
+        let src = "all:\nifdef X\nlib:\n\techo x\nelse\n\techo y\nendif\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let Item::Conditional(c) = &file.items[1] else { panic!() };
+        let Item::Rule(r) = &c.then_branch[0] else { panic!() };
+        assert_eq!(r.recipe_lines.len(), 2);
+    }
+
+    #[test]
+    fn ifeq_args_scan_like_gnu_make() {
+        // `$` is not special: `${a` and `b}` are the two arguments.
+        let (_, diags) = parse("ifeq (a(b,c),d)\nendif\nifeq \"$(x\" \"y\"\nendif\nifeq (${a,b})\nendif\n");
+        assert_clean(&diags);
+    }
+
+    #[test]
+    fn target_specific_value_keeps_text_after_semicolon() {
+        let (file, diags) = parse("foo: X = a ;  b # note\nbar: Y = c # gone\n");
+        assert_clean(&diags);
+        let Item::Assignment(a) = &file.items[0] else { panic!() };
+        assert_eq!(a.value, "a ;  b # note");
+        let Item::Assignment(a) = &file.items[1] else { panic!() };
+        assert_eq!(a.value, "c");
+    }
+
+    #[test]
+    fn variables_named_else_and_endif_inside_conditional() {
+        let src = "ifdef X\nendif := 1\nelse = foo\nendif\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        assert_eq!(file.items.len(), 1);
+        let Item::Conditional(c) = &file.items[0] else { panic!() };
+        assert_eq!(c.then_branch.len(), 2);
+        assert!(c.else_branch.is_empty());
+    }
+
+    #[test]
+    fn recipe_text_keeps_continuations_verbatim() {
+        let src = "all:\n\tawk '{print $\\\n\t$$1}'\n";
+        let (file, _) = parse(src);
+        let Item::Rule(r) = &file.items[0] else { panic!() };
+        assert_eq!(r.recipe_lines[0].text, "\tawk '{print $\\\n\t$$1}'");
     }
 }

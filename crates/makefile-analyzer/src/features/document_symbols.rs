@@ -42,6 +42,8 @@ fn items_to_symbols(items: &[ast::Item]) -> Vec<DocumentSymbol> {
             ast::Item::Directive(d) => out.push(directive_symbol(d)),
         }
     }
+    // VS Code rejects a symbol with an empty name (a bare `include`).
+    out.retain(|s| !s.name.is_empty());
     out
 }
 

@@ -32,7 +32,7 @@ option completion drawn from fish-shell's completion data.
   The parser follows GNU Make's own reading rules: trailing `#` comments, `\` continuations, escaped `\:` and `\ ` in names, archive members such as `lib.a(a.o b.o)`,
   `;` inline recipes, order-only prerequisites after `|`, static pattern
   rules, grouped targets (`&:`), target-specific variables, recipe lines
-  inside `ifeq` blocks within a rule, and `.RECIPEPREFIX` are all understood.
+  inside or after the `ifeq` blocks around a rule, and `.RECIPEPREFIX` are all understood.
   Rules appear under their first target, with the remaining targets, the
   prerequisite list and a `::` marker for double-colon rules shown as detail;
   pattern rules (any target containing `%`) are recognised as such. Variable
@@ -69,8 +69,9 @@ option completion drawn from fish-shell's completion data.
   `editor.insertSpaces: false`, `editor.detectIndentation: false` and
   `editor.useTabStops: true` for the `makefile` language, so a press of Tab in
   a recipe inserts a real tab regardless of how the rest of your editor is
-  configured. If a space-indented line still sneaks in right after a rule
-  header, `MAKE001` flags it.
+  configured. If a space-indented command still sneaks into a rule's recipe,
+  `MAKE001` flags it. Indented assignments (`  FOO = 1`), directives and
+  conditionals are left alone, but `FOO=1 ./run` reads as a command.
 
 - **Shell completion inside recipes.** Put the cursor in a recipe line and the
   extension completes the current command's options, its subcommands, and the
