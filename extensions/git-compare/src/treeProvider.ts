@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Change, GitAPI, Repository } from './gitApi';
+import { type Change, type GitAPI, type Repository, Status } from './gitApi';
 import {
   type FileEntry,
   type FileTreeNode,
@@ -176,7 +176,7 @@ export class CompareTreeDataProvider implements vscode.TreeDataProvider<CompareN
       this.cachedGroups = {
         behind: makeGroup('behind', behindAhead.behind, repo.rootUri, compact),
         ahead: makeGroup('ahead', behindAhead.ahead, repo.rootUri, compact),
-        changed: makeGroup('changed', changedChanges, repo.rootUri, compact),
+        changed: makeGroup('changed', withUntracked(repo, changedChanges), repo.rootUri, compact),
       };
       this.cachedSelection = selection;
     } catch (err) {
@@ -215,6 +215,20 @@ function makeGroup(
   const entries = buildFileEntries(changes, repoRoot);
   const tree = buildTree(entries, compact);
   return { kind, entries, tree };
+}
+
+// `git diff <ref>` ignores untracked files, so pull them from the git
+// extension's status (like its "Changes" group). A path the diff already
+// reports — e.g. removed from the index but still on disk — keeps its entry.
+function withUntracked(repo: Repository, changes: Change[]): Change[] {
+  const { workingTreeChanges = [], untrackedChanges = [] } = repo.state;
+  const seen = new Set(changes.map((c) => c.uri.fsPath));
+  const untracked = [...workingTreeChanges, ...untrackedChanges].filter((c) => {
+    if (c.status !== Status.UNTRACKED || seen.has(c.uri.fsPath)) return false;
+    seen.add(c.uri.fsPath);
+    return true;
+  });
+  return untracked.length === 0 ? changes : [...changes, ...untracked];
 }
 
 // "Behind" and "Ahead" use triple-dot semantics relative to the merge-base —

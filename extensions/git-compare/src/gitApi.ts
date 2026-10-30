@@ -62,6 +62,9 @@ export interface RepositoryState {
   readonly HEAD: Branch | undefined;
   readonly refs: Ref[];
   readonly remotes: { readonly name: string; readonly fetchUrl?: string; readonly pushUrl?: string }[];
+  readonly workingTreeChanges: Change[];
+  // Split out of workingTreeChanges when `git.untrackedChanges` is "separate".
+  readonly untrackedChanges?: Change[];
   readonly onDidChange: vscode.Event<void>;
 }
 
