@@ -10,12 +10,13 @@ option completion drawn from fish-shell's completion data.
 ## Features
 
 - **Syntax highlighting** for targets and prerequisites, `#` comments,
-  assignment operators (`=`, `:=`, `::=`, `?=`, `+=`, `!=`) with an optional
-  `export` / `override` / `private` prefix, the conditional keywords (`ifeq`,
-  `ifneq`, `ifdef`, `ifndef`, `else`, `endif`), the directives `export`,
-  `unexport`, `override`, `private`, `undefine` and `vpath`, `define` …
-  `endef` blocks, and `include` / `-include` / `sinclude` lines with their
-  paths.
+  assignment operators (`=`, `:=`, `::=`, `:::=`, `?=`, `+=`, `!=`) with any
+  mix of `export` / `unexport` / `override` / `private` in front, the
+  conditional keywords (`ifeq`, `ifneq`, `ifdef`, `ifndef`, `else`, `endif`),
+  the directives `export`, `unexport`, `override`, `private`, `undefine`,
+  `vpath` and `load`, `define` … `endef` blocks (including `override define`,
+  `export define`, nested `define`s and `define NAME :=` forms), and
+  `include` / `-include` / `sinclude` lines with their paths.
 
 - **Recipe bodies are highlighted as recipes**: the leading `@`, `-` and `+`
   prefix characters are called out, and inside the line you get variable
@@ -28,19 +29,24 @@ option completion drawn from fish-shell's completion data.
   `define` bodies.
 
 - **Outline and breadcrumbs** built from the parsed file, not a regex sweep.
+  The parser follows GNU Make's own reading rules: trailing `#` comments,
+  `;` inline recipes, order-only prerequisites after `|`, static pattern
+  rules, grouped targets (`&:`), target-specific variables, recipe lines
+  inside `ifeq` blocks within a rule, and `.RECIPEPREFIX` are all understood.
   Rules appear under their first target, with the remaining targets, the
   prerequisite list and a `::` marker for double-colon rules shown as detail;
   pattern rules (any target containing `%`) are recognised as such. Variable
-  assignments show their operator and a truncated value preview, `define`
-  blocks show `define` plus the operator, `include` lines show their paths,
-  and `ifeq` / `ifdef` blocks become a container node whose children are the
-  items in both branches.
+  assignments show their modifiers, operator and a truncated value preview
+  (target-specific ones also show their targets), `define` blocks show
+  `define` plus the operator, `include` lines show their paths, and `ifeq` /
+  `ifdef` blocks become a container node whose children are the items in both
+  branches.
 
 - **Folding** for rule bodies that have a recipe, `define` … `endef` blocks
   and conditional blocks, on top of the `# region` / `# endregion` markers
   from the language configuration.
 
-- **Diagnostics** for four classes of error, reported with a `MAKE00n` code:
+- **Diagnostics** reported with a `MAKE0nn` code:
 
   | Code | Message |
   | --- | --- |
@@ -48,6 +54,11 @@ option completion drawn from fish-shell's completion data.
   | `MAKE002` | recipe line appears outside of any target rule |
   | `MAKE003` | `` `define` `` block is not closed — expected `endef` |
   | `MAKE004` | `` `ifeq` `` (or `ifneq` / `ifdef` / `ifndef`) is not closed — expected `endif` |
+  | `MAKE005` | `` `endef` `` without a matching `define` |
+  | `MAKE006` | `` `endif` `` without a matching `if` |
+  | `MAKE008` | empty variable name |
+  | `MAKE009` | extraneous text after a `define`, `endef`, `else` or `endif` directive |
+  | `MAKE010` | `` `else` `` without a matching `if`, or a second `else` in one conditional |
 
   They are computed when a file is opened, on save, and — unless you turn
   `makefile.diagnostics.onType` off — about 150 ms after you stop typing.

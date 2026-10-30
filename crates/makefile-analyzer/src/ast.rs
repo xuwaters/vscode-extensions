@@ -50,6 +50,14 @@ pub struct Rule {
     pub is_pattern: bool,
     /// True if this rule's first target was previously declared `.PHONY`.
     pub is_phony: bool,
+    /// True for grouped targets (`a b &: deps`).
+    pub is_grouped: bool,
+    /// The target pattern of a static pattern rule (`objs: %.o: %.c`).
+    pub static_pattern: Option<Identifier>,
+    /// Prerequisites after `|`.
+    pub order_only: Vec<Identifier>,
+    /// Recipe text after `;` on the header line.
+    pub inline_recipe: Option<String>,
     pub recipe_lines: Vec<RecipeLine>,
     pub span: ByteSpan,
     pub name_span: ByteSpan,
@@ -63,10 +71,44 @@ pub struct RecipeLine {
 
 #[derive(Debug, Clone)]
 pub struct Assignment {
+    pub modifiers: Vec<Modifier>,
+    /// Non-empty for a target-specific variable (`targets: VAR = value`).
+    pub targets: Vec<Identifier>,
     pub name: Identifier,
     pub op: AssignOp,
     pub value: String,
     pub span: ByteSpan,
+}
+
+/// Keywords that may precede a variable assignment, `define` or
+/// `undefine`, in any order and combination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Modifier {
+    Export,
+    Unexport,
+    Override,
+    Private,
+}
+
+impl Modifier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Modifier::Export => "export",
+            Modifier::Unexport => "unexport",
+            Modifier::Override => "override",
+            Modifier::Private => "private",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Option<Modifier> {
+        match word {
+            "export" => Some(Modifier::Export),
+            "unexport" => Some(Modifier::Unexport),
+            "override" => Some(Modifier::Override),
+            "private" => Some(Modifier::Private),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +119,8 @@ pub enum AssignOp {
     Simple,
     /// `::=` (POSIX)
     Immediate,
+    /// `:::=` (POSIX immediate-with-escape)
+    ImmediateExpand,
     /// `?=`
     Conditional,
     /// `+=`
@@ -91,6 +135,7 @@ impl AssignOp {
             AssignOp::Recursive => "=",
             AssignOp::Simple => ":=",
             AssignOp::Immediate => "::=",
+            AssignOp::ImmediateExpand => ":::=",
             AssignOp::Conditional => "?=",
             AssignOp::Append => "+=",
             AssignOp::Shell => "!=",
@@ -100,6 +145,7 @@ impl AssignOp {
 
 #[derive(Debug, Clone)]
 pub struct Define {
+    pub modifiers: Vec<Modifier>,
     pub name: Identifier,
     pub op: Option<AssignOp>,
     pub body: String,
@@ -160,6 +206,8 @@ pub enum DirectiveKind {
     Private,
     Undefine,
     VPath,
+    /// `load` / `-load`
+    Load,
 }
 
 impl DirectiveKind {
@@ -171,6 +219,7 @@ impl DirectiveKind {
             DirectiveKind::Private => "private",
             DirectiveKind::Undefine => "undefine",
             DirectiveKind::VPath => "vpath",
+            DirectiveKind::Load => "load",
         }
     }
 }

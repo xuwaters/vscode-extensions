@@ -89,7 +89,12 @@ fn rule_symbol(r: &ast::Rule) -> DocumentSymbol {
 
 fn assignment_symbol(a: &ast::Assignment) -> DocumentSymbol {
     let preview = truncate_preview(&a.value, 60);
-    let detail = format!("{} {}", a.op.as_str(), preview);
+    let mut detail = modifiers_prefix(&a.modifiers);
+    if !a.targets.is_empty() {
+        let targets: Vec<&str> = a.targets.iter().map(|t| t.name.as_str()).collect();
+        detail.push_str(&format!("[{}] ", targets.join(" ")));
+    }
+    detail.push_str(&format!("{} {}", a.op.as_str(), preview));
     DocumentSymbol {
         name: a.name.name.clone(),
         detail,
@@ -101,10 +106,12 @@ fn assignment_symbol(a: &ast::Assignment) -> DocumentSymbol {
 }
 
 fn define_symbol(d: &ast::Define) -> DocumentSymbol {
-    let detail = match d.op {
-        Some(op) => format!("define {}", op.as_str()),
-        None => "define".to_string(),
-    };
+    let mut detail = modifiers_prefix(&d.modifiers);
+    detail.push_str("define");
+    if let Some(op) = d.op {
+        detail.push(' ');
+        detail.push_str(op.as_str());
+    }
     DocumentSymbol {
         name: d.name.name.clone(),
         detail,
@@ -163,6 +170,10 @@ fn directive_symbol(d: &ast::Directive) -> DocumentSymbol {
     }
 }
 
+fn modifiers_prefix(modifiers: &[ast::Modifier]) -> String {
+    modifiers.iter().map(|m| format!("{} ", m.as_str())).collect()
+}
+
 fn truncate_preview(s: &str, max: usize) -> String {
     let collapsed: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if collapsed.chars().count() <= max {
@@ -208,5 +219,22 @@ mod tests {
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].kind, SymbolKind::Conditional);
         assert_eq!(symbols[0].children.len(), 2);
+    }
+
+    #[test]
+    fn outline_shows_define_modifiers_and_target_variables() {
+        let src = "export define CMD =
+foo: bar
+endef
+debug: CFLAGS += -g
+";
+        let parsed = parse(FileUri::new("test"), src.to_string());
+        let symbols = document_symbols(&parsed.ast);
+        assert_eq!(symbols.len(), 2);
+        assert_eq!(symbols[0].kind, SymbolKind::Constant);
+        assert_eq!(symbols[0].name, "CMD");
+        assert_eq!(symbols[0].detail, "export define =");
+        assert_eq!(symbols[1].kind, SymbolKind::Variable);
+        assert_eq!(symbols[1].detail, "[debug] += -g");
     }
 }

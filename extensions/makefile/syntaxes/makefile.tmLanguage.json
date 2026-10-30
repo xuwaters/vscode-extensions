@@ -4,9 +4,9 @@
   "scopeName": "source.makefile",
   "patterns": [
     { "include": "#comment" },
+    { "include": "#define-block" },
     { "include": "#directive" },
     { "include": "#conditional" },
-    { "include": "#define-block" },
     { "include": "#include-directive" },
     { "include": "#recipe-line" },
     { "include": "#assignment" },
@@ -23,7 +23,7 @@
     "directive": {
       "patterns": [
         {
-          "match": "^\\s*(export|unexport|override|private|undefine|vpath)(?=\\s|$)(?!\\s*::?(?![:=]))",
+          "match": "^\\s*(export|unexport|override|private|undefine|vpath|-?load)(?=\\s|$)(?!\\s*::?(?![:=]))",
           "captures": {
             "1": { "name": "keyword.control.directive.makefile" }
           }
@@ -41,20 +41,44 @@
       ]
     },
     "define-block": {
-      "begin": "^\\s*(define)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(=|:=|::=|\\?=|\\+=|!=)?",
+      "begin": "^\\s*((?:(?:export|unexport|override|private)\\s+)*)(define)(?=\\s|$)\\s*(.*?)\\s*(:::=|::=|:=|\\?=|\\+=|!=|=)?\\s*(?=#|$)",
       "beginCaptures": {
-        "1": { "name": "keyword.control.define.makefile" },
-        "2": { "name": "variable.other.makefile" },
-        "3": { "name": "keyword.operator.assignment.makefile" }
+        "1": { "patterns": [{ "include": "#modifier-keyword" }] },
+        "2": { "name": "keyword.control.define.makefile" },
+        "3": { "name": "variable.other.makefile" },
+        "4": { "name": "keyword.operator.assignment.makefile" }
       },
-      "end": "^\\s*(endef)\\b",
+      "end": "^(?!\\t)\\s*(endef)(?=\\s|$)",
       "endCaptures": {
         "1": { "name": "keyword.control.define.makefile" }
       },
       "patterns": [
+        { "include": "#define-nested" },
         { "include": "#variable-reference" },
-        { "include": "#automatic-variable" }
+        { "include": "#automatic-variable" },
+        { "include": "#function-call" }
       ]
+    },
+    "define-nested": {
+      "comment": "Inside a define body only non-recipe lines open or close a nested define (do_define in GNU Make's read.c).",
+      "begin": "^(?!\\t)\\s*(define)(?=\\s|$)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.define.makefile" }
+      },
+      "end": "^(?!\\t)\\s*(endef)(?=\\s|$)",
+      "endCaptures": {
+        "1": { "name": "keyword.control.define.makefile" }
+      },
+      "patterns": [
+        { "include": "#define-nested" },
+        { "include": "#variable-reference" },
+        { "include": "#automatic-variable" },
+        { "include": "#function-call" }
+      ]
+    },
+    "modifier-keyword": {
+      "match": "\\b(export|unexport|override|private)\\b",
+      "name": "keyword.control.directive.makefile"
     },
     "include-directive": {
       "match": "^\\s*(-include|sinclude|include)\\s+(.+)$",
@@ -94,9 +118,9 @@
       "name": "constant.character.escape.line-continuation.makefile"
     },
     "assignment": {
-      "match": "^\\s*(?:(export|override|private)\\s+)?([A-Za-z_][A-Za-z0-9_.]*)\\s*(\\?=|:=|::=|\\+=|!=|=)",
+      "match": "^\\s*((?:(?:export|unexport|override|private)\\s+)*)([A-Za-z_.][A-Za-z0-9_.]*)\\s*(\\?=|:::=|::=|:=|\\+=|!=|=)",
       "captures": {
-        "1": { "name": "keyword.control.directive.makefile" },
+        "1": { "patterns": [{ "include": "#modifier-keyword" }] },
         "2": { "name": "variable.other.assignment.makefile" },
         "3": { "name": "keyword.operator.assignment.makefile" }
       }

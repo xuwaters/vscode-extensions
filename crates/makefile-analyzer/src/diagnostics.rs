@@ -15,6 +15,9 @@ pub enum DiagnosticCode {
     EndefWithoutDefine,       // MAKE005
     EndifWithoutIf,           // MAKE006
     AssignToAutoVariable,     // MAKE007
+    EmptyVariableName,        // MAKE008
+    ExtraneousText,           // MAKE009
+    ElseWithoutIf,            // MAKE010
 }
 
 impl DiagnosticCodeTrait for DiagnosticCode {
@@ -28,6 +31,9 @@ impl DiagnosticCodeTrait for DiagnosticCode {
             EndefWithoutDefine => "MAKE005",
             EndifWithoutIf => "MAKE006",
             AssignToAutoVariable => "MAKE007",
+            EmptyVariableName => "MAKE008",
+            ExtraneousText => "MAKE009",
+            ElseWithoutIf => "MAKE010",
         }
     }
 }

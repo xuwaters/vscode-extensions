@@ -1,14 +1,25 @@
 //! Recursive-descent parser over the logical lines produced by [`crate::lexer`].
 //!
-//! The parser's job is to classify each [`LogicalLine`] into an [`ast::Item`]
-//! while tracking three structural bits of state: which rule a recipe line
-//! belongs to, whether we're inside a `define ... endef` block, and how
-//! many conditionals are open. Errors are collected as
+//! The dispatch order mirrors GNU Make's `eval()` in `src/read.c`:
+//!
+//! 1. A line starting with the recipe prefix (TAB, or `.RECIPEPREFIX`)
+//!    while a rule is open is a recipe line — nothing else is checked.
+//! 2. Comments are stripped (ignoring `#` inside `$(…)` and `\#`).
+//! 3. Variable assignments come next, optionally preceded by any mix of
+//!    `export` / `unexport` / `override` / `private`, and including
+//!    `define … endef` and `undefine`. This is checked early so that
+//!    variables may be named like directives (`ifdef = 1`).
+//! 4. Conditionals, then `export` / `unexport` / `vpath` / `include` /
+//!    `load`, then rule headers (with target-specific variables).
+//!
+//! GNU Make's "rule context" — which rule a recipe line belongs to — stays
+//! open across blank lines, comments and conditional directives, and is
+//! closed by any other statement. Errors are collected as
 //! [`MakeDiagnostic`]s rather than aborting.
 
 use crate::ast::{
     AssignOp, Assignment, Conditional, ConditionalKind, Define, Directive, DirectiveKind, File,
-    Identifier, Include, Item, RecipeLine, Rule,
+    Identifier, Include, Item, Modifier, RecipeLine, Rule,
 };
 use crate::diagnostics::{DiagnosticCode, MakeDiagnostic};
 use crate::lexer::{LineKind, LogicalLine};
@@ -21,11 +32,57 @@ pub struct Parser<'a> {
     diagnostics: Vec<MakeDiagnostic>,
     /// Set of target names previously declared phony via `.PHONY: foo bar`.
     phony: Vec<String>,
+    /// First byte of a recipe line — TAB unless `.RECIPEPREFIX` changes it.
+    recipe_prefix: u8,
+    /// Conditional nesting depth of the line being parsed.
+    depth: usize,
+    /// True while recipe lines would be attached to a rule.
+    rule_open: bool,
+    /// Conditional depth at which the open rule was declared.
+    rule_depth: usize,
+    /// Bumped every time a new rule context starts, so a parse level can
+    /// tell whether the rule it owns is still the open one.
+    rule_serial: u32,
+    /// Recipe lines found inside a conditional nested under the open
+    /// rule, tagged with that rule's serial. The level owning the rule
+    /// collects them once the conditional closes.
+    nested_recipes: Vec<(u32, RecipeLine)>,
+}
+
+/// What [`parse_var_assignment`] found at the start of a statement.
+enum VarLine<'t> {
+    /// `[mods] NAME op value` — `rest` starts at NAME.
+    Assign { modifiers: Vec<Modifier>, rest: &'t str, def: VarDef },
+    /// `[mods] define …` — `rest` is the text after `define`.
+    Define { modifiers: Vec<Modifier>, rest: &'t str },
+    /// `[mods] undefine …` — `rest` is the text after `undefine`.
+    Undefine { rest: &'t str, keyword: &'t str },
+}
+
+/// Byte offsets of a variable definition within the text it was parsed
+/// from (see [`parse_variable_definition`]).
+#[derive(Clone, Copy)]
+struct VarDef {
+    name_end: usize,
+    op: AssignOp,
+    op_end: usize,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(source: &'a str, lines: &'a [LogicalLine]) -> Self {
-        Parser { source, lines, pos: 0, diagnostics: Vec::new(), phony: Vec::new() }
+        Parser {
+            source,
+            lines,
+            pos: 0,
+            diagnostics: Vec::new(),
+            phony: Vec::new(),
+            recipe_prefix: b'\t',
+            depth: 0,
+            rule_open: false,
+            rule_depth: 0,
+            rule_serial: 0,
+            nested_recipes: Vec::new(),
+        }
     }
 
     pub fn into_diagnostics(self) -> Vec<MakeDiagnostic> {
@@ -43,176 +100,288 @@ impl<'a> Parser<'a> {
             .last()
             .map(|l| l.span.end)
             .unwrap_or(0);
-        let items = self.parse_items(None);
+        let items = self.parse_items(&[]);
         File { items, span: ByteSpan::new(start, end) }
     }
 
-    /// Parse items until EOF or until the line text starts with one of
-    /// the terminators (used to recurse into conditional branches).
-    fn parse_items(&mut self, terminators: Option<&[&str]>) -> Vec<Item> {
+    /// Parse items until EOF or until a line whose first word is one of
+    /// `terminators` (used to recurse into conditional branches).
+    fn parse_items(&mut self, terminators: &[&str]) -> Vec<Item> {
         let mut out = Vec::new();
+        // `(index in out, rule_serial)` of the rule declared at this level.
+        let mut own_rule: Option<(usize, u32)> = None;
         while self.pos < self.lines.len() {
             let line = &self.lines[self.pos];
-            match line.kind {
-                LineKind::Blank | LineKind::Comment => {
-                    self.pos += 1;
-                    continue;
-                }
-                LineKind::Recipe => {
-                    // Recipe line outside of a rule — try to attach it to
-                    // the previous rule; if there isn't one, emit MAKE002.
-                    if let Some(Item::Rule(r)) = out.last_mut() {
-                        let rl = self.recipe_line_from(line);
-                        r.recipe_lines.push(rl);
-                        r.span.end = line.span.end;
-                        self.pos += 1;
-                        continue;
+            if line.kind == LineKind::Blank {
+                self.pos += 1;
+                continue;
+            }
+            if self.rule_open && self.is_recipe_line(line) {
+                let rl = self.recipe_line_from(line);
+                if self.rule_depth == self.depth {
+                    if let Some((idx, serial)) = own_rule {
+                        if serial == self.rule_serial {
+                            if let Some(Item::Rule(r)) = out.get_mut(idx) {
+                                r.span.end = line.span.end;
+                                r.recipe_lines.push(rl);
+                            }
+                        }
                     }
-                    self.diagnostics.push(MakeDiagnostic::error(
-                        DiagnosticCode::RecipeOutsideRule,
-                        "recipe line appears outside of any target rule",
-                        line.span,
-                    ));
-                    self.pos += 1;
-                    continue;
+                } else if self.rule_depth < self.depth {
+                    self.nested_recipes.push((self.rule_serial, rl));
                 }
-                LineKind::RecipeWithSpaces => {
-                    // If the previous item was a rule, this looks like a
-                    // recipe line that used spaces instead of a tab.
-                    // Otherwise treat it as a statement.
-                    if let Some(Item::Rule(_)) = out.last() {
+                self.pos += 1;
+                continue;
+            }
+            if line.kind == LineKind::Comment {
+                self.pos += 1;
+                continue;
+            }
+
+            let text = strip_comment(line.text.trim_start()).trim_end();
+            if text.is_empty() {
+                self.pos += 1;
+                continue;
+            }
+            if terminators.contains(&first_word(text)) {
+                return out;
+            }
+
+            match self.parse_statement(line, text) {
+                Some(Item::Rule(r)) => {
+                    // Track .PHONY targets so subsequent rules can be
+                    // marked is_phony in the outline.
+                    if r.targets.first().is_some_and(|t| t.name == ".PHONY") {
+                        self.phony.extend(r.prerequisites.iter().map(|p| p.name.clone()));
+                    }
+                    own_rule = Some((out.len(), self.rule_serial));
+                    out.push(Item::Rule(r));
+                }
+                Some(Item::Conditional(c)) => {
+                    // Recipe lines inside the conditional belong to the
+                    // rule that was open when it started.
+                    if let Some((idx, serial)) = own_rule {
+                        let mut taken = Vec::new();
+                        self.nested_recipes.retain(|(s, rl)| {
+                            if *s == serial {
+                                taken.push(rl.clone());
+                                false
+                            } else {
+                                true
+                            }
+                        });
+                        if let Some(Item::Rule(r)) = out.get_mut(idx) {
+                            if !taken.is_empty() {
+                                r.span.end = r.span.end.max(c.span.end);
+                                r.recipe_lines.extend(taken);
+                            }
+                        }
+                    }
+                    out.push(Item::Conditional(c));
+                }
+                Some(item) => out.push(item),
+                None => {
+                    // An unrecognised space-indented line right after a
+                    // rule is most likely a recipe typed with spaces.
+                    let owned = own_rule.filter(|&(_, s)| {
+                        self.rule_open && self.rule_depth == self.depth && s == self.rule_serial
+                    });
+                    if let (LineKind::RecipeWithSpaces, Some((idx, _))) = (line.kind, owned) {
                         self.diagnostics.push(MakeDiagnostic::error(
                             DiagnosticCode::RecipeUsesSpaces,
                             "recipe line uses spaces where a tab is required",
                             line.span,
                         ));
-                        if let Some(Item::Rule(r)) = out.last_mut() {
-                            let rl = self.recipe_line_from(line);
-                            r.recipe_lines.push(rl);
+                        let rl = self.recipe_line_from(line);
+                        if let Some(Item::Rule(r)) = out.get_mut(idx) {
                             r.span.end = line.span.end;
-                        }
-                        self.pos += 1;
-                        continue;
-                    }
-                    // Fall through to Statement handling.
-                }
-                LineKind::Statement => {}
-            }
-
-            let text = line.text.trim_start();
-            if let Some(terms) = terminators {
-                if terms.iter().any(|t| starts_keyword(text, t)) {
-                    return out;
-                }
-            }
-
-            if let Some(item) = self.parse_statement(line) {
-                // Track .PHONY targets so subsequent rules can be
-                // marked is_phony in the outline.
-                if let Item::Rule(r) = &item {
-                    if let Some(t) = r.targets.first() {
-                        if t.name == ".PHONY" {
-                            for p in &r.prerequisites {
-                                self.phony.push(p.name.clone());
-                            }
+                            r.recipe_lines.push(rl);
                         }
                     }
                 }
-                out.push(item);
-            } else {
-                // parse_statement always advances; this branch is for
-                // statements that produced nothing (e.g. stray tokens).
-                self.pos += 1;
             }
         }
         out
     }
 
-    fn parse_statement(&mut self, line: &LogicalLine) -> Option<Item> {
-        let text = line.text.trim_start();
+    /// Parse one statement. `text` is the line with leading whitespace
+    /// and any trailing comment removed. Always advances `pos`.
+    fn parse_statement(&mut self, line: &LogicalLine, text: &str) -> Option<Item> {
+        if let Some(var) = parse_var_assignment(text, false) {
+            // Any variable statement ends the previous rule.
+            self.rule_open = false;
+            return Some(self.parse_var_line(line, var));
+        }
 
-        // Directives first.
         if let Some(kind) = match_conditional_open(text) {
-            return Some(Item::Conditional(self.parse_conditional(line, kind)));
+            return Some(Item::Conditional(self.parse_conditional(line, text, kind)));
         }
-        if starts_keyword(text, "define") {
-            return Some(Item::Define(self.parse_define(line)));
+
+        let word = first_word(text);
+        let stray = match word {
+            "else" => Some((DiagnosticCode::ElseWithoutIf, "`else` without a matching `if`")),
+            "endif" => Some((DiagnosticCode::EndifWithoutIf, "`endif` without a matching `if`")),
+            "endef" => Some((
+                DiagnosticCode::EndefWithoutDefine,
+                "`endef` without a matching `define`",
+            )),
+            _ => None,
+        };
+        if let Some((code, msg)) = stray {
+            self.diagnostics.push(MakeDiagnostic::error(code, msg, line.span));
+            self.pos += 1;
+            return None;
         }
+
         if starts_keyword(text, "include") || starts_keyword(text, "-include")
             || starts_keyword(text, "sinclude")
         {
-            return Some(Item::Include(self.parse_include(line)));
+            self.rule_open = false;
+            return Some(Item::Include(self.parse_include(line, text)));
         }
         if let Some(k) = match_directive(text) {
+            self.rule_open = false;
             self.pos += 1;
-            return Some(Item::Directive(self.parse_directive(line, k)));
+            return Some(Item::Directive(self.parse_directive(line, text, k)));
         }
 
-        // Assignment vs rule: find the first unquoted `:`, `=`, `:=`,
-        // `::=`, `?=`, `+=`, `!=` at the top level (ignoring `$(...)`
-        // and `${...}`).
-        if let Some(assign) = self.try_parse_assignment(line) {
+        // A recipe-prefixed line with no rule open that isn't a variable
+        // or directive either.
+        if self.is_recipe_line(line) {
+            self.diagnostics.push(MakeDiagnostic::error(
+                DiagnosticCode::RecipeOutsideRule,
+                "recipe line appears outside of any target rule",
+                line.span,
+            ));
             self.pos += 1;
-            return Some(Item::Assignment(assign));
-        }
-        if let Some(rule) = self.try_parse_rule(line) {
-            return Some(Item::Rule(rule));
+            return None;
         }
 
-        // Unrecognised — skip one line and keep going.
+        let item = self.try_parse_rule(line);
         self.pos += 1;
-        None
+        item
     }
 
-    fn parse_conditional(&mut self, open: &LogicalLine, kind: ConditionalKind) -> Conditional {
-        let text = open.text.trim_start();
+    fn parse_var_line(&mut self, line: &LogicalLine, var: VarLine<'_>) -> Item {
+        match var {
+            VarLine::Assign { modifiers, rest, def } => {
+                let a = self.make_assignment(line, modifiers, Vec::new(), rest, def, None);
+                if a.name.name == ".RECIPEPREFIX" {
+                    self.recipe_prefix = a.value.bytes().next().unwrap_or(b'\t');
+                }
+                self.pos += 1;
+                Item::Assignment(a)
+            }
+            VarLine::Define { modifiers, rest } => Item::Define(self.parse_define(line, modifiers, rest)),
+            VarLine::Undefine { rest, keyword } => {
+                let name_span = self.locate(line, keyword, "undefine");
+                self.pos += 1;
+                Item::Directive(Directive {
+                    kind: DirectiveKind::Undefine,
+                    arguments: rest.trim().to_string(),
+                    span: line.span,
+                    name_span,
+                })
+            }
+        }
+    }
+
+    fn make_assignment(
+        &mut self,
+        line: &LogicalLine,
+        modifiers: Vec<Modifier>,
+        targets: Vec<Identifier>,
+        rest: &str,
+        def: VarDef,
+        inline_recipe: Option<&str>,
+    ) -> Assignment {
+        let name = rest[..def.name_end].trim_end();
+        if name.is_empty() {
+            self.diagnostics.push(MakeDiagnostic::error(
+                DiagnosticCode::EmptyVariableName,
+                "empty variable name",
+                line.span,
+            ));
+        }
+        let name_span = self.locate(line, rest, name);
+        let mut value = rest[def.op_end..].trim().to_string();
+        // A `;` in a target-specific variable line is part of the value.
+        if let Some(r) = inline_recipe {
+            value.push(';');
+            value.push_str(r);
+        }
+        Assignment {
+            modifiers,
+            targets,
+            name: Identifier { name: name.to_string(), span: name_span },
+            op: def.op,
+            value,
+            span: line.span,
+        }
+    }
+
+    fn parse_conditional(&mut self, open: &LogicalLine, text: &str, kind: ConditionalKind) -> Conditional {
         let keyword_len = kind.as_str().len();
         let condition = text[keyword_len..].trim().to_string();
-        let name_span = keyword_span(self.source, open.content_start, kind.as_str());
+        let name_span = self.locate(open, text, kind.as_str());
         let mut span = open.span;
         self.pos += 1;
+        self.depth += 1;
 
-        let then_branch = self.parse_items(Some(&["else", "endif"]));
+        let then_branch = self.parse_items(&["else", "endif"]);
         let mut else_branch = Vec::new();
+        let mut chained = false;
 
         if self.pos < self.lines.len() {
             let l = &self.lines[self.pos];
-            let t = l.text.trim_start();
-            if starts_keyword(t, "else") {
+            let t = strip_comment(l.text.trim_start()).trim_end();
+            if first_word(t) == "else" {
                 self.pos += 1;
-                // `else ifeq ...` chains into a nested conditional.
+                // `else ifeq …` chains into a nested conditional that
+                // shares this conditional's `endif`.
                 let rest = t["else".len()..].trim_start();
                 if let Some(inner) = match_conditional_open(rest) {
-                    // Re-synthesize a LogicalLine covering the same span
-                    // but with just the inner `ifeq …` text; we parse it
-                    // as a nested conditional then skip to its `endif`.
-                    let synthetic = LogicalLine {
-                        text: rest.to_string(),
-                        span: l.span,
-                        content_start: l.content_start + ("else".len() as u32) + 1,
-                        kind: LineKind::Statement,
-                    };
-                    let nested = self.parse_conditional(&synthetic, inner);
+                    self.pos -= 1;
+                    let nested = self.parse_conditional(l, rest, inner);
+                    span.end = nested.span.end;
                     else_branch.push(Item::Conditional(nested));
+                    chained = true;
                 } else {
-                    else_branch = self.parse_items(Some(&["endif"]));
+                    if !rest.is_empty() {
+                        self.extraneous_text(l, "else");
+                    }
+                    else_branch = self.parse_items(&["else", "endif"]);
+                    // A second `else` for the same conditional.
+                    while self.pos < self.lines.len() {
+                        let l = &self.lines[self.pos];
+                        if first_word(strip_comment(l.text.trim_start())) != "else" {
+                            break;
+                        }
+                        self.diagnostics.push(MakeDiagnostic::error(
+                            DiagnosticCode::ElseWithoutIf,
+                            "only one `else` per conditional",
+                            l.span,
+                        ));
+                        self.pos += 1;
+                        else_branch.extend(self.parse_items(&["else", "endif"]));
+                    }
                 }
             }
         }
+        self.depth -= 1;
 
-        // Consume the terminating endif, if any.
-        if self.pos < self.lines.len() {
+        if chained {
+            // The nested conditional consumed (or diagnosed) the `endif`.
+        } else if self.pos < self.lines.len()
+            && first_word(strip_comment(self.lines[self.pos].text.trim_start())) == "endif"
+        {
             let l = &self.lines[self.pos];
-            if starts_keyword(l.text.trim_start(), "endif") {
-                span.end = l.span.end;
-                self.pos += 1;
-            } else {
-                self.diagnostics.push(MakeDiagnostic::error(
-                    DiagnosticCode::ConditionalNotClosed,
-                    format!("`{}` is not closed — expected `endif`", kind.as_str()),
-                    open.span,
-                ));
+            let t = strip_comment(l.text.trim_start()).trim_end();
+            if t.len() > "endif".len() {
+                self.extraneous_text(l, "endif");
             }
+            span.end = l.span.end;
+            self.pos += 1;
         } else {
             self.diagnostics.push(MakeDiagnostic::error(
                 DiagnosticCode::ConditionalNotClosed,
@@ -231,44 +400,71 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_define(&mut self, open: &LogicalLine) -> Define {
-        let text = open.text.trim_start();
-        // Form: `define NAME [op]\n body lines \n endef`
-        let after_kw = text["define".len()..].trim_start();
-        // Detect trailing assignment operator.
-        let (name_str, op) = split_define_header(after_kw);
-        let name_offset = self.source[open.content_start as usize..]
-            .find(&name_str)
-            .map(|o| open.content_start as usize + o)
-            .unwrap_or(open.content_start as usize);
-        let name_span = ByteSpan::from_usize(name_offset, name_offset + name_str.len());
-        let name = Identifier { name: name_str, span: name_span };
+    /// `[modifiers] define NAME [op]`, body lines, `endef` — after
+    /// `do_define()`. `header` is the text following `define`.
+    fn parse_define(&mut self, open: &LogicalLine, modifiers: Vec<Modifier>, header: &str) -> Define {
+        let header = header.trim();
+        let (name_str, op) = match parse_variable_definition(header) {
+            Some(def) => {
+                if !header[def.op_end..].trim().is_empty() {
+                    self.extraneous_text(open, "define");
+                }
+                (header[..def.name_end].trim_end(), Some(def.op))
+            }
+            None => (header, None),
+        };
+        if name_str.is_empty() {
+            self.diagnostics.push(MakeDiagnostic::error(
+                DiagnosticCode::EmptyVariableName,
+                "empty variable name",
+                open.span,
+            ));
+        }
+        let name_span = self.locate(open, header, name_str);
+        let name = Identifier { name: name_str.to_string(), span: name_span };
 
         let header_start = open.span.start;
         let mut body = String::new();
         let mut closed_end = open.span.end;
+        let mut nlevels = 1;
+        let mut first_line = true;
         self.pos += 1;
 
         while self.pos < self.lines.len() {
             let l = &self.lines[self.pos];
-            let t = l.text.trim_start();
-            if starts_keyword(t, "endef") {
-                closed_end = l.span.end;
-                self.pos += 1;
-                return Define {
-                    name,
-                    op,
-                    body,
-                    span: ByteSpan::new(header_start, closed_end),
-                    name_span,
-                };
+            // Lines starting with the recipe prefix are never directives;
+            // otherwise nested `define`s must be matched by their `endef`.
+            if !self.starts_with_prefix(l) {
+                let t = l.text.trim_start_matches([' ', '\t']);
+                if is_word(t, "define") {
+                    nlevels += 1;
+                } else if is_word(t, "endef") {
+                    if !strip_comment(&t["endef".len()..]).trim().is_empty() {
+                        self.extraneous_text(l, "endef");
+                    }
+                    nlevels -= 1;
+                    if nlevels == 0 {
+                        closed_end = l.span.end;
+                        self.pos += 1;
+                        return Define {
+                            modifiers,
+                            name,
+                            op,
+                            body,
+                            span: ByteSpan::new(header_start, closed_end),
+                            name_span,
+                        };
+                    }
+                }
             }
-            if !body.is_empty() {
+            if !first_line {
                 body.push('\n');
             }
-            body.push_str(&self.source[l.span.start as usize..l.span.end as usize]
+            first_line = false;
+            body.push_str(self.source[l.span.start as usize..l.span.end as usize]
                 .trim_end_matches('\n')
                 .trim_end_matches('\r'));
+            closed_end = l.span.end;
             self.pos += 1;
         }
 
@@ -279,6 +475,7 @@ impl<'a> Parser<'a> {
             open.span,
         ));
         Define {
+            modifiers,
             name,
             op,
             body,
@@ -287,8 +484,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_include(&mut self, line: &LogicalLine) -> Include {
-        let text = line.text.trim_start();
+    fn parse_include(&mut self, line: &LogicalLine, text: &str) -> Include {
         let (kw_len, optional) = if starts_keyword(text, "-include") {
             (8, true)
         } else if starts_keyword(text, "sinclude") {
@@ -305,77 +501,69 @@ impl<'a> Parser<'a> {
         Include { paths, optional, span: line.span }
     }
 
-    fn parse_directive(&mut self, line: &LogicalLine, kind: DirectiveKind) -> Directive {
-        let text = line.text.trim_start();
-        let kw = kind.as_str();
+    fn parse_directive(&mut self, line: &LogicalLine, text: &str, kind: DirectiveKind) -> Directive {
+        let kw = first_word(text);
         let arguments = text[kw.len()..].trim().to_string();
-        let name_span = keyword_span(self.source, line.content_start, kw);
+        let name_span = self.locate(line, text, kw);
         Directive { kind, arguments, span: line.span, name_span }
     }
 
-    fn try_parse_assignment(&mut self, line: &LogicalLine) -> Option<Assignment> {
-        let text = line.text.trim_start();
-        let (op_idx, op_len, op) = find_assignment_operator(text)?;
-
-        // Disambiguate `=`, `:=`, etc. from a rule header: if a `:`
-        // appears *before* the `=` and is not part of `:=` / `::=`, this
-        // is a rule.
-        if let Some(colon) = find_toplevel_colon(text) {
-            if colon < op_idx && !is_assign_colon(text, colon) {
-                return None;
-            }
-        }
-
-        let name = text[..op_idx].trim_end();
-        if name.is_empty() {
-            return None;
-        }
-        // Validate that the name does not contain whitespace — a true
-        // rule like `foo bar: baz` has a space in the "LHS" but no `=`
-        // operator, and we've already filtered those above. But an
-        // accidental `foo bar = baz` is legal in GNU Make and produces
-        // a warning elsewhere; we still parse it as an assignment.
-        let name_offset = self.source[line.content_start as usize..]
-            .find(name)
-            .map(|o| line.content_start as usize + o)
-            .unwrap_or(line.content_start as usize);
-        let name_span = ByteSpan::from_usize(name_offset, name_offset + name.len());
-
-        let value = text[op_idx + op_len..].trim().to_string();
-
-        Some(Assignment {
-            name: Identifier { name: name.to_string(), span: name_span },
-            op,
-            value,
-            span: line.span,
-        })
-    }
-
-    fn try_parse_rule(&mut self, line: &LogicalLine) -> Option<Rule> {
-        let text = line.text.trim_start();
-        let colon = find_toplevel_colon(text)?;
-        // Double-colon rule?
-        let (colon_end, is_double) = if text[colon + 1..].starts_with(':') {
-            (colon + 2, true)
-        } else {
-            (colon + 1, false)
+    /// Parse a rule header, or a target-specific variable assignment.
+    /// Does not advance `pos`; recipe lines are attached by
+    /// [`Parser::parse_items`].
+    fn try_parse_rule(&mut self, line: &LogicalLine) -> Option<Item> {
+        let raw = line.text.trim_start();
+        // A `;` starts an inline recipe unless a `#` comes first.
+        let (header, inline_recipe) = match find_unquoted(raw, b";#") {
+            Some(i) if raw.as_bytes()[i] == b';' => (&raw[..i], Some(raw[i + 1..].trim())),
+            Some(i) => (&raw[..i], None),
+            None => (raw, None),
         };
+        let colon = find_toplevel_colon(header)?;
+        let is_grouped = colon > 0 && header.as_bytes()[colon - 1] == b'&';
+        let targets_str = header[..if is_grouped { colon - 1 } else { colon }].trim();
 
-        let targets_str = text[..colon].trim();
-        let prereqs_str = text[colon_end..].trim();
-
+        // GNU Make accepts and ignores rules without targets, recipe
+        // lines included.
+        self.start_rule_context();
         if targets_str.is_empty() {
             return None;
         }
 
-        let targets: Vec<Identifier> =
-            split_into_identifiers(self.source, line.content_start as usize, targets_str);
-        let prereqs_start = line.content_start as usize
-            + text[..colon_end].len();
-        let prerequisites: Vec<Identifier> =
-            split_into_identifiers(self.source, prereqs_start, prereqs_str);
+        let (after, is_double) = if header[colon + 1..].starts_with(':') {
+            (colon + 2, true)
+        } else {
+            (colon + 1, false)
+        };
+        let rest = &header[after..];
+        let targets = self.identifiers(line, targets_str);
 
-        let is_pattern = targets.iter().any(|t| t.name.contains('%'));
+        if let Some(VarLine::Assign { modifiers, rest, def }) = parse_var_assignment(rest, true) {
+            self.rule_open = false;
+            let a = self.make_assignment(line, modifiers, targets, rest, def, inline_recipe);
+            return Some(Item::Assignment(a));
+        }
+
+        // Static pattern rule: `targets: target-pattern: prereq-patterns`.
+        let (static_pattern, prereqs_str) = match find_toplevel_colon(rest) {
+            Some(c) => {
+                let pattern = rest[..c].trim();
+                let pattern = (!pattern.is_empty()).then(|| Identifier {
+                    name: pattern.to_string(),
+                    span: self.locate(line, rest, pattern),
+                });
+                (pattern, &rest[c + 1..])
+            }
+            None => (None, rest),
+        };
+        let (normal, order_only) = match find_unquoted(prereqs_str, b"|") {
+            Some(i) => (&prereqs_str[..i], &prereqs_str[i + 1..]),
+            None => (prereqs_str, &prereqs_str[prereqs_str.len()..]),
+        };
+        let prerequisites = self.identifiers(line, normal.trim());
+        let order_only = self.identifiers(line, order_only.trim());
+
+        let is_pattern = static_pattern.is_some() || targets.iter().any(|t| t.name.contains('%'));
         let is_phony = targets
             .first()
             .map(|t| self.phony.iter().any(|p| p == &t.name))
@@ -386,62 +574,231 @@ impl<'a> Parser<'a> {
             .map(|t| t.span)
             .unwrap_or_else(|| ByteSpan::new(line.content_start, line.content_start));
 
-        let mut rule = Rule {
+        Some(Item::Rule(Rule {
             targets,
             prerequisites,
             is_double_colon: is_double,
             is_pattern,
             is_phony,
+            is_grouped,
+            static_pattern,
+            order_only,
+            inline_recipe: inline_recipe.map(str::to_string),
             recipe_lines: Vec::new(),
             span: line.span,
             name_span,
-        };
+        }))
+    }
 
-        // Collect recipe lines from subsequent lines.
-        self.pos += 1;
-        while self.pos < self.lines.len() {
-            let l = &self.lines[self.pos];
-            match l.kind {
-                LineKind::Recipe => {
-                    rule.recipe_lines.push(self.recipe_line_from(l));
-                    rule.span.end = l.span.end;
-                    self.pos += 1;
-                }
-                LineKind::Blank | LineKind::Comment => {
-                    // Blank / comment lines between recipe lines are
-                    // allowed; they don't belong to the rule but they
-                    // also don't terminate it — as long as the next
-                    // non-blank line is a recipe.
-                    let mut lookahead = self.pos + 1;
-                    let mut found_recipe = false;
-                    while lookahead < self.lines.len() {
-                        match self.lines[lookahead].kind {
-                            LineKind::Blank | LineKind::Comment => lookahead += 1,
-                            LineKind::Recipe => {
-                                found_recipe = true;
-                                break;
-                            }
-                            _ => break,
-                        }
-                    }
-                    if found_recipe {
-                        // Skip over the blank/comment lines and continue
-                        // gathering recipes.
-                        self.pos += 1;
-                    } else {
-                        break;
-                    }
-                }
-                _ => break,
-            }
-        }
+    fn start_rule_context(&mut self) {
+        self.rule_open = true;
+        self.rule_depth = self.depth;
+        self.rule_serial += 1;
+    }
 
-        Some(rule)
+    fn starts_with_prefix(&self, line: &LogicalLine) -> bool {
+        self.source.as_bytes().get(line.span.start as usize) == Some(&self.recipe_prefix)
+    }
+
+    fn is_recipe_line(&self, line: &LogicalLine) -> bool {
+        line.kind != LineKind::Blank && self.starts_with_prefix(line)
     }
 
     fn recipe_line_from(&self, line: &LogicalLine) -> RecipeLine {
         RecipeLine { text: line.text.clone(), span: line.span }
     }
+
+    fn extraneous_text(&mut self, line: &LogicalLine, directive: &str) {
+        self.diagnostics.push(MakeDiagnostic::error(
+            DiagnosticCode::ExtraneousText,
+            format!("extraneous text after `{directive}` directive"),
+            line.span,
+        ));
+    }
+
+    /// Source span of `needle`, searched for at or after the position of
+    /// `within` (a sub-slice of `line.text`). Joining continuation lines
+    /// only ever shrinks the text, so a text offset never overshoots the
+    /// matching source offset.
+    fn locate(&self, line: &LogicalLine, within: &str, needle: &str) -> ByteSpan {
+        let text_off = (within.as_ptr() as usize)
+            .checked_sub(line.text.as_ptr() as usize)
+            .filter(|&o| o <= line.text.len())
+            .unwrap_or(0);
+        let end = line.span.end as usize;
+        let mut from = (line.span.start as usize + text_off).min(end);
+        while !self.source.is_char_boundary(from) {
+            from -= 1;
+        }
+        let start = self.source[from..end]
+            .find(needle)
+            .map(|o| from + o)
+            .unwrap_or(from);
+        ByteSpan::from_usize(start, start + needle.len())
+    }
+
+    fn identifiers(&self, line: &LogicalLine, list: &str) -> Vec<Identifier> {
+        let base = self.locate(line, list, "").start as usize;
+        split_into_identifiers(self.source, base, list)
+    }
+}
+
+/// After `parse_var_assignment()`: skip any `export` / `unexport` /
+/// `override` / `private` modifiers, then expect a variable definition,
+/// or (unless `targvar`) `define` / `undefine`.
+fn parse_var_assignment(text: &str, targvar: bool) -> Option<VarLine<'_>> {
+    let mut modifiers = Vec::new();
+    let mut p = text.trim_start();
+    if p.is_empty() {
+        return None;
+    }
+    loop {
+        if let Some(def) = parse_variable_definition(p) {
+            return Some(VarLine::Assign { modifiers, rest: p, def });
+        }
+        let word = first_word(p);
+        let after = &p[word.len()..];
+        if let Some(m) = Modifier::from_word(word) {
+            modifiers.push(m);
+        } else if !targvar && word == "define" {
+            return Some(VarLine::Define { modifiers, rest: after });
+        } else if !targvar && word == "undefine" {
+            return Some(VarLine::Undefine { rest: after, keyword: p });
+        } else {
+            return None;
+        }
+        p = after.trim_start();
+        if p.is_empty() {
+            return None;
+        }
+    }
+}
+
+/// After `parse_variable_definition()` in `src/variable.c`: `text` (no
+/// leading whitespace) is a definition if a single word — `$(…)`
+/// references may contain spaces — is followed by an assignment
+/// operator.
+fn parse_variable_definition(text: &str) -> Option<VarDef> {
+    let b = text.as_bytes();
+    let mut i = 0;
+    let mut end: Option<usize> = None;
+    loop {
+        let c = *b.get(i)?;
+        if c == b'#' {
+            return None;
+        }
+        if c == b' ' || c == b'\t' {
+            // Variable names can't contain spaces.
+            if end.is_some() {
+                return None;
+            }
+            end = Some(i);
+            while matches!(b.get(i), Some(b' ' | b'\t')) {
+                i += 1;
+            }
+            continue;
+        }
+        let start = i;
+        i += 1;
+        let def = |op, op_end| Some(VarDef { name_end: end.unwrap_or(start), op, op_end });
+        if c == b'?' && b.get(i) == Some(&b'=') {
+            return def(AssignOp::Conditional, i + 1);
+        }
+        if c == b'=' {
+            return def(AssignOp::Recursive, i);
+        }
+        if c == b':' {
+            let n = &b[i..];
+            return if n.starts_with(b"=") {
+                def(AssignOp::Simple, i + 1)
+            } else if n.starts_with(b":=") {
+                def(AssignOp::Immediate, i + 2)
+            } else if n.starts_with(b"::=") {
+                def(AssignOp::ImmediateExpand, i + 3)
+            } else {
+                None
+            };
+        }
+        if b.get(i) == Some(&b'=') {
+            match c {
+                b'+' => return def(AssignOp::Append, i + 1),
+                b'!' => return def(AssignOp::Shell, i + 1),
+                _ => {}
+            }
+        }
+        if end.is_some() {
+            return None;
+        }
+        if c == b'$' {
+            i = skip_reference(b, i);
+        }
+    }
+}
+
+/// After `skip_reference()` in `src/misc.c`: `i` is just past a `$`.
+/// Returns the offset just past the variable reference.
+fn skip_reference(b: &[u8], i: usize) -> usize {
+    let (open, close) = match b.get(i) {
+        Some(b'(') => (b'(', b')'),
+        Some(b'{') => (b'{', b'}'),
+        Some(_) => return i + 1,
+        None => return i,
+    };
+    let mut count = 0;
+    for (j, &c) in b.iter().enumerate().skip(i) {
+        if c == open {
+            count += 1;
+        } else if c == close {
+            count -= 1;
+            if count == 0 {
+                return j + 1;
+            }
+        }
+    }
+    b.len()
+}
+
+/// After `find_map_unquote()` with `MAP_VARIABLE`: the first byte in
+/// `stops` that is outside any `$(…)` reference and not escaped by an
+/// odd number of backslashes.
+fn find_unquoted(text: &str, stops: &[u8]) -> Option<usize> {
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == b'$' {
+            i = skip_reference(b, i + 1);
+            continue;
+        }
+        if stops.contains(&c) {
+            let backslashes = b[..i].iter().rev().take_while(|&&c| c == b'\\').count();
+            if backslashes % 2 == 0 {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// After `remove_comments()`: cut the line at the first unquoted `#`.
+fn strip_comment(text: &str) -> &str {
+    match find_unquoted(text, b"#") {
+        Some(i) => &text[..i],
+        None => text,
+    }
+}
+
+/// The first blank-delimited word, like GNU Make's `end_of_token()`.
+fn first_word(text: &str) -> &str {
+    let end = text.find([' ', '\t']).unwrap_or(text.len());
+    &text[..end]
+}
+
+/// True when `text` is `kw` alone or followed by a blank — the test
+/// `do_define()` uses for nested `define` / `endef`.
+fn is_word(text: &str, kw: &str) -> bool {
+    text.starts_with(kw) && matches!(text.as_bytes().get(kw.len()), None | Some(b' ' | b'\t'))
 }
 
 fn match_conditional_open(text: &str) -> Option<ConditionalKind> {
@@ -467,10 +824,12 @@ fn match_directive(text: &str) -> Option<DirectiveKind> {
         ("override", DirectiveKind::Override)
     } else if starts_keyword(text, "private") {
         ("private", DirectiveKind::Private)
-    } else if starts_keyword(text, "undefine") {
-        ("undefine", DirectiveKind::Undefine)
     } else if starts_keyword(text, "vpath") {
         ("vpath", DirectiveKind::VPath)
+    } else if starts_keyword(text, "load") {
+        ("load", DirectiveKind::Load)
+    } else if starts_keyword(text, "-load") {
+        ("-load", DirectiveKind::Load)
     } else {
         return None;
     };
@@ -493,128 +852,24 @@ fn starts_keyword(text: &str, kw: &str) -> bool {
     }
 }
 
-fn keyword_span(source: &str, content_start: u32, kw: &str) -> ByteSpan {
-    let from = content_start as usize;
-    let end = (from + kw.len()).min(source.len());
-    ByteSpan::from_usize(from, end)
-}
-
-fn split_define_header(rest: &str) -> (String, Option<AssignOp>) {
-    // `NAME` or `NAME =` / `NAME :=` / etc.
-    let trimmed = rest.trim();
-    if trimmed.is_empty() {
-        return (String::new(), None);
-    }
-    // Find the first whitespace.
-    let (name, tail) = match trimmed.find(char::is_whitespace) {
-        Some(i) => (&trimmed[..i], trimmed[i..].trim_start()),
-        None => (trimmed, ""),
-    };
-    let op = if tail.is_empty() {
-        None
-    } else if tail == "=" {
-        Some(AssignOp::Recursive)
-    } else if tail == ":=" {
-        Some(AssignOp::Simple)
-    } else if tail == "::=" {
-        Some(AssignOp::Immediate)
-    } else if tail == "?=" {
-        Some(AssignOp::Conditional)
-    } else if tail == "+=" {
-        Some(AssignOp::Append)
-    } else if tail == "!=" {
-        Some(AssignOp::Shell)
-    } else {
-        None
-    };
-    (name.to_string(), op)
-}
-
-/// Return `(index_of_operator_start, operator_length, op_kind)` for the
-/// first top-level assignment operator in `text`, skipping `$( … )` and
-/// `${ … }` function calls. Returns `None` if no operator is found at
-/// the top level. A colon is only treated as an assignment when it is
-/// part of `:=` or `::=`.
-fn find_assignment_operator(text: &str) -> Option<(usize, usize, AssignOp)> {
-    let bytes = text.as_bytes();
-    let mut depth: i32 = 0;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match b {
-            b'(' | b'{' => {
-                // Only start a group if preceded by a `$`.
-                if i > 0 && bytes[i - 1] == b'$' {
-                    depth += 1;
-                }
-            }
-            b')' | b'}' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
-            }
-            _ if depth == 0 => {
-                // Try operators in longest-first order.
-                if bytes[i..].starts_with(b"::=") {
-                    return Some((i, 3, AssignOp::Immediate));
-                }
-                if bytes[i..].starts_with(b":=") {
-                    return Some((i, 2, AssignOp::Simple));
-                }
-                if bytes[i..].starts_with(b"?=") {
-                    return Some((i, 2, AssignOp::Conditional));
-                }
-                if bytes[i..].starts_with(b"+=") {
-                    return Some((i, 2, AssignOp::Append));
-                }
-                if bytes[i..].starts_with(b"!=") {
-                    return Some((i, 2, AssignOp::Shell));
-                }
-                if b == b'=' {
-                    return Some((i, 1, AssignOp::Recursive));
-                }
-                // A bare `:` is not an assignment — leave it for the
-                // rule-parser.
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    None
-}
-
+/// The first `:` outside any `$(…)` reference, skipping DOS drive
+/// letters such as `C:\path`.
 fn find_toplevel_colon(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
-    let mut depth: i32 = 0;
     let mut i = 0;
     while i < bytes.len() {
-        let b = bytes[i];
-        match b {
-            b'(' | b'{' if i > 0 && bytes[i - 1] == b'$' => depth += 1,
-            b')' | b'}' if depth > 0 => depth -= 1,
-            b':' if depth == 0 => {
-                // Skip `:=` / `::=` which are assignment operators.
-                if bytes.get(i + 1) == Some(&b'=') {
-                    // :=
-                    i += 2;
-                    continue;
-                }
-                if bytes.get(i + 1) == Some(&b':') && bytes.get(i + 2) == Some(&b'=') {
-                    // ::=
-                    i += 3;
-                    continue;
-                }
-                // Windows-style drive letters like `C:\path` inside
-                // target names are rare but should be tolerated. Skip
-                // a colon that is immediately followed by `\` or `/`
-                // *and* preceded by a single ASCII letter at the start
-                // of the current token.
+        match bytes[i] {
+            b'$' => {
+                i = skip_reference(bytes, i + 1);
+                continue;
+            }
+            b':' => {
+                // Only treat `X:\` / `X:/` as a drive letter if the
+                // letter is at the start of the current token.
                 if let Some(next) = bytes.get(i + 1) {
                     if (*next == b'\\' || *next == b'/') && i > 0 {
                         let prev = bytes[i - 1];
                         if prev.is_ascii_alphabetic() {
-                            // Only treat as drive letter if the letter
-                            // is at the start of the token.
                             let token_start = bytes[..i - 1]
                                 .iter()
                                 .rposition(|c| c.is_ascii_whitespace())
@@ -876,5 +1131,260 @@ mod tests {
         let Item::Assignment(a) = &file.items[0] else { panic!() };
         assert_eq!(a.name.name, "SOURCES");
         assert_eq!(a.value, "$(wildcard *.c) foo.c");
+    }
+
+    fn assert_clean(diags: &[MakeDiagnostic]) {
+        assert!(diags.is_empty(), "diagnostics: {:?}", diags);
+    }
+
+    #[test]
+    fn define_with_modifiers_swallows_body() {
+        let src = "override export define CMD :=\nall: dep\n\techo $@\nifeq (a,b)\nendef\nX = 1\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        assert_eq!(file.items.len(), 2);
+        let Item::Define(d) = &file.items[0] else { panic!("{:?}", file.items[0]) };
+        assert_eq!(d.name.name, "CMD");
+        assert_eq!(&src[d.name_span.start as usize..d.name_span.end as usize], "CMD");
+        assert_eq!(d.op, Some(AssignOp::Simple));
+        assert_eq!(d.modifiers, vec![Modifier::Override, Modifier::Export]);
+        assert_eq!(d.body, "all: dep\n\techo $@\nifeq (a,b)");
+        assert!(matches!(&file.items[1], Item::Assignment(a) if a.name.name == "X"));
+    }
+
+    #[test]
+    fn private_and_export_define() {
+        for kw in ["export", "private", "unexport"] {
+            let src = format!("{kw} define FOO\nfoo: bar\nendef\n");
+            let (file, diags) = parse(&src);
+            assert_clean(&diags);
+            assert_eq!(file.items.len(), 1);
+            assert!(matches!(&file.items[0], Item::Define(d) if d.name.name == "FOO"));
+        }
+    }
+
+    #[test]
+    fn nested_define_needs_matching_endef() {
+        let src = "define OUTER\ndefine INNER\nx\nendef\nendef\nY = 2\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        assert_eq!(file.items.len(), 2);
+        let Item::Define(d) = &file.items[0] else { panic!() };
+        assert_eq!(d.body, "define INNER\nx\nendef");
+    }
+
+    #[test]
+    fn define_operator_without_space() {
+        let src = "define A=\n1\nendef\ndefine B :::=\n2\nendef\ndefine $(call n, x) +=\n3\nendef\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let ops: Vec<_> = file
+            .items
+            .iter()
+            .map(|i| match i {
+                Item::Define(d) => (d.name.name.clone(), d.op),
+                _ => panic!("not a define"),
+            })
+            .collect();
+        assert_eq!(
+            ops,
+            vec![
+                ("A".to_string(), Some(AssignOp::Recursive)),
+                ("B".to_string(), Some(AssignOp::ImmediateExpand)),
+                ("$(call n, x)".to_string(), Some(AssignOp::Append)),
+            ]
+        );
+    }
+
+    #[test]
+    fn define_body_keeps_blank_lines_and_tab_endef() {
+        let src = "define T\n\n\tendef\n  endef # done\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        assert_eq!(file.items.len(), 1);
+        let Item::Define(d) = &file.items[0] else { panic!() };
+        assert_eq!(d.body, "\n\tendef");
+        assert_eq!(d.span.end as usize, src.len());
+    }
+
+    #[test]
+    fn define_extraneous_text_is_diagnosed() {
+        let src = "define A = junk\nx\nendef junk\n";
+        let (_, diags) = parse(src);
+        assert_eq!(diags.len(), 2);
+        assert!(diags.iter().all(|d| d.code == DiagnosticCode::ExtraneousText));
+    }
+
+    #[test]
+    fn define_ends_rule_context() {
+        let src = "all:\n\techo a\ndefine X\nendef\n\techo b\n";
+        let (file, diags) = parse(src);
+        let Item::Rule(r) = &file.items[0] else { panic!() };
+        assert_eq!(r.recipe_lines.len(), 1);
+        assert!(diags.iter().any(|d| d.code == DiagnosticCode::RecipeOutsideRule));
+    }
+
+    #[test]
+    fn define_inside_conditional() {
+        let src = "ifdef X\ndefine Y\nelse\nendif\nendef\nendif\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let Item::Conditional(c) = &file.items[0] else { panic!() };
+        assert_eq!(c.then_branch.len(), 1);
+        assert!(c.else_branch.is_empty());
+    }
+
+    #[test]
+    fn stray_endef_and_endif_are_diagnosed() {
+        let (_, diags) = parse("endef\nendif\nelse\n");
+        let codes: Vec<_> = diags.iter().map(|d| d.code).collect();
+        assert_eq!(
+            codes,
+            vec![
+                DiagnosticCode::EndefWithoutDefine,
+                DiagnosticCode::EndifWithoutIf,
+                DiagnosticCode::ElseWithoutIf,
+            ]
+        );
+    }
+
+    #[test]
+    fn modifiers_produce_assignments() {
+        let src = "export CC := gcc\noverride private CFLAGS += -g\nexport A B\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let Item::Assignment(a) = &file.items[0] else { panic!() };
+        assert_eq!(a.name.name, "CC");
+        assert_eq!(a.modifiers, vec![Modifier::Export]);
+        let Item::Assignment(a) = &file.items[1] else { panic!() };
+        assert_eq!(a.name.name, "CFLAGS");
+        assert_eq!(a.op, AssignOp::Append);
+        assert_eq!(a.modifiers, vec![Modifier::Override, Modifier::Private]);
+        let Item::Directive(d) = &file.items[2] else { panic!() };
+        assert_eq!(d.kind, DirectiveKind::Export);
+        assert_eq!(d.arguments, "A B");
+    }
+
+    #[test]
+    fn variables_named_like_directives() {
+        let src = "ifdef = 1\ninclude := x\ndefine := y\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        assert!(file.items.iter().all(|i| matches!(i, Item::Assignment(_))));
+    }
+
+    #[test]
+    fn undefine_with_modifier() {
+        let (file, diags) = parse("override undefine FOO\n");
+        assert_clean(&diags);
+        let Item::Directive(d) = &file.items[0] else { panic!() };
+        assert_eq!(d.kind, DirectiveKind::Undefine);
+        assert_eq!(d.arguments, "FOO");
+    }
+
+    #[test]
+    fn trailing_comments_are_stripped() {
+        let src = "A = 1 # one\nall: dep # comment\nB = $(subst #,x,y)\nC = a\\#b\n";
+        let (file, _) = parse(src);
+        let Item::Assignment(a) = &file.items[0] else { panic!() };
+        assert_eq!(a.value, "1");
+        let Item::Rule(r) = &file.items[1] else { panic!() };
+        assert_eq!(r.prerequisites.len(), 1);
+        let Item::Assignment(a) = &file.items[2] else { panic!() };
+        assert_eq!(a.value, "$(subst #,x,y)");
+        let Item::Assignment(a) = &file.items[3] else { panic!() };
+        assert_eq!(a.value, "a\\#b");
+    }
+
+    #[test]
+    fn rule_header_variants() {
+        let src = "all: a b | dir ; @echo hi # shell\n\
+                   $(OBJS): %.o: %.c\n\
+                   x.tab.c x.tab.h &: x.y\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let Item::Rule(r) = &file.items[0] else { panic!() };
+        let names = |ids: &[Identifier]| ids.iter().map(|i| i.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&r.prerequisites), vec!["a", "b"]);
+        assert_eq!(names(&r.order_only), vec!["dir"]);
+        assert_eq!(r.inline_recipe.as_deref(), Some("@echo hi # shell"));
+        let Item::Rule(r) = &file.items[1] else { panic!() };
+        assert_eq!(r.targets[0].name, "$(OBJS)");
+        assert_eq!(r.static_pattern.as_ref().unwrap().name, "%.o");
+        assert_eq!(names(&r.prerequisites), vec!["%.c"]);
+        assert!(r.is_pattern);
+        let Item::Rule(r) = &file.items[2] else { panic!() };
+        assert!(r.is_grouped);
+        assert_eq!(names(&r.targets), vec!["x.tab.c", "x.tab.h"]);
+    }
+
+    #[test]
+    fn target_specific_variable() {
+        let src = "debug: CFLAGS += -g\nprog: export override V := 1\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let Item::Assignment(a) = &file.items[0] else { panic!() };
+        assert_eq!(a.targets[0].name, "debug");
+        assert_eq!(a.name.name, "CFLAGS");
+        assert_eq!(a.op, AssignOp::Append);
+        assert_eq!(a.value, "-g");
+        let Item::Assignment(a) = &file.items[1] else { panic!() };
+        assert_eq!(a.modifiers, vec![Modifier::Export, Modifier::Override]);
+    }
+
+    #[test]
+    fn conditional_inside_recipe() {
+        let src = "all:\n\techo start\nifeq ($(X),1)\n\techo one\nelse\n\techo other\nendif\n\techo end\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let Item::Rule(r) = &file.items[0] else { panic!() };
+        assert_eq!(r.recipe_lines.len(), 4);
+        assert_eq!(r.span.end as usize, src.len());
+    }
+
+    #[test]
+    fn tab_indented_statements_without_rule() {
+        let src = "ifeq ($(OS),Windows_NT)\n\tEXE = .exe\n\t# comment\nendif\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let Item::Conditional(c) = &file.items[0] else { panic!() };
+        assert!(matches!(&c.then_branch[0], Item::Assignment(a) if a.name.name == "EXE"));
+    }
+
+    #[test]
+    fn else_if_chain_is_closed_once() {
+        let src = "ifeq (a,b)\nA = 1\nelse ifdef B\nA = 2\nelse\nA = 3\nendif\nC = 4\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        assert_eq!(file.items.len(), 2);
+        let Item::Conditional(c) = &file.items[0] else { panic!() };
+        let Item::Conditional(inner) = &c.else_branch[0] else { panic!() };
+        assert_eq!(inner.kind, ConditionalKind::Ifdef);
+        assert_eq!(inner.else_branch.len(), 1);
+    }
+
+    #[test]
+    fn recipe_prefix_can_be_changed() {
+        let src = ".RECIPEPREFIX = >\nall:\n> echo hi\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let Item::Rule(r) = &file.items[1] else { panic!() };
+        assert_eq!(r.recipe_lines.len(), 1);
+    }
+
+    #[test]
+    fn space_indented_assignment_after_rule_is_not_a_recipe() {
+        let src = "all:\n\techo\n  FOO = 1\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        assert!(matches!(&file.items[1], Item::Assignment(_)));
+    }
+
+    #[test]
+    fn load_directive() {
+        let (file, diags) = parse("-load mk_temp.so\nload: x\n");
+        assert_clean(&diags);
+        assert!(matches!(&file.items[0], Item::Directive(d) if d.kind == DirectiveKind::Load));
+        assert!(matches!(&file.items[1], Item::Rule(_)));
     }
 }
