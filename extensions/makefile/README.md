@@ -29,7 +29,7 @@ option completion drawn from fish-shell's completion data.
   `define` bodies.
 
 - **Outline and breadcrumbs** built from the parsed file, not a regex sweep.
-  The parser follows GNU Make's own reading rules: trailing `#` comments,
+  The parser follows GNU Make's own reading rules: trailing `#` comments, `\` continuations, escaped `\:` and `\ ` in names, archive members such as `lib.a(a.o b.o)`,
   `;` inline recipes, order-only prerequisites after `|`, static pattern
   rules, grouped targets (`&:`), target-specific variables, recipe lines
   inside `ifeq` blocks within a rule, and `.RECIPEPREFIX` are all understood.
@@ -60,6 +60,7 @@ option completion drawn from fish-shell's completion data.
   | `MAKE009` | extraneous text after a `define`, `endef`, `else` or `endif` directive |
   | `MAKE010` | `` `else` `` without a matching `if`, or a second `else` in one conditional |
   | `MAKE011` | invalid conditional: `ifeq` / `ifneq` arguments not in `(a,b)`, `"a" "b"` or `'a' 'b'` form, `ifdef` / `ifndef` with more than one word, or no whitespace after the keyword |
+  | `MAKE012` | missing separator — a line that is neither a rule, an assignment nor a directive (lines built from `$(…)` references are not checked, since they may expand to anything) |
 
   They are computed when a file is opened, on save, and — unless you turn
   `makefile.diagnostics.onType` off — about 150 ms after you stop typing.

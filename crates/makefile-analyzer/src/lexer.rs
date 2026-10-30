@@ -46,7 +46,8 @@ pub enum LineKind {
 pub fn lex(source: &str) -> Vec<LogicalLine> {
     let bytes = source.as_bytes();
     let mut out = Vec::new();
-    let mut i: usize = 0;
+    // GNU Make skips a UTF-8 byte-order mark at the start of a makefile.
+    let mut i: usize = if source.starts_with('\u{feff}') { 3 } else { 0 };
 
     while i < bytes.len() {
         let line_start = i;
@@ -73,20 +74,25 @@ pub fn lex(source: &str) -> Vec<LogicalLine> {
             // *odd* count of backslashes right before the newline means
             // continuation.
             let (content_end, cont) = strip_continuation(slice);
-            if !joined.is_empty() {
-                // For the second and later physical lines, strip leading
-                // whitespace — that matches GNU Make's join behaviour.
-                let trimmed = slice[..content_end].trim_start();
-                if !joined.ends_with(' ') {
-                    joined.push(' ');
-                }
-                joined.push_str(trimmed);
-            } else {
+            if line_i == line_start {
                 joined.push_str(&slice[..content_end]);
+            } else {
+                joined.push_str(slice[..content_end].trim_start_matches([' ', '\t']));
             }
 
             if !cont {
                 break;
+            }
+            // After `collapse_continuations()`: trailing blanks plus the
+            // backslash-newline become one space — except that `$\`
+            // joins the lines with nothing in between.
+            let dollars = joined.bytes().rev().take_while(|&b| b == b'$').count();
+            if dollars % 2 == 1 {
+                joined.pop();
+            } else {
+                let kept = joined.trim_end_matches([' ', '\t']).len();
+                joined.truncate(kept);
+                joined.push(' ');
             }
             // Move to the next physical line.
             if physical_slice_end >= bytes.len() {
@@ -248,6 +254,21 @@ mod tests {
         // by a single separating space, matching GNU Make's behaviour
         // for non-recipe lines.
         assert_eq!(lines[0].text, "SOURCES = a.c b.c c.c");
+    }
+
+    #[test]
+    fn continuation_drops_surrounding_blanks_and_dollar_backslash() {
+        let lines = lex("A = x   \\\n   y\nB = x$\\\n  y\nC = a \\\n \\\n b\n");
+        assert_eq!(lines[0].text, "A = x y");
+        assert_eq!(lines[1].text, "B = xy");
+        assert_eq!(lines[2].text, "C = a b");
+    }
+
+    #[test]
+    fn skips_byte_order_mark() {
+        let lines = lex("\u{feff}all: dep\n");
+        assert_eq!(lines[0].text, "all: dep");
+        assert_eq!(lines[0].span.start, 3);
     }
 
     #[test]

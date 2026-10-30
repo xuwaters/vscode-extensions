@@ -19,6 +19,7 @@ pub enum DiagnosticCode {
     ExtraneousText,           // MAKE009
     ElseWithoutIf,            // MAKE010
     InvalidConditional,       // MAKE011
+    MissingSeparator,         // MAKE012
 }
 
 impl DiagnosticCodeTrait for DiagnosticCode {
@@ -36,6 +37,7 @@ impl DiagnosticCodeTrait for DiagnosticCode {
             ExtraneousText => "MAKE009",
             ElseWithoutIf => "MAKE010",
             InvalidConditional => "MAKE011",
+            MissingSeparator => "MAKE012",
         }
     }
 }

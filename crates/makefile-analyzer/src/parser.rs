@@ -47,6 +47,8 @@ pub struct Parser<'a> {
     /// rule, tagged with that rule's serial. The level owning the rule
     /// collects them once the conditional closes.
     nested_recipes: Vec<(u32, RecipeLine)>,
+    /// Set when the last statement was not recognised as anything.
+    unrecognised: bool,
 }
 
 /// What [`parse_var_assignment`] found at the start of a statement.
@@ -82,6 +84,7 @@ impl<'a> Parser<'a> {
             rule_depth: 0,
             rule_serial: 0,
             nested_recipes: Vec::new(),
+            unrecognised: false,
         }
     }
 
@@ -100,7 +103,9 @@ impl<'a> Parser<'a> {
             .last()
             .map(|l| l.span.end)
             .unwrap_or(0);
-        let items = self.parse_items(&[]);
+        let mut items = self.parse_items(&[]);
+        // `.PHONY` applies to a target wherever it is declared.
+        mark_phony(&mut items, &self.phony);
         File { items, span: ByteSpan::new(start, end) }
     }
 
@@ -197,7 +202,21 @@ impl<'a> Parser<'a> {
                             r.span.end = line.span.end;
                             r.recipe_lines.push(rl);
                         }
+                    } else if self.unrecognised && !text.contains('$') {
+                        // A `$` reference might expand to a separator or to
+                        // nothing at all, so only literal text is reported.
+                        let message = if line.text.starts_with("        ") {
+                            "missing separator (did you mean TAB instead of 8 spaces?)"
+                        } else {
+                            "missing separator"
+                        };
+                        self.diagnostics.push(MakeDiagnostic::error(
+                            DiagnosticCode::MissingSeparator,
+                            message,
+                            line.span,
+                        ));
                     }
+                    self.unrecognised = false;
                 }
             }
         }
@@ -233,9 +252,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if starts_keyword(text, "include") || starts_keyword(text, "-include")
-            || starts_keyword(text, "sinclude")
-        {
+        if matches!(word, "include" | "-include" | "sinclude") {
             self.rule_open = false;
             return Some(Item::Include(self.parse_include(line, text)));
         }
@@ -520,7 +537,10 @@ impl<'a> Parser<'a> {
             Some(i) => (&raw[..i], None),
             None => (raw, None),
         };
-        let colon = find_toplevel_colon(header)?;
+        let Some(colon) = find_toplevel_colon(header) else {
+            self.unrecognised = true;
+            return None;
+        };
         let is_grouped = colon > 0 && header.as_bytes()[colon - 1] == b'&';
         let targets_str = header[..if is_grouped { colon - 1 } else { colon }].trim();
 
@@ -565,11 +585,6 @@ impl<'a> Parser<'a> {
         let order_only = self.identifiers(line, order_only.trim());
 
         let is_pattern = static_pattern.is_some() || targets.iter().any(|t| t.name.contains('%'));
-        let is_phony = targets
-            .first()
-            .map(|t| self.phony.iter().any(|p| p == &t.name))
-            .unwrap_or(false);
-
         let name_span = targets
             .first()
             .map(|t| t.span)
@@ -580,7 +595,7 @@ impl<'a> Parser<'a> {
             prerequisites,
             is_double_colon: is_double,
             is_pattern,
-            is_phony,
+            is_phony: false,
             is_grouped,
             static_pattern,
             order_only,
@@ -677,6 +692,21 @@ impl<'a> Parser<'a> {
     fn identifiers(&self, line: &LogicalLine, list: &str) -> Vec<Identifier> {
         let base = self.locate(line, list, "").start as usize;
         split_into_identifiers(self.source, base, list)
+    }
+}
+
+fn mark_phony(items: &mut [Item], phony: &[String]) {
+    for item in items {
+        match item {
+            Item::Rule(r) => {
+                r.is_phony = r.targets.first().is_some_and(|t| phony.contains(&t.name));
+            }
+            Item::Conditional(c) => {
+                mark_phony(&mut c.then_branch, phony);
+                mark_phony(&mut c.else_branch, phony);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -950,8 +980,8 @@ fn starts_keyword(text: &str, kw: &str) -> bool {
     }
 }
 
-/// The first `:` outside any `$(…)` reference, skipping DOS drive
-/// letters such as `C:\path`.
+/// The first `:` outside any `$(…)` reference and not escaped with a
+/// backslash, skipping DOS drive letters such as `C:\path`.
 fn find_toplevel_colon(text: &str) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut i = 0;
@@ -961,6 +991,7 @@ fn find_toplevel_colon(text: &str) -> Option<usize> {
                 i = skip_reference(bytes, i + 1);
                 continue;
             }
+            b':' if bytes[..i].iter().rev().take_while(|&&c| c == b'\\').count() % 2 == 1 => {}
             b':' => {
                 // Only treat `X:\` / `X:/` as a drive letter if the
                 // letter is at the start of the current token.
@@ -1020,15 +1051,18 @@ fn split_into_identifiers(source: &str, base: usize, list: &str) -> Vec<Identifi
     let mut token_start: Option<usize> = None;
     while i < bytes.len() {
         let b = bytes[i];
+        // Whitespace splits words unless it is escaped (`a\ b`) or inside
+        // parentheses — `$(…)` references and archive members `lib(a b)`.
         match b {
-            b'(' | b'{' if i > 0 && bytes[i - 1] == b'$' => {
+            b'(' => {
                 depth += 1;
                 if token_start.is_none() {
-                    token_start = Some(i.saturating_sub(1));
+                    token_start = Some(i);
                 }
             }
+            b'{' if i > 0 && bytes[i - 1] == b'$' => depth += 1,
             b')' | b'}' if depth > 0 => depth -= 1,
-            c if c.is_ascii_whitespace() && depth == 0 => {
+            c if c.is_ascii_whitespace() && depth == 0 && (i == 0 || bytes[i - 1] != b'\\') => {
                 if let Some(ts) = token_start.take() {
                     let name = list[ts..i].to_string();
                     out.push(Identifier {
@@ -1523,6 +1557,45 @@ mod tests {
         assert_eq!(diags[0].code, DiagnosticCode::ExtraneousText);
         let (_, diags) = parse("ifdef A\nelse ifeq x\nendif\n");
         assert_eq!(diags[0].code, DiagnosticCode::InvalidConditional);
+    }
+
+    #[test]
+    fn include_needs_a_word_boundary() {
+        let (file, diags) = parse("include: foo\n\techo\n");
+        assert_clean(&diags);
+        assert!(matches!(&file.items[0], Item::Rule(r) if r.targets[0].name == "include"));
+    }
+
+    #[test]
+    fn escaped_colon_space_and_archive_members() {
+        let src = "foo\\:bar: x\nlib.a(a.o b.o): x\\ y z\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        let names = |ids: &[Identifier]| ids.iter().map(|i| i.name.clone()).collect::<Vec<_>>();
+        let Item::Rule(r) = &file.items[0] else { panic!() };
+        assert_eq!(names(&r.targets), vec!["foo\\:bar"]);
+        assert_eq!(names(&r.prerequisites), vec!["x"]);
+        let Item::Rule(r) = &file.items[1] else { panic!() };
+        assert_eq!(names(&r.targets), vec!["lib.a(a.o b.o)"]);
+        assert_eq!(names(&r.prerequisites), vec!["x\\ y", "z"]);
+    }
+
+    #[test]
+    fn missing_separator() {
+        let (_, diags) = parse("foo bar\nfoo bar = baz\n        echo hi\n");
+        assert_eq!(diags.len(), 3);
+        assert!(diags.iter().all(|d| d.code == DiagnosticCode::MissingSeparator));
+        assert!(diags[2].message.contains("TAB"));
+        // References may expand to anything, including nothing.
+        let (_, diags) = parse("$(eval $(call TEMPLATE,x))\n$(foreach v,a b,$(info $(v)))\n");
+        assert_clean(&diags);
+    }
+
+    #[test]
+    fn phony_declared_after_the_rule() {
+        let (file, _) = parse("clean:\n\trm -rf out\n.PHONY: clean\n");
+        let Item::Rule(r) = &file.items[0] else { panic!() };
+        assert!(r.is_phony);
     }
 
     #[test]
