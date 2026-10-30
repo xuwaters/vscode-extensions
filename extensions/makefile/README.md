@@ -59,6 +59,7 @@ option completion drawn from fish-shell's completion data.
   | `MAKE008` | empty variable name |
   | `MAKE009` | extraneous text after a `define`, `endef`, `else` or `endif` directive |
   | `MAKE010` | `` `else` `` without a matching `if`, or a second `else` in one conditional |
+  | `MAKE011` | invalid conditional: `ifeq` / `ifneq` arguments not in `(a,b)`, `"a" "b"` or `'a' 'b'` form, `ifdef` / `ifndef` with more than one word, or no whitespace after the keyword |
 
   They are computed when a file is opened, on save, and — unless you turn
   `makefile.diagnostics.onType` off — about 150 ms after you stop typing.

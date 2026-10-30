@@ -324,6 +324,7 @@ impl<'a> Parser<'a> {
         let keyword_len = kind.as_str().len();
         let condition = text[keyword_len..].trim().to_string();
         let name_span = self.locate(open, text, kind.as_str());
+        self.check_condition(open, text, kind);
         let mut span = open.span;
         self.pos += 1;
         self.depth += 1;
@@ -608,6 +609,42 @@ impl<'a> Parser<'a> {
         RecipeLine { text: line.text.clone(), span: line.span }
     }
 
+    /// Validate a conditional's arguments the way `conditional_line()`
+    /// does; `text` starts at the keyword.
+    fn check_condition(&mut self, line: &LogicalLine, text: &str, kind: ConditionalKind) {
+        let kw = kind.as_str();
+        if !matches!(text.as_bytes().get(kw.len()), None | Some(b' ' | b'\t')) {
+            self.diagnostics.push(MakeDiagnostic::error(
+                DiagnosticCode::InvalidConditional,
+                format!("`{kw}` must be followed by whitespace"),
+                line.span,
+            ));
+        }
+        let args = text[kw.len()..].trim();
+        let valid = match kind {
+            // Exactly one variable name; `$(…)` may contain spaces.
+            ConditionalKind::Ifdef | ConditionalKind::Ifndef => {
+                find_unquoted(args, b" \t").is_none()
+            }
+            ConditionalKind::Ifeq | ConditionalKind::Ifneq => match parse_ifeq_args(args) {
+                Some(extra) => {
+                    if extra {
+                        self.extraneous_text(line, kw);
+                    }
+                    true
+                }
+                None => false,
+            },
+        };
+        if !valid {
+            self.diagnostics.push(MakeDiagnostic::error(
+                DiagnosticCode::InvalidConditional,
+                format!("invalid syntax in `{kw}` conditional"),
+                line.span,
+            ));
+        }
+    }
+
     fn extraneous_text(&mut self, line: &LogicalLine, directive: &str) {
         self.diagnostics.push(MakeDiagnostic::error(
             DiagnosticCode::ExtraneousText,
@@ -801,18 +838,79 @@ fn is_word(text: &str, kw: &str) -> bool {
     text.starts_with(kw) && matches!(text.as_bytes().get(kw.len()), None | Some(b' ' | b'\t'))
 }
 
+/// GNU Make only recognises a conditional keyword as a whole
+/// blank-delimited word. `ifeq(…)` / `ifneq"…"` are accepted too so the
+/// block structure survives; [`Parser::check_condition`] reports them.
 fn match_conditional_open(text: &str) -> Option<ConditionalKind> {
-    if starts_keyword(text, "ifeq") {
-        Some(ConditionalKind::Ifeq)
-    } else if starts_keyword(text, "ifneq") {
-        Some(ConditionalKind::Ifneq)
-    } else if starts_keyword(text, "ifdef") {
-        Some(ConditionalKind::Ifdef)
-    } else if starts_keyword(text, "ifndef") {
-        Some(ConditionalKind::Ifndef)
-    } else {
-        None
+    let kind = match first_word(text) {
+        "ifeq" => return Some(ConditionalKind::Ifeq),
+        "ifneq" => return Some(ConditionalKind::Ifneq),
+        "ifdef" => return Some(ConditionalKind::Ifdef),
+        "ifndef" => return Some(ConditionalKind::Ifndef),
+        _ if text.starts_with("ifeq") => ConditionalKind::Ifeq,
+        _ if text.starts_with("ifneq") => ConditionalKind::Ifneq,
+        _ => return None,
+    };
+    let next = text.as_bytes()[kind.as_str().len()];
+    matches!(next, b'(' | b'"' | b'\'').then_some(kind)
+}
+
+/// The argument forms `conditional_line()` accepts for `ifeq` / `ifneq`:
+/// `(a,b)`, or two strings each quoted with `"` or `'`. Returns whether
+/// text follows the arguments, or `None` if they are malformed.
+fn parse_ifeq_args(args: &str) -> Option<bool> {
+    let b = args.as_bytes();
+    let termin = match *b.first()? {
+        b'(' => b',',
+        c @ (b'"' | b'\'') => c,
+        _ => return None,
+    };
+    let mut i = 1;
+    while i < b.len() && b[i] != termin {
+        if b[i] == b'$' {
+            i = skip_reference(b, i + 1);
+        } else {
+            i += 1;
+        }
     }
+    if i >= b.len() {
+        return None;
+    }
+    i += 1;
+    let termin = if termin == b',' {
+        b')'
+    } else {
+        while matches!(b.get(i), Some(b' ' | b'\t')) {
+            i += 1;
+        }
+        let c = *b.get(i)?;
+        if c != b'"' && c != b'\'' {
+            return None;
+        }
+        i += 1;
+        c
+    };
+    if termin == b')' {
+        // Parentheses in the second argument must balance.
+        let mut count = 0;
+        while i < b.len() {
+            match b[i] {
+                b'(' => count += 1,
+                b')' if count <= 0 => break,
+                b')' => count -= 1,
+                _ => {}
+            }
+            i += 1;
+        }
+    } else {
+        while i < b.len() && b[i] != termin {
+            i += 1;
+        }
+    }
+    if i >= b.len() {
+        return None;
+    }
+    Some(!args[i + 1..].trim().is_empty())
 }
 
 fn match_directive(text: &str) -> Option<DirectiveKind> {
@@ -1378,6 +1476,53 @@ mod tests {
         let (file, diags) = parse(src);
         assert_clean(&diags);
         assert!(matches!(&file.items[1], Item::Assignment(_)));
+    }
+
+    #[test]
+    fn conditional_argument_forms() {
+        let src = "ifeq ($(A),$(call f,x,(y)))\nendif\n\
+                   ifneq \"a\" 'b'\nendif\n\
+                   ifeq '$(A)' \"\"\nendif\n\
+                   ifdef $(call name, x)\nendif\n\
+                   ifndef X # comment\nendif\n";
+        let (file, diags) = parse(src);
+        assert_clean(&diags);
+        assert_eq!(file.items.len(), 5);
+    }
+
+    #[test]
+    fn invalid_conditionals_are_diagnosed() {
+        for src in [
+            "ifeq a b\nendif\n",
+            "ifeq (a,b\nendif\n",
+            "ifneq \"a\" b\nendif\n",
+            "ifeq\nendif\n",
+            "ifdef A B\nendif\n",
+            "ifeq(a,b)\nendif\n",
+        ] {
+            let (file, diags) = parse(src);
+            assert!(matches!(&file.items[0], Item::Conditional(_)), "{src:?}");
+            let codes: Vec<_> = diags.iter().map(|d| d.code).collect();
+            assert_eq!(codes, vec![DiagnosticCode::InvalidConditional], "{src:?}");
+        }
+        let (_, diags) = parse("ifeq (a,b) junk\nendif\n");
+        assert_eq!(diags[0].code, DiagnosticCode::ExtraneousText);
+    }
+
+    #[test]
+    fn conditional_keywords_need_a_word_boundary() {
+        let (file, diags) = parse("ifdef: x\n\techo\nifeqx = 1\n");
+        assert_clean(&diags);
+        assert!(matches!(&file.items[0], Item::Rule(r) if r.targets[0].name == "ifdef"));
+        assert!(matches!(&file.items[1], Item::Assignment(_)));
+    }
+
+    #[test]
+    fn else_must_chain_a_valid_conditional() {
+        let (_, diags) = parse("ifdef A\nelse endif\nendif\n");
+        assert_eq!(diags[0].code, DiagnosticCode::ExtraneousText);
+        let (_, diags) = parse("ifdef A\nelse ifeq x\nendif\n");
+        assert_eq!(diags[0].code, DiagnosticCode::InvalidConditional);
     }
 
     #[test]

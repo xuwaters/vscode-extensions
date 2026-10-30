@@ -18,6 +18,7 @@ pub enum DiagnosticCode {
     EmptyVariableName,        // MAKE008
     ExtraneousText,           // MAKE009
     ElseWithoutIf,            // MAKE010
+    InvalidConditional,       // MAKE011
 }
 
 impl DiagnosticCodeTrait for DiagnosticCode {
@@ -34,6 +35,7 @@ impl DiagnosticCodeTrait for DiagnosticCode {
             EmptyVariableName => "MAKE008",
             ExtraneousText => "MAKE009",
             ElseWithoutIf => "MAKE010",
+            InvalidConditional => "MAKE011",
         }
     }
 }
