@@ -14,6 +14,9 @@
 //!   file to *something* — a symbol, a builtin, a field, a swizzle — and knows
 //!   the `#version` the file declared. So a builtin hover shows the overloads
 //!   **this version has**, and a `gl_*` variable names the stages it lives in.
+//! - **WESL** is WGSL's, after one more question: does the name lead out of
+//!   the file? An imported name shows the declaration it names, with that
+//!   declaration's doc comment and the module it is from.
 
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 use wgsl_syntax::{Language, builtins};
@@ -34,7 +37,10 @@ impl Server {
 
         let markdown = match document.glsl() {
             Some(_) => glsl::hover(document, offset, name)?,
-            None => member_hover(document, offset, name)
+            None => (document.language == Language::Wesl)
+                .then(|| self.wesl_hover(document, offset))
+                .flatten()
+                .or_else(|| member_hover(document, offset, name))
                 .or_else(|| symbol_hover(document, offset))
                 .or_else(|| builtin_hover(document, name))?,
         };
@@ -65,7 +71,7 @@ fn member_hover(document: &Document, offset: u32, field: &str) -> Option<String>
     let member = members.iter().find(|member| member.name == field)?;
 
     let declaration = match document.language {
-        Language::Wgsl => format!("{}: {}", member.name, member.type_name),
+        Language::Wgsl | Language::Wesl => format!("{}: {}", member.name, member.type_name),
         Language::Glsl => format!("{} {}", member.type_name, member.name),
     };
     let mut markdown = code_block(document.language, &declaration);
@@ -100,7 +106,7 @@ fn symbol_hover(document: &Document, offset: u32) -> Option<String> {
     if let Some(inferred) = inferred_type(document, offset, &symbol.name) {
         if !declaration.contains(&inferred) {
             declaration = match document.language {
-                Language::Wgsl => format!("{declaration}: {inferred}"),
+                Language::Wgsl | Language::Wesl => format!("{declaration}: {inferred}"),
                 Language::Glsl => format!("{declaration}  // {inferred}"),
             };
         }

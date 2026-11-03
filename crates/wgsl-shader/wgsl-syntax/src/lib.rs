@@ -13,6 +13,11 @@
 //! - [`builtins`] holds what the languages predeclare, with a signature and a
 //!   line of documentation apiece.
 //!
+//! WESL goes through the WGSL walk with its additions switched on: `import`
+//! statements land in [`Parsed::imports`] and as [`SymbolKind::Import`]
+//! symbols, a name after `::` is a path segment rather than something to look
+//! up in scope, and declarations under `@if`/`@elif`/`@else` may share a name.
+//!
 //! ```
 //! use wgsl_syntax::{Language, parse};
 //!
@@ -31,14 +36,19 @@ pub mod tree;
 mod tests;
 
 pub use tree::{
-    Block, BlockKind, Parsed, Reference, Symbol, SymbolKind, SyntaxDiagnostic,
+    Block, BlockKind, Import, Parsed, PathPrefix, PathRoot, Reference, Symbol, SymbolKind,
+    SyntaxDiagnostic,
 };
 
-/// Which of the two shading languages a source is written in.
+/// Which shading language a source is written in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     Wgsl,
     Glsl,
+    /// WGSL plus modules and conditional translation — `import`, `a::b`
+    /// paths and `@if`/`@elif`/`@else`. It lexes and parses as WGSL with
+    /// those additions, and shares WGSL's builtins.
+    Wesl,
 }
 
 impl Language {
@@ -47,6 +57,7 @@ impl Language {
         match id {
             "wgsl" => Some(Language::Wgsl),
             "glsl" => Some(Language::Glsl),
+            "wesl" => Some(Language::Wesl),
             _ => None,
         }
     }
@@ -56,6 +67,7 @@ impl Language {
         match self {
             Language::Wgsl => "wgsl",
             Language::Glsl => "glsl",
+            Language::Wesl => "wesl",
         }
     }
 
@@ -64,7 +76,14 @@ impl Language {
         match self {
             Language::Wgsl => "WGSL",
             Language::Glsl => "GLSL",
+            Language::Wesl => "WESL",
         }
+    }
+
+    /// Whether the source is WGSL or its WESL superset — written with
+    /// WGSL's syntax and builtins, whatever else it adds.
+    pub fn is_wgsl_family(self) -> bool {
+        matches!(self, Language::Wgsl | Language::Wesl)
     }
 
     /// The language a file extension implies, without the dot.
@@ -74,6 +93,7 @@ impl Language {
     pub fn from_extension(extension: &str) -> Option<Language> {
         match extension {
             "wgsl" => Some(Language::Wgsl),
+            "wesl" => Some(Language::Wesl),
             "glsl" | "vert" | "frag" | "comp" | "geom" | "tesc" | "tese" | "vsh" | "fsh"
             | "gsh" | "vshader" | "fshader" | "gshader" | "glslv" | "glslf" | "vertexshader"
             | "fragmentshader" | "vs" | "fs" | "cs" | "csh" | "mesh" | "task" => {

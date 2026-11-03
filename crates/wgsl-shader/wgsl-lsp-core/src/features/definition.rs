@@ -11,6 +11,11 @@
 //!    generates or `#include`s them is not, so the workspace index gets a look
 //!    before we give up.
 //!
+//! WESL puts a fourth in front of all three: a path or an imported name leads
+//! to the module or declaration it names, in whichever file that is
+//! ([`crate::wesl`]). One that names nothing falls through, and lands on the
+//! import statement — which is where the mistake is.
+//!
 //! For GLSL the first two collapse into one: `glsl-analysis` already resolved
 //! every occurrence in the file to a symbol, a field, a builtin or nothing, so
 //! the answer is read off that rather than recomputed here. Shadowing and
@@ -32,6 +37,12 @@ impl Server {
     ) -> Option<GotoDefinitionResponse> {
         let position = params.text_document_position_params;
         let (document, offset) = self.locate(&position.text_document.uri, position.position)?;
+
+        if document.language == wgsl_syntax::Language::Wesl {
+            if let Some(location) = self.wesl_definition(document, offset) {
+                return Some(GotoDefinitionResponse::Scalar(location));
+            }
+        }
 
         if document.glsl().is_some() {
             if let Some(span) = glsl::declaration_span(document, offset) {

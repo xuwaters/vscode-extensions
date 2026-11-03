@@ -14,7 +14,7 @@ import type { Client } from './lsp/client.js';
 
 /** The reply to `wgsl/shaderInfo`. */
 export interface ShaderInfo {
-  language: 'wgsl' | 'glsl';
+  language: 'wgsl' | 'glsl' | 'wesl';
   stage?: string;
   /** Whether the stage was guessed from the source rather than declared. */
   stageGuessed: boolean;

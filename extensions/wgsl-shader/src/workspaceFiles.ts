@@ -1,8 +1,10 @@
 // Telling the server which shader files exist.
 //
-// The server runs inside WASM and has no filesystem, so `workspace/symbol` can
-// only see the files the host hands it. This walks the workspace once after the
-// server starts, then keeps the list current from a file watcher.
+// The server runs inside WASM and has no filesystem, so `workspace/symbol` —
+// and every WESL import — can only see the files the host hands it. This walks
+// the workspace once after the server starts, then keeps the list current from
+// a file watcher. Each `wesl.toml` goes too: it says where a package's
+// `package::` starts and where its path dependencies live.
 //
 // Only the outline is kept on the far side, not the text, so the cost of a
 // large workspace is a few hundred kilobytes of names.
@@ -11,9 +13,9 @@ import * as vscode from 'vscode';
 
 import type { Client } from './lsp/client.js';
 
-/** The extensions `package.json` registers for the two languages. */
+/** The extensions `package.json` registers for the three languages, and WESL's manifest. */
 const PATTERN =
-  '**/*.{wgsl,glsl,vert,frag,comp,geom,tesc,tese,vsh,fsh,gsh,vshader,fshader,gshader,glslv,glslf,vertexshader,fragmentshader}';
+  '**/{*.wgsl,*.wesl,wesl.toml,*.glsl,*.vert,*.frag,*.comp,*.geom,*.tesc,*.tese,*.vsh,*.fsh,*.gsh,*.vshader,*.fshader,*.gshader,*.glslv,*.glslf,*.vertexshader,*.fragmentshader}';
 
 const EXCLUDE = '**/{node_modules,target,dist,out,.git}/**';
 
@@ -65,7 +67,7 @@ async function scan(client: Client): Promise<void> {
   const files: { uri: string; languageId: string; text: string }[] = [];
 
   for (const uri of uris) {
-    const languageId = uri.path.endsWith('.wgsl') ? 'wgsl' : 'glsl';
+    const languageId = languageOf(uri.path);
     try {
       const bytes = await vscode.workspace.fs.readFile(uri);
       files.push({ uri: uri.toString(), languageId, text: new TextDecoder().decode(bytes) });
@@ -76,4 +78,12 @@ async function scan(client: Client): Promise<void> {
   }
 
   client.notify('wgsl/workspaceFiles', { files, replace: true });
+}
+
+/** The language id the server expects for a file the walk found. */
+export function languageOf(path: string): string {
+  if (path.endsWith('.wgsl')) return 'wgsl';
+  if (path.endsWith('.wesl')) return 'wesl';
+  if (path.endsWith('/wesl.toml')) return 'toml';
+  return 'glsl';
 }

@@ -6,6 +6,11 @@
 //! one thing that differs by language — `glsl-spec`'s tables for GLSL, and
 //! they are version-blind on purpose, since renaming a symbol to `texture`
 //! breaks the moment the `#version` line changes.
+//!
+//! WESL adds one refusal: a name an import brings in under its own name. The
+//! name is also the path's last segment, so renaming it here would break the
+//! import, and the declaration it names is in another file. An import renamed
+//! with `as` is fine — the alias is this file's to rename.
 
 use std::collections::HashMap;
 
@@ -16,11 +21,12 @@ use wgsl_syntax::{Language, builtins};
 
 use crate::Server;
 use crate::features::references::name_at;
+use crate::state::Document;
 
 /// Whether the language predefines `name`, and so a rename must decline.
 pub fn is_reserved(language: Language, name: &str) -> bool {
     match language {
-        Language::Wgsl => builtins::is_reserved(language, name),
+        Language::Wgsl | Language::Wesl => builtins::is_reserved(language, name),
         // Deliberately every version's surface, not the declared one: a name
         // that is free in 1.10 and reserved in 4.60 is a trap either way.
         Language::Glsl => {
@@ -55,6 +61,9 @@ impl Server {
         if reference.is_member && document.parsed().resolve_name(name, offset).is_none() {
             return None;
         }
+        if names_an_import_path(document, name, offset) {
+            return None;
+        }
 
         Some(PrepareRenameResponse::RangeWithPlaceholder {
             range: document.range(reference.span),
@@ -79,6 +88,9 @@ impl Server {
         if is_reserved(document.language, &params.new_name) {
             return None;
         }
+        if names_an_import_path(document, name, offset) {
+            return None;
+        }
 
         let edits: Vec<TextEdit> = document
             .parsed()
@@ -97,4 +109,14 @@ impl Server {
         changes.insert(document.uri.clone(), edits);
         Some(WorkspaceEdit { changes: Some(changes), ..WorkspaceEdit::default() })
     }
+}
+
+/// Whether `name` at `offset` is an import's own last segment rather than an
+/// `as` rename — the one imported name a rename cannot touch.
+fn names_an_import_path(document: &Document, name: &str, offset: u32) -> bool {
+    let parsed = document.parsed();
+    parsed
+        .resolve_name(name, offset)
+        .and_then(|index| parsed.import_for(index))
+        .is_some_and(|import| import.alias.is_none())
 }

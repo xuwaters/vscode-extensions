@@ -17,9 +17,12 @@ impl Server {
     ) -> Option<DocumentSymbolResponse> {
         let document = self.document(&params.text_document.uri)?;
         let parsed = document.parsed();
+        // A WESL import names something declared elsewhere; the outline is
+        // what this file declares.
         let symbols = parsed
             .roots
             .iter()
+            .filter(|&&index| parsed.symbols[index].kind != SymbolKind::Import)
             .map(|&index| build(document, parsed, index))
             .collect();
         Some(DocumentSymbolResponse::Nested(symbols))
@@ -37,7 +40,8 @@ impl Server {
         for document in self.documents() {
             let parsed = document.parsed();
             for symbol in &parsed.symbols {
-                if symbol.kind.is_local() || crate::index::score(&symbol.name, query).is_none()
+                if !symbol.kind.is_declaration()
+                    || crate::index::score(&symbol.name, query).is_none()
                 {
                     continue;
                 }

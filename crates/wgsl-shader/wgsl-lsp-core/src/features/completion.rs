@@ -14,6 +14,11 @@
 //! [`glsl`], and they are filtered by the `#version` and stage the file
 //! declares, which is the difference between offering `texture1D` in a WebGL
 //! shader and not.
+//!
+//! WESL asks the module view first ([`crate::wesl`]): after `::` the list is
+//! what the path so far contains, and straight after `import` it is where a
+//! path can start. Anywhere else it is WGSL's list, with each imported name
+//! shown as what it names.
 
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, CompletionResponse, Documentation,
@@ -34,7 +39,10 @@ mod glsl;
 ///
 /// `(` is deliberately absent: signature help owns that position, and popping
 /// a completion list over it fights with the parameter hints.
-pub const TRIGGER_CHARACTERS: [&str; 4] = [".", "@", "#", "<"];
+///
+/// `:` is for WESL's `::`. A lone `:` — a type annotation — is declined in
+/// [`Server::completion`], so it pops nothing it did not before.
+pub const TRIGGER_CHARACTERS: [&str; 5] = [".", "@", "#", "<", ":"];
 
 /// Sort buckets. LSP sorts `sort_text` lexically, so the prefix is the rank.
 pub(crate) mod rank {
@@ -74,8 +82,20 @@ impl Server {
             return None;
         }
 
+        let wesl = document.language == Language::Wesl;
+        let colon = params.context.as_ref().and_then(|c| c.trigger_character.as_deref())
+            == Some(":");
+        if colon && !(wesl && after_path_separator(document, offset)) {
+            return None;
+        }
+        if wesl {
+            if let Some(items) = self.wesl_completion(document, offset) {
+                return Some(CompletionResponse::Array(items));
+            }
+        }
+
         let is_glsl = document.glsl().is_some();
-        let items = match context(document, offset) {
+        let mut items = match context(document, offset) {
             Context::Member if is_glsl => glsl::members(document, offset),
             Context::Member => members(document, offset),
             Context::Attribute => attributes(document.language),
@@ -88,6 +108,9 @@ impl Server {
             Context::General if is_glsl => glsl::general(document, offset),
             Context::General => general(document, offset),
         };
+        if wesl {
+            self.wesl_describe_imports(document, &mut items);
+        }
 
         Some(CompletionResponse::Array(items))
     }
@@ -116,7 +139,7 @@ fn context(document: &Document, offset: u32) -> Context {
     if previous_text == "." || is_member_position(parsed, document.text(), anchor) {
         return Context::Member;
     }
-    if language == Language::Wgsl && previous.kind == TokenKind::Attribute {
+    if language.is_wgsl_family() && previous.kind == TokenKind::Attribute {
         return Context::Attribute;
     }
     if language == Language::Glsl && previous.kind == TokenKind::Preprocessor {
@@ -136,7 +159,7 @@ fn context(document: &Document, offset: u32) -> Context {
         }
     }
 
-    if language == Language::Wgsl {
+    if language.is_wgsl_family() {
         if in_var_template(document, offset) {
             return Context::AddressSpace;
         }
@@ -146,6 +169,14 @@ fn context(document: &Document, offset: u32) -> Context {
     }
 
     Context::General
+}
+
+/// Whether the cursor sits right after a `::`.
+fn after_path_separator(document: &Document, offset: u32) -> bool {
+    document
+        .text()
+        .get(..offset as usize)
+        .is_some_and(|before| before.ends_with("::"))
 }
 
 /// Whether a `.` sits immediately before the word being completed.
@@ -279,11 +310,13 @@ fn members(document: &Document, offset: u32) -> Vec<CompletionItem> {
 }
 
 fn attributes(language: Language) -> Vec<CompletionItem> {
-    if language != Language::Wgsl {
+    if !language.is_wgsl_family() {
         return Vec::new();
     }
+    let wesl = if language == Language::Wesl { wgsl::WESL_ATTRIBUTES } else { &[] };
     wgsl::ATTRIBUTES
         .iter()
+        .chain(wesl)
         .map(|attribute| {
             documented(
                 item(

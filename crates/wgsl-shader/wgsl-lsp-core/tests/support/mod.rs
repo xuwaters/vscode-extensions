@@ -163,14 +163,20 @@ impl Harness {
             })
     }
 
-    /// Tell the server about files the editor has not opened.
+    /// Tell the server about files the editor has not opened. A `wesl.toml`
+    /// goes as the host sends one, with the language id `toml`.
     pub fn workspace_files(&mut self, files: &[(&str, &str)]) {
         let files: Vec<Value> = files
             .iter()
             .map(|(name, text)| {
+                let language = if name.ends_with("wesl.toml") {
+                    "toml"
+                } else {
+                    language_for(name).id()
+                };
                 json!({
                     "uri": uri_for(name).as_str(),
-                    "languageId": language_for(name).id(),
+                    "languageId": language,
                     "text": text,
                 })
             })

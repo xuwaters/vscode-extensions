@@ -148,7 +148,7 @@ impl<'a> Lexer<'a> {
             b'/' if self.peek(1) == b'/' => self.line_comment(),
             b'/' if self.peek(1) == b'*' => self.block_comment(),
             b'#' if self.language == Language::Glsl && self.fresh_line => self.directive(),
-            b'@' if self.language == Language::Wgsl => self.attribute(),
+            b'@' if self.language.is_wgsl_family() => self.attribute(),
             b'"' if self.language == Language::Glsl => self.string(),
             b'0'..=b'9' => self.number(),
             // `.5` is a number; `.x` is a swizzle.
@@ -173,7 +173,7 @@ impl<'a> Lexer<'a> {
     fn block_comment(&mut self) -> TokenKind {
         self.bump();
         self.bump();
-        let nests = self.language == Language::Wgsl;
+        let nests = self.language.is_wgsl_family();
         let mut depth = 1usize;
         while self.pos < self.bytes.len() {
             if self.peek(0) == b'*' && self.peek(1) == b'/' {

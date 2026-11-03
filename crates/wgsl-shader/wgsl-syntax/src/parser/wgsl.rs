@@ -4,14 +4,22 @@
 //! introduced by a keyword, which makes dispatch a single `match` on the token
 //! after the attributes. Anything unrecognised goes to
 //! [`Cursor::recover`](super::Cursor::recover).
+//!
+//! WESL takes the same walk with three additions, each switched on by
+//! [`Builder::language`]: `import` statements, `{ … }` groups of declarations
+//! at module scope, and declarations an `@if`, `@elif` or `@else` governs.
 
 use analyzer_core::spans::ByteSpan;
 
 use super::{Builder, Cursor};
-use crate::tree::SymbolKind;
+use crate::Language;
+use crate::tree::{Import, PathRoot, SymbolKind};
 
 /// Attributes that make a function an entry point.
 const STAGE_ATTRIBUTES: [&str; 3] = ["vertex", "fragment", "compute"];
+
+/// WESL's conditional-translation attributes.
+const CONDITION_ATTRIBUTES: [&str; 3] = ["if", "elif", "else"];
 
 pub(crate) fn parse(cursor: &mut Cursor, builder: &mut Builder) {
     let file = ByteSpan::new(0, cursor.source.len() as u32);
@@ -29,8 +37,25 @@ fn declaration(cursor: &mut Cursor, builder: &mut Builder, file: ByteSpan) {
     let start = cursor.pos;
     let (keyword, attributes) = skip_attributes(cursor, start);
     let start_offset = cursor.span(start).start;
+    let first_symbol = builder.symbols.len();
+    let wesl = builder.language == Language::Wesl;
 
     match cursor.text(keyword) {
+        "import" if wesl => import_statement(cursor, builder, keyword, start_offset),
+        // `@if(feature) { … }` — a group of declarations sharing one
+        // condition. Its members are module-scope declarations like any other.
+        "{" if wesl => {
+            let close = cursor.group_end(keyword).unwrap_or(cursor.toks.len());
+            cursor.pos = keyword + 1;
+            while cursor.pos < close {
+                let before = cursor.pos;
+                declaration(cursor, builder, file);
+                if cursor.pos == before {
+                    cursor.pos += 1;
+                }
+            }
+            cursor.pos = close + 1;
+        }
         "fn" => function(cursor, builder, keyword, start_offset, &attributes),
         "struct" => struct_declaration(cursor, builder, keyword, start_offset, file),
         "alias" => simple(cursor, builder, keyword, start_offset, file, SymbolKind::TypeAlias),
@@ -45,6 +70,174 @@ fn declaration(cursor: &mut Cursor, builder: &mut Builder, file: ByteSpan) {
             cursor.recover();
         }
     }
+
+    if is_conditional(&attributes) {
+        for index in first_symbol..builder.symbols.len() {
+            if builder.symbols[index].parent.is_none() {
+                builder.mark_conditional(index);
+            }
+        }
+    }
+}
+
+/// Whether a run of attributes includes conditional translation.
+fn is_conditional(attributes: &[String]) -> bool {
+    attributes.iter().any(|a| CONDITION_ATTRIBUTES.contains(&a.as_str()))
+}
+
+/// Whether the statement starting at `i` carries conditional translation —
+/// read backwards, since a function body is walked keyword by keyword and
+/// the attributes have already been stepped over.
+fn conditional_before(cursor: &Cursor, i: usize) -> bool {
+    let mut j = i;
+    while let Some(previous) = j.checked_sub(1) {
+        let attribute = if cursor.is(previous, ")") {
+            match cursor.matching.get(previous).copied().flatten() {
+                Some(open) if open >= 1 => open - 1,
+                _ => return false,
+            }
+        } else {
+            previous
+        };
+        if cursor.kind(attribute) != Some(crate::lexer::TokenKind::Attribute) {
+            return false;
+        }
+        if CONDITION_ATTRIBUTES.contains(&cursor.text(attribute).trim_start_matches('@')) {
+            return true;
+        }
+        j = attribute;
+    }
+    false
+}
+
+/// Whether `::` starts at token `i`. It lexes as two `:`s, and only counts as
+/// a path separator when nothing sits between them.
+fn is_path_separator(cursor: &Cursor, i: usize) -> bool {
+    cursor.is(i, ":")
+        && cursor.is(i + 1, ":")
+        && cursor.span(i).end == cursor.span(i + 1).start
+}
+
+/// `import [package:: | super::…] path ;`, where a path is
+/// `name (:: path | :: { path, … } | as name)?`.
+fn import_statement(cursor: &mut Cursor, builder: &mut Builder, keyword: usize, start_offset: u32) {
+    let end = import_end(cursor, keyword + 1);
+    let last = if cursor.is(end, ";") { end } else { end.saturating_sub(1).max(keyword) };
+    let full_span = ByteSpan::new(start_offset, cursor.span(last).end);
+
+    let mut i = keyword + 1;
+    let mut root = PathRoot::Bare;
+    let mut root_span = None;
+    if cursor.is(i, "package") && is_path_separator(cursor, i + 1) {
+        root = PathRoot::Package;
+        root_span = Some(cursor.span(i));
+        i += 3;
+    } else {
+        let first = i;
+        let mut count = 0;
+        while cursor.is(i, "super") && is_path_separator(cursor, i + 1) {
+            count += 1;
+            i += 3;
+        }
+        if count > 0 {
+            root = PathRoot::Super(count);
+            root_span = Some(ByteSpan::new(cursor.span(first).start, cursor.span(i - 3).end));
+        }
+    }
+
+    let context = ImportContext { root, root_span, full_span };
+    import_path(cursor, builder, &context, i, end, &[]);
+    cursor.pos = if cursor.is(end, ";") { end + 1 } else { end.max(keyword + 1) };
+}
+
+/// What every name one import statement brings in shares.
+struct ImportContext {
+    root: PathRoot,
+    root_span: Option<ByteSpan>,
+    full_span: ByteSpan,
+}
+
+/// The `;` ending an import, or the token that starts whatever follows a
+/// statement still being typed — so a missing `;` does not swallow the next
+/// declaration.
+fn import_end(cursor: &Cursor, from: usize) -> usize {
+    let mut i = from;
+    while i < cursor.toks.len() {
+        if cursor.is(i, ";") {
+            return i;
+        }
+        if cursor.is(i, "{") {
+            i = cursor.past_group(i);
+            continue;
+        }
+        let starts_declaration = cursor.kind(i) == Some(crate::lexer::TokenKind::Attribute)
+            || matches!(
+                cursor.text(i),
+                "fn" | "struct" | "var" | "const" | "override" | "alias" | "import" | "let"
+                    | "const_assert" | "enable" | "requires" | "diagnostic" | "}"
+            );
+        if starts_declaration {
+            return i;
+        }
+        i += 1;
+    }
+    i
+}
+
+/// One path of an import, descending into `{…}` collections.
+fn import_path(
+    cursor: &Cursor,
+    builder: &mut Builder,
+    context: &ImportContext,
+    at: usize,
+    limit: usize,
+    prefix: &[(String, ByteSpan)],
+) {
+    if at >= limit || !cursor.is_name(at) {
+        return;
+    }
+    let mut segments = prefix.to_vec();
+    segments.push((cursor.text(at).to_string(), cursor.span(at)));
+
+    let next = at + 1;
+    if next < limit && is_path_separator(cursor, next) {
+        let after = next + 2;
+        if cursor.is(after, "{") {
+            let close = cursor.group_end(after).unwrap_or(limit).min(limit);
+            for (from, to) in cursor.comma_chunks(after + 1, close) {
+                import_path(cursor, builder, context, from, to, &segments);
+            }
+        } else {
+            import_path(cursor, builder, context, after, limit, &segments);
+        }
+        return;
+    }
+
+    let alias = (cursor.is(next, "as") && cursor.is_name(next + 1))
+        .then(|| (cursor.text(next + 1).to_string(), cursor.span(next + 1)));
+    let (name, name_span) = alias.clone().unwrap_or_else(|| segments[segments.len() - 1].clone());
+
+    let mut import = Import {
+        root: context.root,
+        root_span: context.root_span,
+        segments,
+        alias,
+        symbol: 0,
+    };
+    let mut detail = format!("import {}", import.path());
+    if let Some((alias, _)) = &import.alias {
+        detail.push_str(&format!(" as {alias}"));
+    }
+    import.symbol = builder.add(
+        None,
+        &name,
+        SymbolKind::Import,
+        name_span,
+        context.full_span,
+        ByteSpan::new(0, cursor.source.len() as u32),
+        detail,
+    );
+    builder.imports.push(import);
 }
 
 /// Step over a run of `@attr` / `@attr(args)`, returning the index of the
@@ -140,12 +333,12 @@ fn parameters(
     scope: ByteSpan,
 ) {
     for (from, to) in cursor.comma_chunks(open + 1, close) {
-        let (name, _) = skip_attributes(cursor, from);
+        let (name, attributes) = skip_attributes(cursor, from);
         if !cursor.is_name(name) || !cursor.is(name + 1, ":") {
             continue;
         }
         let span = ByteSpan::new(cursor.span(from).start, cursor.span(to - 1).end);
-        builder.add(
+        let index = builder.add(
             Some(parent),
             cursor.text(name),
             SymbolKind::Parameter,
@@ -154,6 +347,9 @@ fn parameters(
             scope,
             builder.detail(span),
         );
+        if is_conditional(&attributes) {
+            builder.mark_conditional(index);
+        }
     }
 }
 
@@ -187,12 +383,12 @@ fn struct_declaration(
 
     if let Some(close) = close {
         for (from, to) in cursor.comma_chunks(open + 1, close) {
-            let (field, _) = skip_attributes(cursor, from);
+            let (field, attributes) = skip_attributes(cursor, from);
             if !cursor.is_name(field) || !cursor.is(field + 1, ":") {
                 continue;
             }
             let span = ByteSpan::new(cursor.span(from).start, cursor.span(to - 1).end);
-            builder.add(
+            let member = builder.add(
                 Some(index),
                 cursor.text(field),
                 SymbolKind::Field,
@@ -201,6 +397,9 @@ fn struct_declaration(
                 full_span,
                 builder.detail(span),
             );
+            if is_conditional(&attributes) {
+                builder.mark_conditional(member);
+            }
         }
         cursor.pos = close + 1;
         // A struct may be followed by a stray `;`, which is legal and which the
@@ -363,7 +562,7 @@ fn add_local(
     let detail_end = initialiser_start(cursor, name + 1, end)
         .map_or(cursor.span(end).start, |eq| cursor.span(eq).start);
     let detail = builder.detail(ByteSpan::new(cursor.span(keyword).start, detail_end));
-    builder.add(
+    let index = builder.add(
         Some(parent),
         cursor.text(name),
         SymbolKind::Local,
@@ -372,5 +571,8 @@ fn add_local(
         scope,
         detail,
     );
+    if conditional_before(cursor, keyword) {
+        builder.mark_conditional(index);
+    }
     name + 1
 }

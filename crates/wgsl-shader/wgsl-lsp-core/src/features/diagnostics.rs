@@ -16,6 +16,11 @@
 //! implement, so it was highlighted and never checked. It is checked now
 //! ([decision 0008](../../../../../docs/rfc/012-glsl-analyzer/decisions/0008-naga-glsl-in-dropped.md)).
 //!
+//! **WESL** is WGSL's, with naga skipped for a file it cannot read — one that
+//! imports or translates conditionally — plus what [`crate::wesl`] finds wrong
+//! with its paths. Those need the whole workspace, so they are added by
+//! [`Server::publish_diagnostics_for`] rather than by [`diagnostics`].
+//!
 //! The conservatism that keeps it honest lives one layer down, in
 //! `glsl-analysis`: a file whose preprocessing or parse failed gets resolution
 //! and hover and **no semantic errors at all**, because a false squiggle costs
@@ -126,7 +131,11 @@ impl Server {
             return;
         };
         let version = document.version;
-        let diagnostics = diagnostics(document);
+        let mut diagnostics = diagnostics(document);
+        if document.language == wgsl_syntax::Language::Wesl {
+            diagnostics.extend(self.wesl_diagnostics(document));
+            diagnostics.sort_by_key(|d| (d.range.start.line, d.range.start.character));
+        }
 
         // A file that had problems and now has none must be published as an
         // empty array, or the squiggles stay on screen forever.

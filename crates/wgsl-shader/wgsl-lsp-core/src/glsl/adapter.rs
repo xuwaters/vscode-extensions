@@ -44,6 +44,7 @@ pub fn to_parsed(source: &str, raw: &[GlslToken], outline: &Outline) -> Parsed {
         // analysis, each with its own `GLSL####` code; the projection invents
         // none of its own.
         diagnostics: Vec::new(),
+        imports: Vec::new(),
     }
 }
 

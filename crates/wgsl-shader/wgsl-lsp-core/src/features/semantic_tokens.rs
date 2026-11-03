@@ -11,9 +11,16 @@
 //! actually is. Tokens inside a region a `#if` switched off carry the
 //! `disabled` modifier, which is how an editor dims the branch you are not in.
 //!
+//! For WESL, a name an import brought in paints as whatever it names in the
+//! file it comes from — `attenuate` as a function, `lights` as a namespace —
+//! which only the server-wide module view knows, so those are worked out
+//! first and handed to the walk as overrides.
+//!
 //! Delta is not a nicety. A shader produces a few thousand tokens and a
 //! keystroke changes a handful, so `full` on every edit would be the most
 //! expensive thing the server does.
+
+use std::collections::HashMap;
 
 use analyzer_core::spans::ByteSpan;
 use lsp_types::{
@@ -27,11 +34,12 @@ use wgsl_syntax::{Reference, SymbolKind, builtins};
 
 use crate::Server;
 use crate::state::Document;
+use crate::wesl::ImportKind;
 
 mod glsl;
 
 /// Token types, in the order the legend declares them.
-const TYPES: [SemanticTokenType; 13] = [
+const TYPES: [SemanticTokenType; 14] = [
     SemanticTokenType::KEYWORD,
     SemanticTokenType::TYPE,
     SemanticTokenType::STRUCT,
@@ -45,6 +53,7 @@ const TYPES: [SemanticTokenType; 13] = [
     SemanticTokenType::NUMBER,
     SemanticTokenType::OPERATOR,
     SemanticTokenType::DECORATOR,
+    SemanticTokenType::NAMESPACE,
 ];
 
 mod ty {
@@ -60,6 +69,7 @@ mod ty {
     pub const STRING: u32 = 9;
     pub const NUMBER: u32 = 10;
     pub const DECORATOR: u32 = 12;
+    pub const NAMESPACE: u32 = 13;
 }
 
 /// Modifiers, as bit positions in the order the legend declares them.
@@ -98,7 +108,7 @@ impl Server {
         if !self.settings().for_language(document.language).semantic_tokens {
             return None;
         }
-        let tokens = tokens(document);
+        let tokens = tokens(document, &self.import_overrides(document));
 
         let document = self.document_mut(&uri)?;
         let result_id = document.tokens.store(tokens.clone());
@@ -117,7 +127,7 @@ impl Server {
         if !self.settings().for_language(document.language).semantic_tokens {
             return None;
         }
-        let tokens = tokens(document);
+        let tokens = tokens(document, &self.import_overrides(document));
         // The client quoted an id we no longer hold — it has been restarted,
         // or two deltas raced. Sending a full array resynchronises it.
         let known = document.tokens.matches(&params.previous_result_id);
@@ -140,8 +150,50 @@ impl Server {
     }
 }
 
-/// One delta-encoded token array for a whole document.
-pub fn tokens(document: &Document) -> Vec<SemanticToken> {
+impl Server {
+    /// How to paint each WESL name that leads out of the file — a path
+    /// segment, or a name an import brought in — keyed by where it starts.
+    /// Empty for every other language.
+    fn import_overrides(&self, document: &Document) -> HashMap<u32, (u32, u32)> {
+        let mut overrides = HashMap::new();
+        if document.language != wgsl_syntax::Language::Wesl {
+            return overrides;
+        }
+        let parsed = document.parsed();
+        // A file names the same few imports over and over, and this runs on
+        // every keystroke: resolve each path once.
+        let mut resolved: HashMap<String, Option<ImportKind>> = HashMap::new();
+        for reference in &parsed.references {
+            let imported = parsed
+                .resolve_name(document.slice(reference.span), reference.span.start)
+                .is_some_and(|index| parsed.symbols[index].kind == SymbolKind::Import);
+            if !reference.is_member && !imported {
+                continue;
+            }
+            let Some(path) = self.wesl_path_at(document, reference.span.start) else {
+                continue;
+            };
+            let kind = *resolved
+                .entry(path.display())
+                .or_insert_with(|| self.wesl_kind_of(&document.uri, &path));
+            let classified = match kind {
+                Some(ImportKind::Module) => (ty::NAMESPACE, 0),
+                Some(ImportKind::Item(kind)) => from_symbol(kind),
+                None => continue,
+            };
+            let (token_type, mut modifiers) = classified;
+            if reference.is_declaration {
+                modifiers |= modifier::DECLARATION;
+            }
+            overrides.insert(reference.span.start, (token_type, modifiers));
+        }
+        overrides
+    }
+}
+
+/// One delta-encoded token array for a whole document, with the identifiers
+/// in `overrides` painted as it says rather than as this file alone would.
+pub fn tokens(document: &Document, overrides: &HashMap<u32, (u32, u32)>) -> Vec<SemanticToken> {
     let parsed = document.parsed();
     let mut absolute: Vec<(u32, u32, u32, u32, u32)> = Vec::new();
     // References are in source order, as are tokens, so one cursor over each
@@ -159,9 +211,11 @@ pub fn tokens(document: &Document) -> Vec<SemanticToken> {
             .get(next_reference)
             .filter(|reference| reference.span == token.span);
 
-        let Some((token_type, mut modifiers)) =
-            classify(document, token.kind, token.span, reference)
-        else {
+        let classified = match overrides.get(&token.span.start) {
+            Some(&classified) => Some(classified),
+            None => classify(document, token.kind, token.span, reference),
+        };
+        let Some((token_type, mut modifiers)) = classified else {
             continue;
         };
         // A branch a conditional switched off is still highlighted — the
@@ -264,6 +318,9 @@ pub(crate) fn from_symbol(kind: SymbolKind) -> (u32, u32) {
         SymbolKind::Parameter => (ty::PARAMETER, 0),
         SymbolKind::TypeAlias => (ty::TYPE, 0),
         SymbolKind::Macro => (ty::MACRO, 0),
+        // What an import names is in another file; the caller resolves it
+        // when it can, and a module is what it otherwise most often is.
+        SymbolKind::Import => (ty::NAMESPACE, 0),
     }
 }
 
@@ -348,8 +405,9 @@ mod tests {
         // The `ty` constants index into `TYPES`; a mismatch paints tokens the
         // wrong colour with no error anywhere.
         assert_eq!(legend().token_modifiers.len(), 4);
-        assert_eq!(TYPES.len(), 13);
+        assert_eq!(TYPES.len(), 14);
         assert_eq!(TYPES[ty::DECORATOR as usize], SemanticTokenType::DECORATOR);
+        assert_eq!(TYPES[ty::NAMESPACE as usize], SemanticTokenType::NAMESPACE);
         assert_eq!(TYPES[ty::PROPERTY as usize], SemanticTokenType::PROPERTY);
         assert_eq!(TYPES[ty::MACRO as usize], SemanticTokenType::MACRO);
     }

@@ -10,6 +10,8 @@ use crate::lexer::{TokenKind, tokenize};
 use crate::tree::SymbolKind;
 use crate::{Language, Parsed, parse};
 
+mod wesl;
+
 /// Parse a fixture whose cursor is marked with `|`, returning the parse and
 /// the offset the marker stood at.
 fn at(source: &str, language: Language) -> (Parsed, String, u32) {

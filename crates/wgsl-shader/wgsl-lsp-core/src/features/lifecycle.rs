@@ -13,8 +13,9 @@ use crate::Server;
 
 /// The file list the host pushes over `wgsl/workspaceFiles`.
 ///
-/// The server has no filesystem — it runs inside WASM — so `workspace/symbol`
-/// can only see what the host hands it.
+/// The server has no filesystem — it runs inside WASM — so `workspace/symbol`,
+/// and every WESL import, can only see what the host hands it. Each
+/// `wesl.toml` comes too, with the language id `toml`.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WorkspaceFilesParams {
@@ -67,6 +68,9 @@ impl Server {
         // govern *re*validation, and a file with errors should say so the
         // moment it is opened rather than waiting for an edit.
         self.publish_diagnostics_for(&uri);
+        if language.is_wgsl_family() {
+            self.republish_importers(Some(&uri));
+        }
     }
 
     pub fn did_change(&mut self, params: DidChangeTextDocumentParams) {
@@ -98,6 +102,12 @@ impl Server {
         let uri = params.text_document.uri;
         if self.validation_enabled(&uri, |v| v.on_save) {
             self.publish_diagnostics_for(&uri);
+        }
+        // A declaration added or removed here is one an open WESL file may
+        // import. Saving is when that is worth re-asking: on every keystroke
+        // it would squiggle the importer while the name is half-typed.
+        if self.document(&uri).is_some_and(|d| d.language.is_wgsl_family()) {
+            self.republish_importers(Some(&uri));
         }
     }
 
@@ -148,6 +158,12 @@ impl Server {
             self.index_mut().remove(uri);
         }
         for file in &params.files {
+            if file.language_id == "toml" {
+                if file.uri.as_str().ends_with("/wesl.toml") {
+                    self.index_mut().set_manifest(&file.uri, &file.text);
+                }
+                continue;
+            }
             let Some(language) = Language::from_id(&file.language_id) else {
                 continue;
             };
@@ -156,6 +172,23 @@ impl Server {
                 continue;
             }
             self.index_mut().set_file(&file.uri, language, &file.text);
+        }
+        // Files appearing, vanishing or changing on disk are what WESL
+        // imports resolve against.
+        self.republish_importers(None);
+    }
+
+    /// Republish every open WESL document but `except`, whose imports may
+    /// resolve differently now that another file has changed.
+    fn republish_importers(&mut self, except: Option<&Uri>) {
+        let uris: Vec<Uri> = self
+            .documents()
+            .filter(|d| d.language == Language::Wesl)
+            .filter(|d| except.is_none_or(|except| d.uri.as_str() != except.as_str()))
+            .map(|d| d.uri.clone())
+            .collect();
+        for uri in uris {
+            self.publish_diagnostics_for(&uri);
         }
     }
 

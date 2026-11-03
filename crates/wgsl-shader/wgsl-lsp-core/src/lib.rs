@@ -18,6 +18,10 @@
 //!   workspace's own `glsl-*` crates — every dialect, not just the Vulkan one
 //!   naga implements (RFC 012). It answers types and diagnostics *and* survives
 //!   a half-typed line, so there is no fallback to arrange.
+//! - **WESL.** WGSL's two layers, plus [`wesl`]'s module resolution: an import
+//!   is followed into the file it names. naga validates a WESL file only when
+//!   it uses nothing WGSL lacks, since it reads one module and knows no
+//!   imports.
 
 pub mod analysis;
 pub mod capabilities;
@@ -28,6 +32,7 @@ pub mod glsl;
 pub mod index;
 pub mod settings;
 pub mod state;
+pub mod wesl;
 
 use std::collections::{HashMap, HashSet};
 

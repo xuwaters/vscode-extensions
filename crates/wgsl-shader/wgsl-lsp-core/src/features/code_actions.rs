@@ -27,7 +27,9 @@ impl Server {
                 actions.extend(add_version(document));
                 actions.extend(pin_stage(document));
             }
-            Language::Wgsl => actions.extend(switch_type_spelling(document, cursor.start)),
+            Language::Wgsl | Language::Wesl => {
+                actions.extend(switch_type_spelling(document, cursor.start))
+            }
         }
 
         Some(actions.into_iter().map(CodeActionOrCommand::CodeAction).collect())

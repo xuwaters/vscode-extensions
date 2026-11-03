@@ -8,6 +8,7 @@ const EXT_ROOT = path.join(__dirname, '..');
 
 const GRAMMARS: Record<string, string> = {
   'source.wgsl': 'syntaxes/wgsl.tmLanguage.json',
+  'source.wesl': 'syntaxes/wesl.tmLanguage.json',
   'inline.wgsl': 'syntaxes/wgsl-injection.tmLanguage.json',
   'inline.rust.wgsl': 'syntaxes/wgsl-rust-injection.tmLanguage.json',
   'source.glsl': 'syntaxes/glsl.tmLanguage.json',
@@ -374,6 +375,57 @@ describe('GLSL grammar', () => {
         t.scopes.some((s) => s.startsWith('comment') || s.startsWith('string')),
       );
       expect(stuck, `${file} ends inside a comment or string`).toBe(false);
+    }
+  });
+});
+
+describe('WESL grammar', () => {
+  /** Scopes of the token covering `needle`, tokenizing `source` as WESL. */
+  async function weslScopes(source: string, needle: string): Promise<string[]> {
+    const lines = source.split('\n');
+    const tokenized = await tokenize(source, 'source.wesl');
+    const i = lines.findIndex((l) => l.includes(needle));
+    expect(i, `"${needle}" not found in source`).toBeGreaterThanOrEqual(0);
+    return scopesAt(tokenized[i], lines[i], needle);
+  }
+
+  it('scopes an import statement', async () => {
+    const source = 'import package::lights::{point, spot as cone};\n';
+    expect(await weslScopes(source, 'import')).toContain('keyword.control.import.wesl');
+    expect(await weslScopes(source, 'package')).toContain('keyword.other.wesl');
+    expect(await weslScopes(source, 'lights')).toContain('entity.name.namespace.wesl');
+    expect(await weslScopes(source, '::')).toContain('keyword.operator.namespace.wesl');
+    expect(await weslScopes(source, 'point')).toContain('variable.other.import.wesl');
+    expect(await weslScopes(source, ' as ')).toContain('meta.import.wesl');
+    expect(await weslScopes(source, 'as cone')).toContain('keyword.control.as.wesl');
+  });
+
+  it('scopes conditional translation apart from ordinary attributes', async () => {
+    const source = '@if(mobile) @group(0) var<uniform> a: f32;\n';
+    expect(await weslScopes(source, 'if')).toContain('keyword.control.conditional.wesl');
+    expect(await weslScopes(source, 'group')).toContain('entity.name.attribute.wgsl');
+  });
+
+  it('scopes a qualified path in code, inside calls and function headers too', async () => {
+    const call = '  let x = shade(lights::point(n), super::util::k);\n';
+    expect(await weslScopes(call, 'lights')).toContain('entity.name.namespace.wesl');
+    expect(await weslScopes(call, 'point')).toContain('entity.name.function.wesl');
+    expect(await weslScopes(call, 'super')).toContain('keyword.other.wesl');
+    expect(await weslScopes(call, 'util')).toContain('entity.name.namespace.wesl');
+
+    const header = 'fn f(l: lights::Light) -> vec3f {\n';
+    expect(await weslScopes(header, 'lights')).toContain('entity.name.namespace.wesl');
+    // Everything else is WGSL's own grammar.
+    expect(await weslScopes(header, 'vec3f')).toContain('storage.type.wgsl');
+  });
+
+  it('tokenizes the example package without falling into a comment', async () => {
+    for (const file of ['wesl/shaders/main.wesl', 'wesl/shaders/lighting.wesl']) {
+      const source = fs.readFileSync(path.join(EXT_ROOT, 'examples', file), 'utf8');
+      const tokenized = await tokenize(source, 'source.wesl');
+      const lastLine = source.split('\n').length - 2; // the file ends with a newline
+      const stuck = tokenized[lastLine].some((t) => t.scopes.some((s) => s.startsWith('comment')));
+      expect(stuck, `${file} ends inside a comment`).toBe(false);
     }
   });
 });

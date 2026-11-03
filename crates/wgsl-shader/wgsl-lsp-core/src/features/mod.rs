@@ -102,6 +102,7 @@ pub fn lsp_symbol_kind(kind: SymbolKind) -> lsp_types::SymbolKind {
         SymbolKind::TypeAlias => Lsp::TYPE_PARAMETER,
         SymbolKind::Macro => Lsp::CONSTANT,
         SymbolKind::Block => Lsp::INTERFACE,
+        SymbolKind::Import => Lsp::MODULE,
     }
 }
 
@@ -117,6 +118,7 @@ pub fn lsp_completion_kind(kind: SymbolKind) -> lsp_types::CompletionItemKind {
         SymbolKind::Parameter => Lsp::VARIABLE,
         SymbolKind::TypeAlias => Lsp::CLASS,
         SymbolKind::Macro => Lsp::CONSTANT,
+        SymbolKind::Import => Lsp::MODULE,
     }
 }
 

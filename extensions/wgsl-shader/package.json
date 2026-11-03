@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-wgsl-shader",
   "displayName": "WGSL / GLSL Shader",
-  "description": "WGSL and GLSL shader language support: a real language server with completion, hover, go-to-definition, rename, semantic highlighting and diagnostics — WGSL validated by naga, GLSL by its own analyzer in every dialect — in shader files and in shaders embedded in Rust and TypeScript",
-  "version": "0.6.2",
+  "description": "WGSL, WESL and GLSL shader language support: a real language server with completion, hover, go-to-definition, rename, semantic highlighting and diagnostics — WGSL validated by naga, WESL imports followed across files, GLSL checked by its own analyzer in every dialect — in shader files and in shaders embedded in Rust and TypeScript",
+  "version": "0.7.0",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -23,6 +23,7 @@
   ],
   "activationEvents": [
     "onLanguage:wgsl",
+    "onLanguage:wesl",
     "onLanguage:glsl",
     "onLanguage:rust",
     "onLanguage:typescript",
@@ -41,6 +42,17 @@
         ],
         "extensions": [
           ".wgsl"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "wesl",
+        "aliases": [
+          "WESL",
+          "wesl"
+        ],
+        "extensions": [
+          ".wesl"
         ],
         "configuration": "./language-configuration.json"
       },
@@ -78,6 +90,11 @@
         "language": "wgsl",
         "scopeName": "source.wgsl",
         "path": "./syntaxes/wgsl.tmLanguage.json"
+      },
+      {
+        "language": "wesl",
+        "scopeName": "source.wesl",
+        "path": "./syntaxes/wesl.tmLanguage.json"
       },
       {
         "scopeName": "inline.wgsl",
@@ -134,7 +151,7 @@
     "commands": [
       {
         "command": "wgsl.validateFile",
-        "title": "WGSL: Validate Current File"
+        "title": "WGSL / WESL: Validate Current File"
       },
       {
         "command": "glsl.validateFile",
@@ -153,7 +170,7 @@
       "commandPalette": [
         {
           "command": "wgsl.validateFile",
-          "when": "editorLangId == wgsl"
+          "when": "editorLangId == wgsl || editorLangId == wesl"
         },
         {
           "command": "glsl.validateFile",
@@ -174,27 +191,27 @@
         "wgsl.validate.onSave": {
           "type": "boolean",
           "default": true,
-          "description": "Validate WGSL files on save."
+          "description": "Validate WGSL and WESL files on save."
         },
         "wgsl.validate.onType": {
           "type": "boolean",
           "default": false,
-          "description": "Validate WGSL files while typing. Off by default: a file is invalid for most of the time it is being edited, and squiggling every keystroke is noise."
+          "description": "Validate WGSL and WESL files while typing. Off by default: a file is invalid for most of the time it is being edited, and squiggling every keystroke is noise."
         },
         "wgsl.completion.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Offer completions in WGSL files."
+          "description": "Offer completions in WGSL and WESL files."
         },
         "wgsl.semanticTokens": {
           "type": "boolean",
           "default": true,
-          "description": "Colour WGSL by what each name resolves to, rather than by its shape alone."
+          "description": "Colour WGSL and WESL by what each name resolves to, rather than by its shape alone."
         },
         "wgsl.inlayHints.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Show inlay hints in WGSL files."
+          "description": "Show inlay hints in WGSL and WESL files."
         },
         "wgsl.inlayHints.types": {
           "type": "boolean",
@@ -209,7 +226,7 @@
         "wgsl.format.enable": {
           "type": "boolean",
           "default": false,
-          "description": "Enable the WGSL formatter. It re-indents lines and changes nothing else, so it will not restyle a file written to a house style."
+          "description": "Enable the WGSL formatter, for WESL files too. It re-indents lines and changes nothing else, so it will not restyle a file written to a house style."
         },
         "wgsl.format.indentWidth": {
           "type": "number",

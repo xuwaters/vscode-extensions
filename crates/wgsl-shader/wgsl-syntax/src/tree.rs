@@ -38,6 +38,9 @@ pub enum SymbolKind {
     Macro,
     /// A GLSL interface block name: `uniform Camera { … }`.
     Block,
+    /// A name a WESL `import` brings into scope — the item or module the path
+    /// ends at, or its `as` rename. [`Parsed::imports`] holds the path.
+    Import,
 }
 
 impl SymbolKind {
@@ -45,6 +48,13 @@ impl SymbolKind {
     /// belongs in the document outline.
     pub fn is_local(self) -> bool {
         matches!(self, SymbolKind::Local | SymbolKind::Parameter)
+    }
+
+    /// Whether the symbol is something this file declares, rather than a
+    /// local or a name it imports — what an outline or a workspace-wide
+    /// symbol picker lists.
+    pub fn is_declaration(self) -> bool {
+        !self.is_local() && self != SymbolKind::Import
     }
 }
 
@@ -72,8 +82,63 @@ pub struct Reference {
     /// Whether this occurrence is the declaration's own name.
     pub is_declaration: bool,
     /// Whether a `.` immediately precedes it, making it a field or swizzle
-    /// rather than a name to resolve in scope.
+    /// rather than a name to resolve in scope — or a WESL `::`, making it a
+    /// segment of a module path, which is resolved through the path.
     pub is_member: bool,
+}
+
+/// Where a WESL module path starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathRoot {
+    /// `package::` — the root of the package this file belongs to.
+    Package,
+    /// `super::`, repeated this many times — the module above this file's.
+    Super(u32),
+    /// Neither: the first segment is a name, which in an import is a
+    /// dependency package and in code is something an import brought in.
+    Bare,
+}
+
+/// One name a WESL `import` statement brings into scope. A collection —
+/// `import package::lights::{point, spot as cone};` — produces one apiece.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Import {
+    pub root: PathRoot,
+    /// `package` or the run of `super`s, when the path has one. A diagnostic
+    /// about the root lands here.
+    pub root_span: Option<ByteSpan>,
+    /// The path after its root, each segment with its span; the imported name
+    /// is the last.
+    pub segments: Vec<(String, ByteSpan)>,
+    /// The `as` rename, if there is one.
+    pub alias: Option<(String, ByteSpan)>,
+    /// The [`SymbolKind::Import`] symbol this produced.
+    pub symbol: usize,
+}
+
+impl Import {
+    /// The path as written: `package::lights::point`.
+    pub fn path(&self) -> String {
+        let mut out = match self.root {
+            PathRoot::Package => "package::".to_string(),
+            PathRoot::Super(n) => "super::".repeat(n as usize),
+            PathRoot::Bare => String::new(),
+        };
+        let names: Vec<&str> = self.segments.iter().map(|(name, _)| name.as_str()).collect();
+        out.push_str(&names.join("::"));
+        out
+    }
+}
+
+/// The qualified path written in front of a name: `package::lights` before
+/// `point` in `package::lights::point`, or `utils` before `helper` in
+/// `utils::helper()`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathPrefix {
+    pub root: PathRoot,
+    pub root_span: Option<ByteSpan>,
+    /// The segments between the root and the name, outermost first.
+    pub segments: Vec<(String, ByteSpan)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +177,9 @@ pub struct Parsed {
     pub references: Vec<Reference>,
     pub blocks: Vec<Block>,
     pub diagnostics: Vec<SyntaxDiagnostic>,
+    /// What each WESL `import` brings in, in source order. Empty for every
+    /// other language.
+    pub imports: Vec<Import>,
 }
 
 impl Parsed {
@@ -202,6 +270,89 @@ impl Parsed {
         source.get(span.start as usize..span.end as usize).unwrap_or("")
     }
 
+    /// The import that produced symbol `index`, when it is an import.
+    pub fn import_for(&self, index: usize) -> Option<&Import> {
+        self.imports.iter().find(|import| import.symbol == index)
+    }
+
+    /// The WESL path written in front of whatever starts at `offset`.
+    ///
+    /// Read off the tokens rather than out of [`Parsed::imports`], because it
+    /// has to answer for a half-typed path too — `package::lights::|` is what
+    /// completion is asked about. Inside an import's `{…}` collection the
+    /// prefix includes the path the collection hangs off, so in
+    /// `import package::lights::{point, |}` it is `package::lights`.
+    ///
+    /// `None` when nothing qualifies the position: a plain name.
+    pub fn path_prefix(&self, source: &str, offset: u32) -> Option<PathPrefix> {
+        let toks: Vec<&Token> = self.tokens.iter().filter(|t| !t.kind.is_trivia()).collect();
+        let text = |i: usize| self.text(source, toks[i].span);
+        // `::` lexes as two `:` tokens; they only form a path separator when
+        // nothing sits between them.
+        let colons = |i: usize| {
+            i >= 1
+                && text(i) == ":"
+                && text(i - 1) == ":"
+                && toks[i - 1].span.end == toks[i].span.start
+        };
+
+        // The token immediately before the position.
+        let mut j = toks.iter().rposition(|t| t.span.end <= offset)?;
+        let mut segments: Vec<(String, ByteSpan)> = Vec::new();
+        let mut root = PathRoot::Bare;
+        let mut root_span = None;
+
+        loop {
+            if colons(j) {
+                let segment = j.checked_sub(2)?;
+                match (toks[segment].kind, text(segment)) {
+                    (TokenKind::Keyword, "package") => {
+                        root = PathRoot::Package;
+                        root_span = Some(toks[segment].span);
+                        break;
+                    }
+                    (TokenKind::Keyword, "super") => {
+                        let (mut first, mut count) = (segment, 1);
+                        while first >= 3 && colons(first - 1) && text(first - 3) == "super" {
+                            first -= 3;
+                            count += 1;
+                        }
+                        root = PathRoot::Super(count);
+                        root_span =
+                            Some(ByteSpan::new(toks[first].span.start, toks[segment].span.end));
+                        break;
+                    }
+                    (TokenKind::Ident | TokenKind::Type, name) => {
+                        segments.push((name.to_string(), toks[segment].span));
+                        match segment.checked_sub(1) {
+                            Some(before) => j = before,
+                            None => break,
+                        }
+                    }
+                    _ => return None,
+                }
+                continue;
+            }
+            // Inside an import collection the path continues from the `::`
+            // in front of the `{`.
+            if matches!(text(j), "," | "{") {
+                if let Some(open) = collection_open(&toks, source, j) {
+                    if open >= 1 && colons(open - 1) {
+                        j = open - 1;
+                        continue;
+                    }
+                }
+            }
+            break;
+        }
+
+        if root == PathRoot::Bare && segments.is_empty() {
+            return None;
+        }
+        segments.reverse();
+        Some(PathPrefix { root, root_span, segments })
+    }
+
     /// The innermost function containing `offset`, if any.
     pub fn enclosing_function(&self, offset: u32) -> Option<usize> {
         self.symbols
@@ -213,6 +364,23 @@ impl Parsed {
             })
             .min_by_key(|(_, s)| s.full_span.len())
             .map(|(i, _)| i)
+    }
+}
+
+/// The `{` that opens the collection token `at` sits in, or `at` itself when
+/// it is one. Gives up at a `;`, which no import collection contains.
+fn collection_open(toks: &[&Token], source: &str, at: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut i = at;
+    loop {
+        match source.get(toks[i].span.start as usize..toks[i].span.end as usize)? {
+            "}" => depth += 1,
+            "{" if depth == 0 => return Some(i),
+            "{" => depth -= 1,
+            ";" => return None,
+            _ => {}
+        }
+        i = i.checked_sub(1)?;
     }
 }
 

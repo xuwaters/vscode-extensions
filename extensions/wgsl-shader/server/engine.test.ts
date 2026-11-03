@@ -186,6 +186,33 @@ describe.skipIf(!built)('the WASM binding', () => {
     expect(info.ok).toBe(true);
   });
 
+  /// The host pushes the files and the manifest; the server follows an
+  /// import into a file the editor never opened.
+  it('follows a WESL import across files the host pushed', () => {
+    const server = new (load().ShaderServer)({ settings: {} });
+    server.onNotification('wgsl/workspaceFiles', {
+      files: [
+        { uri: 'file:///p/wesl.toml', languageId: 'toml', text: 'root = "src"\n' },
+        { uri: 'file:///p/src/util.wesl', languageId: 'wesl', text: 'fn helper() {}\n' },
+      ],
+      replace: true,
+    });
+    const main = 'import package::util::helper;\nfn f() { helper(); }\n';
+    open(server, 'file:///p/src/main.wesl', 'wesl', main);
+    expect(server.drainEvents()).toEqual([]);
+
+    const location = server.onRequest('textDocument/definition', {
+      textDocument: { uri: 'file:///p/src/main.wesl' },
+      position: positionOf(main, 'helper();'),
+    }) as { uri: string };
+    expect(location.uri).toBe('file:///p/src/util.wesl');
+
+    const info = server.onRequest('wgsl/shaderInfo', {
+      textDocument: { uri: 'file:///p/src/main.wesl' },
+    }) as { language: string; ok: boolean };
+    expect(info).toMatchObject({ language: 'wesl', ok: true });
+  });
+
   it('takes settings at construction and again over didChangeConfiguration', () => {
     const off = new (load().ShaderServer)({
       settings: { wgsl: { completion: { enabled: false } }, glsl: {} },

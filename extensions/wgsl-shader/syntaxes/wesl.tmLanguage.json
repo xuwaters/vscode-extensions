@@ -1,0 +1,127 @@
+{
+  "name": "WESL",
+  "scopeName": "source.wesl",
+  "comment": "WESL is WGSL plus imports, `::` module paths and @if/@elif/@else. Everything else is the WGSL grammar, included whole. The two WGSL rules that open a nested context — a function header and a call's arguments — are repeated here so WESL paths inside them are still recognised.",
+  "patterns": [
+    { "include": "source.wgsl#line_comments" },
+    { "include": "source.wgsl#block_comments" },
+    { "include": "#imports" },
+    { "include": "#conditional_attributes" },
+    { "include": "#paths" },
+    { "include": "#functions" },
+    { "include": "#function_calls" },
+    { "include": "source.wgsl" }
+  ],
+  "repository": {
+    "imports": {
+      "patterns": [
+        {
+          "name": "meta.import.wesl",
+          "begin": "\\b(import)\\b",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.import.wesl" }
+          },
+          "end": ";",
+          "endCaptures": {
+            "0": { "name": "punctuation.terminator.wesl" }
+          },
+          "patterns": [
+            { "include": "source.wgsl#line_comments" },
+            { "include": "source.wgsl#block_comments" },
+            {
+              "name": "keyword.other.wesl",
+              "match": "\\b(package|super)\\b"
+            },
+            {
+              "name": "keyword.control.as.wesl",
+              "match": "\\bas\\b"
+            },
+            {
+              "name": "entity.name.namespace.wesl",
+              "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*::)"
+            },
+            {
+              "name": "keyword.operator.namespace.wesl",
+              "match": "::"
+            },
+            {
+              "name": "variable.other.import.wesl",
+              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+            },
+            {
+              "name": "punctuation.brackets.curly.wesl",
+              "match": "[{}]"
+            },
+            {
+              "name": "punctuation.comma.wesl",
+              "match": ","
+            }
+          ]
+        }
+      ]
+    },
+    "conditional_attributes": {
+      "patterns": [
+        {
+          "name": "meta.attribute.conditional.wesl",
+          "match": "(@)(if|elif|else)\\b",
+          "captures": {
+            "1": { "name": "keyword.operator.attribute.at.wesl" },
+            "2": { "name": "keyword.control.conditional.wesl" }
+          }
+        }
+      ]
+    },
+    "paths": {
+      "patterns": [
+        {
+          "name": "keyword.other.wesl",
+          "match": "\\b(package|super)\\b(?=\\s*::)"
+        },
+        {
+          "name": "entity.name.namespace.wesl",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*::)"
+        },
+        {
+          "name": "keyword.operator.namespace.wesl",
+          "match": "::"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "meta.function.definition.wesl",
+          "begin": "\\b(fn)\\s+([A-Za-z0-9_]+)((\\()|(<))",
+          "beginCaptures": {
+            "1": { "name": "keyword.other.fn.wesl" },
+            "2": { "name": "entity.name.function.wesl" },
+            "4": { "name": "punctuation.brackets.round.wesl" }
+          },
+          "end": "\\{",
+          "endCaptures": {
+            "0": { "name": "punctuation.brackets.curly.wesl" }
+          },
+          "patterns": [{ "include": "$self" }]
+        }
+      ]
+    },
+    "function_calls": {
+      "patterns": [
+        {
+          "name": "meta.function.call.wesl",
+          "begin": "([A-Za-z0-9_]+)(\\()",
+          "beginCaptures": {
+            "1": { "name": "entity.name.function.wesl" },
+            "2": { "name": "punctuation.brackets.round.wesl" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.brackets.round.wesl" }
+          },
+          "patterns": [{ "include": "$self" }]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# A WESL package. `package::` starts at `root`, which is `./shaders` when the
+# key is left out.
+edition = "2026_pre"
+root = "./shaders"

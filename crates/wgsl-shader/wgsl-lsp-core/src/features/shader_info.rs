@@ -27,7 +27,7 @@ pub struct ShaderInfoParams {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShaderInfo {
-    /// `"wgsl"` or `"glsl"`.
+    /// `"wgsl"`, `"glsl"` or `"wesl"`.
     pub language: &'static str,
     /// The stage the file was analysed as. Absent for WGSL, which has none.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -71,6 +71,35 @@ impl Server {
                 problems: errors,
                 warnings: problems.len() - errors,
                 validator: format!("glsl-analysis {}", crate::GLSL_ANALYZER_VERSION),
+                naga: crate::NAGA_VERSION,
+            });
+        }
+
+        if document.language == Language::Wesl {
+            let mut problems = crate::features::diagnostics::diagnostics(document);
+            problems.extend(self.wesl_diagnostics(document));
+            let errors = problems
+                .iter()
+                .filter(|d| d.severity == Some(lsp_types::DiagnosticSeverity::ERROR))
+                .count();
+            // naga reads a WESL file only when it uses nothing WGSL lacks;
+            // otherwise what checked it was import resolution, and saying
+            // "naga" would claim a type check that never happened.
+            let validator =
+                if crate::wesl::uses_wesl_syntax(document.parsed(), document.text()) {
+                    "WESL import resolution (no type checking)".to_string()
+                } else {
+                    format!("naga {}", crate::NAGA_VERSION)
+                };
+            return Some(ShaderInfo {
+                language: Language::Wesl.id(),
+                stage: None,
+                stage_guessed: false,
+                version: None,
+                ok: errors == 0,
+                problems: errors,
+                warnings: problems.len() - errors,
+                validator,
                 naga: crate::NAGA_VERSION,
             });
         }

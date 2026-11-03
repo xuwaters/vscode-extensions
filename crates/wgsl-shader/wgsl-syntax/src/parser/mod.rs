@@ -16,7 +16,7 @@ use analyzer_core::spans::ByteSpan;
 
 use crate::Language;
 use crate::lexer::{Token, TokenKind};
-use crate::tree::{Block, BlockKind, Parsed, Symbol, SymbolKind, SyntaxDiagnostic};
+use crate::tree::{Block, BlockKind, Import, Parsed, Symbol, SymbolKind, SyntaxDiagnostic};
 
 /// Parse a source that has already been lexed.
 pub fn parse(source: &str, language: Language, tokens: Vec<Token>) -> Parsed {
@@ -27,14 +27,21 @@ pub fn parse(source: &str, language: Language, tokens: Vec<Token>) -> Parsed {
     blocks.sort_by_key(|b| (b.span.start, std::cmp::Reverse(b.span.end)));
 
     let mut cursor = Cursor { source, toks: significant, matching, pos: 0 };
-    let mut builder = Builder { source, symbols: Vec::new(), roots: Vec::new() };
+    let mut builder = Builder {
+        source,
+        language,
+        symbols: Vec::new(),
+        roots: Vec::new(),
+        conditional: Vec::new(),
+        imports: Vec::new(),
+    };
 
     // GLSL is not this crate's language any more (RFC 012 phase 5): the
     // heuristic walk that used to run here was replaced by a real
     // preprocessor, grammar and semantics in the `glsl-*` crates, and the
     // server projects *their* outline onto these same shapes. A GLSL source
     // reaching this function gets its tokens and its blocks and no symbols.
-    if language == Language::Wgsl {
+    if language.is_wgsl_family() {
         wgsl::parse(&mut cursor, &mut builder);
     }
 
@@ -49,6 +56,7 @@ pub fn parse(source: &str, language: Language, tokens: Vec<Token>) -> Parsed {
         references,
         blocks,
         diagnostics,
+        imports: builder.imports,
     }
 }
 
@@ -118,7 +126,7 @@ fn delimiters(
 }
 
 /// Every identifier occurrence in the file, tagged with whether it follows a
-/// `.` and whether it is a declaration's own name.
+/// `.` or a `::` and whether it is a declaration's own name.
 fn references(toks: &[Token], symbols: &[Symbol], source: &str) -> Vec<crate::tree::Reference> {
     let declarations: Vec<ByteSpan> = symbols.iter().map(|s| s.name_span).collect();
     toks.iter()
@@ -127,9 +135,16 @@ fn references(toks: &[Token], symbols: &[Symbol], source: &str) -> Vec<crate::tr
         .map(|(i, t)| {
             // A `.` token is always the access operator: the lexer folds `.5`
             // into a single number token, so a lone `.` never starts a literal.
+            let byte = |at: usize| source.as_bytes().get(toks[at].span.start as usize).copied();
             let is_member = i > 0
                 && toks[i - 1].kind == TokenKind::Punct
-                && source.as_bytes().get(toks[i - 1].span.start as usize) == Some(&b'.');
+                && (byte(i - 1) == Some(b'.')
+                    // WESL's `::`, which lexes as two adjacent `:`s. Neither
+                    // other language has it, so this costs them nothing.
+                    || (i > 1
+                        && byte(i - 1) == Some(b':')
+                        && byte(i - 2) == Some(b':')
+                        && toks[i - 2].span.end == toks[i - 1].span.start));
             crate::tree::Reference {
                 span: t.span,
                 is_declaration: declarations.contains(&t.span),
@@ -306,8 +321,13 @@ impl<'a> Cursor<'a> {
 /// Accumulates symbols and keeps the parent/child links consistent.
 pub(crate) struct Builder<'a> {
     pub source: &'a str,
+    pub language: Language,
     pub symbols: Vec<Symbol>,
     pub roots: Vec<usize>,
+    /// Per symbol, whether a WESL `@if`, `@elif` or `@else` governs it. Two
+    /// such declarations may share a name — only one survives translation.
+    pub conditional: Vec<bool>,
+    pub imports: Vec<Import>,
 }
 
 impl<'a> Builder<'a> {
@@ -324,6 +344,7 @@ impl<'a> Builder<'a> {
         detail: String,
     ) -> usize {
         let index = self.symbols.len();
+        self.conditional.push(false);
         self.symbols.push(Symbol {
             name: name.to_string(),
             kind,
@@ -339,6 +360,11 @@ impl<'a> Builder<'a> {
             None => self.roots.push(index),
         }
         index
+    }
+
+    /// Note that a conditional-translation attribute governs symbol `index`.
+    pub fn mark_conditional(&mut self, index: usize) {
+        self.conditional[index] = true;
     }
 
     /// The declaration as written, with runs of whitespace collapsed so it fits
@@ -374,13 +400,18 @@ impl<'a> Builder<'a> {
             if matches!(symbol.kind, SymbolKind::Function | SymbolKind::EntryPoint) {
                 continue;
             }
-            if let Some(previous) = self.symbols[..i].iter().find(|other| {
+            // `@if(a) const n = 1; @else const n = 2;` declares `n` once,
+            // whichever branch translation keeps.
+            if self.conditional[i] {
+                continue;
+            }
+            if self.symbols[..i].iter().enumerate().any(|(j, other)| {
                 other.name == symbol.name
                     && other.parent == symbol.parent
                     && other.scope == symbol.scope
                     && !matches!(other.kind, SymbolKind::Function | SymbolKind::EntryPoint)
+                    && !self.conditional[j]
             }) {
-                let _ = previous;
                 diagnostics.push(SyntaxDiagnostic {
                     span: symbol.name_span,
                     message: format!("`{}` is already declared in this scope", symbol.name),

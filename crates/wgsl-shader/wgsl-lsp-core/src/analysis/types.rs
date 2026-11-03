@@ -58,11 +58,13 @@ pub fn render(module: &Module, inner: &TypeInner, language: Language) -> String 
             matrix_name(*columns, *rows, *scalar, language)
         }
         TypeInner::Atomic(scalar) => match language {
-            Language::Wgsl => format!("atomic<{}>", scalar_name(*scalar, language)),
+            Language::Wgsl | Language::Wesl => {
+                format!("atomic<{}>", scalar_name(*scalar, language))
+            }
             Language::Glsl => "atomic_uint".to_string(),
         },
         TypeInner::Pointer { base, space } => match language {
-            Language::Wgsl => format!(
+            Language::Wgsl | Language::Wesl => format!(
                 "ptr<{}, {}>",
                 address_space(*space),
                 render_handle(module, *base, language)
@@ -75,15 +77,19 @@ pub fn render(module: &Module, inner: &TypeInner, language: Language) -> String 
                 None => scalar_name(*scalar, language).to_string(),
             };
             match language {
-                Language::Wgsl => format!("ptr<{}, {pointee}>", address_space(*space)),
+                Language::Wgsl | Language::Wesl => {
+                    format!("ptr<{}, {pointee}>", address_space(*space))
+                }
                 Language::Glsl => pointee,
             }
         }
         TypeInner::Array { base, size, .. } => {
             let base = render_handle(module, *base, language);
             match (language, size) {
-                (Language::Wgsl, ArraySize::Constant(n)) => format!("array<{base}, {n}>"),
-                (Language::Wgsl, _) => format!("array<{base}>"),
+                (Language::Wgsl | Language::Wesl, ArraySize::Constant(n)) => {
+                    format!("array<{base}, {n}>")
+                }
+                (Language::Wgsl | Language::Wesl, _) => format!("array<{base}>"),
                 (Language::Glsl, ArraySize::Constant(n)) => format!("{base}[{n}]"),
                 (Language::Glsl, _) => format!("{base}[]"),
             }
@@ -98,8 +104,8 @@ pub fn render(module: &Module, inner: &TypeInner, language: Language) -> String 
         TypeInner::Struct { .. } => "struct".to_string(),
         TypeInner::Image { dim, arrayed, class } => image_name(*dim, *arrayed, *class, language),
         TypeInner::Sampler { comparison } => match (language, comparison) {
-            (Language::Wgsl, true) => "sampler_comparison".to_string(),
-            (Language::Wgsl, false) => "sampler".to_string(),
+            (Language::Wgsl | Language::Wesl, true) => "sampler_comparison".to_string(),
+            (Language::Wgsl | Language::Wesl, false) => "sampler".to_string(),
             (Language::Glsl, true) => "samplerShadow".to_string(),
             (Language::Glsl, false) => "sampler".to_string(),
         },
@@ -111,16 +117,16 @@ pub fn render(module: &Module, inner: &TypeInner, language: Language) -> String 
 
 fn scalar_name(scalar: Scalar, language: Language) -> &'static str {
     match (language, scalar.kind, scalar.width) {
-        (Language::Wgsl, ScalarKind::Float, 2) => "f16",
-        (Language::Wgsl, ScalarKind::Float, 8) => "f64",
-        (Language::Wgsl, ScalarKind::Float, _) => "f32",
-        (Language::Wgsl, ScalarKind::Sint, _) => "i32",
-        (Language::Wgsl, ScalarKind::Uint, _) => "u32",
-        (Language::Wgsl, ScalarKind::Bool, _) => "bool",
+        (Language::Wgsl | Language::Wesl, ScalarKind::Float, 2) => "f16",
+        (Language::Wgsl | Language::Wesl, ScalarKind::Float, 8) => "f64",
+        (Language::Wgsl | Language::Wesl, ScalarKind::Float, _) => "f32",
+        (Language::Wgsl | Language::Wesl, ScalarKind::Sint, _) => "i32",
+        (Language::Wgsl | Language::Wesl, ScalarKind::Uint, _) => "u32",
+        (Language::Wgsl | Language::Wesl, ScalarKind::Bool, _) => "bool",
         // Abstract types are an internal stage of WGSL's type inference; they
         // are spelled as the concrete type they will settle into.
-        (Language::Wgsl, ScalarKind::AbstractInt, _) => "i32",
-        (Language::Wgsl, ScalarKind::AbstractFloat, _) => "f32",
+        (Language::Wgsl | Language::Wesl, ScalarKind::AbstractInt, _) => "i32",
+        (Language::Wgsl | Language::Wesl, ScalarKind::AbstractFloat, _) => "f32",
         (Language::Glsl, ScalarKind::Float, 8) => "double",
         (Language::Glsl, ScalarKind::Float, _) => "float",
         (Language::Glsl, ScalarKind::Sint, _) => "int",
@@ -135,7 +141,7 @@ fn scalar_name(scalar: Scalar, language: Language) -> &'static str {
 fn vector_name(size: VectorSize, scalar: Scalar, language: Language) -> String {
     let n = size as u8;
     match language {
-        Language::Wgsl => format!("vec{n}<{}>", scalar_name(scalar, language)),
+        Language::Wgsl | Language::Wesl => format!("vec{n}<{}>", scalar_name(scalar, language)),
         Language::Glsl => {
             let prefix = match (scalar.kind, scalar.width) {
                 (ScalarKind::Sint | ScalarKind::AbstractInt, _) => "i",
@@ -152,7 +158,7 @@ fn vector_name(size: VectorSize, scalar: Scalar, language: Language) -> String {
 fn matrix_name(columns: VectorSize, rows: VectorSize, scalar: Scalar, language: Language) -> String {
     let (c, r) = (columns as u8, rows as u8);
     match language {
-        Language::Wgsl => format!("mat{c}x{r}<{}>", scalar_name(scalar, language)),
+        Language::Wgsl | Language::Wesl => format!("mat{c}x{r}<{}>", scalar_name(scalar, language)),
         Language::Glsl => {
             let prefix = if scalar.width == 8 { "d" } else { "" };
             if c == r {
@@ -195,7 +201,7 @@ fn image_name(
         (ImageDimension::Cube, true) => "cube_array",
     };
     match language {
-        Language::Wgsl => match class {
+        Language::Wgsl | Language::Wesl => match class {
             ImageClass::Sampled { kind, multi } => {
                 let scalar = scalar_name(Scalar { kind, width: 4 }, language);
                 if multi {

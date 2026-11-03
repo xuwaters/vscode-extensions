@@ -171,6 +171,17 @@ pub const KEYWORDS: &[&str] = &[
     "true", "var", "while",
 ];
 
+/// The words WESL reserves on top of [`KEYWORDS`], all of them import syntax.
+pub const WESL_KEYWORDS: &[&str] = &["as", "import", "package", "super"];
+
+/// Attributes WESL adds: conditional translation, which keeps or drops the
+/// declaration, statement or member it is on.
+pub const WESL_ATTRIBUTES: &[Builtin] = builtins![
+    "if", "@if(condition)", "Keeps what follows only when the condition holds. The condition combines feature names with `!`, `&&`, `||` and parentheses.";
+    "elif", "@elif(condition)", "Follows an `@if` or `@elif`: keeps what follows when every earlier condition failed and this one holds.";
+    "else", "@else", "Follows an `@if` or `@elif`: keeps what follows when every earlier condition failed.";
+];
+
 /// Names valid after `@`.
 pub const ATTRIBUTES: &[Builtin] = builtins![
     "align", "@align(n)", "Byte alignment of a struct member.";

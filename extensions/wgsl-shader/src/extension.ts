@@ -69,11 +69,13 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
+const SHADER_LANGUAGES = ['wgsl', 'wesl', 'glsl'];
+
 /** A type predicate, so a guarded `document` narrows for the caller. */
 function isShader(
   document: vscode.TextDocument | undefined,
 ): document is vscode.TextDocument {
-  return document?.languageId === 'wgsl' || document?.languageId === 'glsl';
+  return document !== undefined && SHADER_LANGUAGES.includes(document.languageId);
 }
 
 function registerCommands(context: vscode.ExtensionContext, client: Client): void {

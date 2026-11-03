@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.0
+
+**WESL support.** `.wesl` files are a language of their own — WGSL plus
+imports, module paths and `@if`/`@elif`/`@else` — with their imports followed
+from file to file.
+
+### Added
+
+- **The `wesl` language**, for `.wesl` files, with a grammar on top of WGSL's
+  that colours `import` statements, `::` paths and the conditional attributes.
+- **Imports followed across files.** Go to definition and hover on an imported
+  name, a module name or a qualified path like `lights::point::shade` reach the
+  declaration or module file it names, opened or not. `package::` starts at the
+  root `wesl.toml` names (`./shaders` by default), `super::` climbs from the
+  file's own module, and a `path` dependency is followed into its folder.
+- **Completion** after `::` lists a module's submodules and declarations; after
+  `import`, where a path can start. Imported names complete as what they name.
+- **Diagnostics** for an import or qualified name that names nothing, on the
+  segment that fails, and for a `super` that climbs out of its package.
+  Declarations under `@if`/`@elif`/`@else` may share a name.
+- `@if`, `@elif` and `@else` complete after `@` in WESL files.
+
+### Changed
+
+- naga validates a `.wesl` file only when it uses no WESL syntax; one that
+  imports or translates conditionally gets syntax checks and import resolution
+  instead. WESL files read the `wgsl.*` settings.
+- `:` is a completion trigger character, for `::`. A lone `:` still offers
+  nothing, as before.
+- The workspace walk now picks up `.wesl` files and `wesl.toml`.
+- "WGSL: Validate Current File" is now "WGSL / WESL: Validate Current File".
+
 ## 0.6.1
 
 - The third-party notices are reachable: `LICENSE.md` and the README's new

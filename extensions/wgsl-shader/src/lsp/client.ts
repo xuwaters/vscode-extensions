@@ -124,8 +124,10 @@ export class Client implements vscode.Disposable {
     const clientOptions: LanguageClientOptions = {
       documentSelector: [
         { scheme: 'file', language: 'wgsl' },
+        { scheme: 'file', language: 'wesl' },
         { scheme: 'file', language: 'glsl' },
         { scheme: 'untitled', language: 'wgsl' },
+        { scheme: 'untitled', language: 'wesl' },
         { scheme: 'untitled', language: 'glsl' },
         // Shaders embedded in Rust and TS/JS, surfaced as virtual documents.
         { scheme: EMBEDDED_SCHEME, language: 'wgsl' },

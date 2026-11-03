@@ -114,6 +114,28 @@ every feature has an answer that does not need a valid parse. That is why
 input it could not parse: if either ever needs a clean parse to answer, the
 design has been broken.
 
+### WESL: a third column that is mostly the first
+
+WESL is WGSL with modules, so it has no pipeline of its own. `Language::Wesl`
+runs `wgsl-syntax`'s WGSL walk with three additions switched on — `import`
+statements (`Parsed::imports`, `SymbolKind::Import`), `@if { … }` groups at
+module scope, and conditional declarations exempt from the duplicate check —
+and shares WGSL's builtins and settings.
+
+What it adds is the one thing no other language here needs: **another file**.
+`wgsl-lsp-core/src/wesl/` resolves a path (`package::a::b`, `super::x`, or a
+`wesl.toml` path dependency) to a module file or a declaration in one. It reads
+open documents first and the `WorkspaceIndex` otherwise — which, for this,
+keeps the list of known files, each declaration's doc comment, and every
+`wesl.toml` the host pushes (language id `toml`). `wesl/manifest.rs` reads just
+the two keys resolution needs rather than pulling a TOML parser into the WASM.
+
+naga runs on a `.wesl` file only when `wesl::uses_wesl_syntax` says it has none
+of imports, `::` or `@if`; it reads one module and cannot see an import. The
+`wesl` crate (wesl-rs) could compile a package to WGSL for naga, but it needs
+every module's text and maps errors back only per declaration — a deliberate
+non-goal for now, as it is in wgsl-analyzer.
+
 ### The last-good module (WGSL)
 
 The `camera.` problem does not have a fallback good enough on its own — you
@@ -227,8 +249,8 @@ cargo test -p glsl-spec            # the generated tables, versions, families
 cargo test -p glsl-syntax          # lexer, preprocessor, parser, CST, outline
 cargo test -p glsl-analysis        # scopes, types, overloads, every diagnostic
 cargo test -p glsl-spec-gen        # the generator (skips without temp/docs.gl)
-cargo test -p wgsl-syntax          # WGSL lexer, parser, scopes, builtin tables
-cargo test -p wgsl-lsp-core        # naga bridge, and every feature end to end
+cargo test -p wgsl-syntax          # WGSL/WESL lexer, parser, scopes, builtin tables
+cargo test -p wgsl-lsp-core        # naga bridge, WESL resolution, every feature end to end
 pnpm --filter wx-vsce-wgsl-shader test
 ```
 

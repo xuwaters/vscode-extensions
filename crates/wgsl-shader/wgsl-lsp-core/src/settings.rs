@@ -22,10 +22,11 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// The settings for one language.
+    /// The settings for one language. WESL is WGSL with modules, and reads
+    /// the `wgsl.*` settings rather than growing a copy of every one.
     pub fn for_language(&self, language: Language) -> &LanguageSettings {
         match language {
-            Language::Wgsl => &self.wgsl,
+            Language::Wgsl | Language::Wesl => &self.wgsl,
             Language::Glsl => &self.glsl,
         }
     }

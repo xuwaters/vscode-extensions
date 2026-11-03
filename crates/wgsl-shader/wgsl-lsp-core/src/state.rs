@@ -174,12 +174,20 @@ impl Document {
     ///
     /// Authoritative for WGSL, and therefore what diagnostics publish: if the
     /// document does not parse right now, this says so. Empty for GLSL, which
-    /// [`crate::glsl`] answers for instead.
+    /// [`crate::glsl`] answers for instead, and for a WESL file that imports
+    /// or translates conditionally, which naga cannot read.
     pub fn analysis(&self) -> &Analysis {
         let (text, language) = (&self.text, self.language);
         let last_good = &self.last_good;
         self.analysis.get_or_init(|| {
-            if language != Language::Wgsl {
+            // naga reads one WGSL module: a WESL file that imports or
+            // translates conditionally is not one it can read.
+            let naga_reads_it = match language {
+                Language::Wgsl => true,
+                Language::Wesl => !crate::wesl::uses_wesl_syntax(&self.parsed, text),
+                Language::Glsl => false,
+            };
+            if !naga_reads_it {
                 return Analysis::empty();
             }
             let analysis = Analysis::run(text);
@@ -256,7 +264,7 @@ fn build(
     default_version: Option<Version>,
 ) -> (Parsed, Option<Box<GlslDocument>>) {
     match language {
-        Language::Wgsl => (wgsl_syntax::parse(text, language), None),
+        Language::Wgsl | Language::Wesl => (wgsl_syntax::parse(text, language), None),
         Language::Glsl => {
             let (glsl, parsed) = GlslDocument::build(text, extension, default_version);
             (parsed, Some(Box::new(glsl)))

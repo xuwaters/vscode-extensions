@@ -1,12 +1,13 @@
 # WGSL / GLSL Shader
 
-A language server for WGSL and GLSL. Completion that knows what the cursor is
-pointing at, hover with real types, go-to-definition, rename, semantic
+A language server for WGSL, WESL and GLSL. Completion that knows what the
+cursor is pointing at, hover with real types, go-to-definition, rename, semantic
 highlighting, and real diagnostics — WGSL validated by [naga], the same front
-end `wgpu` uses, and GLSL by an analyzer written for this extension.
+end `wgpu` uses, WESL imports followed from file to file, and GLSL checked by an
+analyzer written for this extension.
 
-It works in `.wgsl` and `.glsl` files, and inside shaders written in Rust and
-TypeScript string literals.
+It works in `.wgsl`, `.wesl` and `.glsl` files, and inside shaders written in
+Rust and TypeScript string literals.
 
 [naga]: https://github.com/gfx-rs/wgpu/tree/trunk/naga
 
@@ -20,7 +21,7 @@ TypeScript string literals.
 | **Find references, rename** | Across the file, with built-in names refused before the rename box opens. |
 | **Outline and symbol search** | Nested — a struct's fields and a function's parameters sit under it. Entry points get their own icon. `⌘T` searches every shader in the workspace, opened or not. |
 | **Semantic highlighting** | Colour by what a name *resolves to*: `Light` paints as a struct because a struct was declared under that name, `dot` as a library function because the language defines one. GLSL adds macro invocations, and dims the conditional branch you are not in. |
-| **Diagnostics** | For WGSL, parse and validation errors from naga, on the token that caused them. For GLSL, preprocessor, parser and semantic errors from this extension's own analyzer, each with a stable `GLSL####` code — in every dialect, not just the one naga reads. |
+| **Diagnostics** | For WGSL, parse and validation errors from naga, on the token that caused them. For WESL, imports that name nothing. For GLSL, preprocessor, parser and semantic errors from this extension's own analyzer, each with a stable `GLSL####` code — in every dialect, not just the one naga reads. |
 | **Signature help** | Parameter hints for every built-in and for your own functions. GLSL's built-ins are overloaded, so you get the whole set — filtered to the `#version` in force, printed in the specification's own generic notation (`genType`, `gsampler2D`), with the one whose arity still fits what you have typed highlighted. |
 | **Inlay hints** | Inferred types on bindings that declare none (WGSL) or the size an implicitly sized array takes from its initialiser (GLSL), and parameter names at call sites. Off by default. |
 | **Code actions** | Add a missing `#version`, pin a guessed GLSL stage with `#pragma shader_stage(…)`, switch a WGSL type between `vec4f` and `vec4<f32>`. |
@@ -161,9 +162,77 @@ never checked, and `glsl.validate.dialect` existed to control the skipping.
 That is gone. Every dialect is checked now, by one analyzer, and the setting
 with it.
 
+## WESL: WGSL with modules
+
+[WESL] is WGSL plus what a shader project grows into: `import`, module paths,
+and conditional translation with `@if`, `@elif` and `@else`. A `.wesl` file gets
+everything a `.wgsl` file does, and its imports are followed across files:
+
+```wesl
+import package::lighting::{attenuate, Light};
+import package::lights::point;
+
+@if(high_quality) const SAMPLES: u32 = 16u;
+@else             const SAMPLES: u32 = 4u;
+
+fn shade(light: Light, position: vec3f, normal: vec3f) -> vec3f {
+    return point::shade(light, position, normal) * attenuate(length(position));
+}
+```
+
+- **Go to definition** on `attenuate`, `Light` or `point::shade` lands on the
+  declaration in the file it comes from — opened or not. On a module name
+  (`lighting`, `point`) it opens that module's file.
+- **Hover** shows the imported declaration's signature, the module it is from,
+  and its doc comment.
+- **Completion** after `::` lists what that module holds — its submodules and
+  its declarations. Straight after `import` it offers `package`, `super` and the
+  dependencies `wesl.toml` names. Imported names complete as what they are, a
+  function as a function.
+- **Diagnostics** report an import that names nothing, on the segment that
+  fails: ``cannot find `attenuat` in `package::lighting` ``. Declarations of the
+  same name under `@if`/`@else` are not duplicates.
+- **Semantic highlighting** paints an imported function as a function and a
+  module as a namespace.
+
+### How a path finds its file
+
+A WESL file is a module named by its path from the package root:
+`shaders/lights/point.wesl` is `package::lights::point`.
+
+- **`package::`** starts at the root `wesl.toml` names — `root = "./shaders"`,
+  which is also the default. The nearest `wesl.toml` above a file decides its
+  package. With none, the file's own folder is the root.
+- **`super::`** is the module the file sits in, and each further `super` climbs
+  one more. Climbing out of the package is an error; outside any package it is
+  allowed.
+- **A path starting with a name** — `import noise::perlin;` — is a dependency.
+  One listed in `wesl.toml` with a `path` is followed into that folder, which is
+  read through its own `wesl.toml`. A dependency from a package manager is not
+  something the extension can see, so an import from one is left alone: never
+  followed, never flagged.
+
+When `lighting.wesl` and `lighting.wgsl` both exist, `lighting.wesl` is the
+module.
+
+### What is checked, and what is not
+
+naga reads one WGSL module and knows nothing of imports or `@if`. So:
+
+- A `.wesl` file that uses **no** WESL syntax is WGSL, and naga validates it in
+  full — types and all.
+- One that **does** gets syntax checks and import resolution, and no type
+  checking. A name brought in by an import has no type this file can see, and
+  reporting errors about it would be guessing.
+
+WESL reads the `wgsl.*` settings; there is no separate `wesl.` section.
+
+[WESL]: https://wesl-lang.dev
+
 ## Settings
 
-Every setting exists under both `wgsl.` and `glsl.`.
+Every setting exists under both `wgsl.` and `glsl.`. WESL files read the
+`wgsl.` ones.
 
 | Setting | Default | |
 | --- | --- | --- |
@@ -195,7 +264,7 @@ validation any more. A setting left over in your `settings.json` is ignored.
 
 | Command | |
 | --- | --- |
-| `WGSL: Validate Current File` | Validate now, whatever `validate.onSave` says. |
+| `WGSL / WESL: Validate Current File` | Validate now, whatever `validate.onSave` says. |
 | `GLSL: Validate Current File` | The same. |
 | `GLSL: Show Shader Stage of Current File` | Which stage, and why. |
 | `WGSL / GLSL: Restart Language Server` | |
@@ -203,6 +272,9 @@ validation any more. A setting left over in your `settings.json` is ignored.
 ## Languages and file types
 
 **WGSL** — `.wgsl`.
+
+**WESL** — `.wesl`, with `wesl.toml` read for the package root and path
+dependencies.
 
 **GLSL** — `.glsl`, `.vert`, `.frag`, `.comp`, `.geom`, `.tesc`, `.tese`,
 `.vsh`, `.fsh`, `.gsh`, `.vshader`, `.fshader`, `.gshader`, `.glslv`, `.glslf`,

@@ -11,6 +11,9 @@
 //! and knows which of `texture`'s thirty-odd signatures a given `#version`
 //! has. [`Language`] keeps its `Glsl` variant because it is what tags a
 //! document; every accessor here answers for WGSL and returns nothing for it.
+//!
+//! WESL is WGSL with modules on top, so it answers with WGSL's tables — plus
+//! the four words its import syntax reserves.
 
 pub mod wgsl;
 
@@ -38,7 +41,7 @@ pub(crate) use builtins;
 /// The builtin functions of a language.
 pub fn functions(language: Language) -> &'static [Builtin] {
     match language {
-        Language::Wgsl => wgsl::FUNCTIONS,
+        Language::Wgsl | Language::Wesl => wgsl::FUNCTIONS,
         Language::Glsl => &[],
     }
 }
@@ -46,16 +49,17 @@ pub fn functions(language: Language) -> &'static [Builtin] {
 /// The builtin type names of a language.
 pub fn type_names(language: Language) -> Vec<&'static str> {
     match language {
-        Language::Wgsl => wgsl::TYPES.to_vec(),
+        Language::Wgsl | Language::Wesl => wgsl::TYPES.to_vec(),
         Language::Glsl => Vec::new(),
     }
 }
 
 /// The reserved words of a language.
-pub fn keywords(language: Language) -> &'static [&'static str] {
+pub fn keywords(language: Language) -> Vec<&'static str> {
     match language {
-        Language::Wgsl => wgsl::KEYWORDS,
-        Language::Glsl => &[],
+        Language::Wgsl => wgsl::KEYWORDS.to_vec(),
+        Language::Wesl => wgsl::KEYWORDS.iter().chain(wgsl::WESL_KEYWORDS).copied().collect(),
+        Language::Glsl => Vec::new(),
     }
 }
 
@@ -78,14 +82,23 @@ pub fn variable(language: Language, name: &str) -> Option<&'static Builtin> {
 /// Whether `name` is a builtin type in this language.
 pub fn is_type(language: Language, name: &str) -> bool {
     match language {
-        Language::Wgsl => wgsl::TYPES.contains(&name),
+        Language::Wgsl | Language::Wesl => wgsl::TYPES.contains(&name),
         Language::Glsl => false,
     }
 }
 
 /// Whether `name` is reserved.
+///
+/// Not written in terms of [`keywords`]: the lexer asks this of every word in
+/// the file, and that list is built per call.
 pub fn is_keyword(language: Language, name: &str) -> bool {
-    keywords(language).contains(&name)
+    match language {
+        Language::Wgsl => wgsl::KEYWORDS.contains(&name),
+        Language::Wesl => {
+            wgsl::KEYWORDS.contains(&name) || wgsl::WESL_KEYWORDS.contains(&name)
+        }
+        Language::Glsl => false,
+    }
 }
 
 /// Whether the language defines `name` at all — a rename must refuse these.
@@ -117,7 +130,7 @@ mod tests {
 
     #[test]
     fn every_builtin_has_a_signature() {
-        for language in [Language::Wgsl, Language::Glsl] {
+        for language in [Language::Wgsl, Language::Glsl, Language::Wesl] {
             for builtin in functions(language) {
                 assert!(!builtin.signature.is_empty(), "{}", builtin.name);
                 assert!(
@@ -132,13 +145,26 @@ mod tests {
 
     #[test]
     fn builtin_names_are_unique() {
-        for language in [Language::Wgsl, Language::Glsl] {
+        for language in [Language::Wgsl, Language::Glsl, Language::Wesl] {
             let mut names: Vec<&str> = functions(language).iter().map(|b| b.name).collect();
             let before = names.len();
             names.sort_unstable();
             names.dedup();
             assert_eq!(names.len(), before, "duplicate builtin in {language:?}");
         }
+    }
+
+    /// `import`, `package`, `super` and `as` are ordinary names in WGSL and
+    /// the import syntax in WESL.
+    #[test]
+    fn the_import_words_are_keywords_in_wesl_alone() {
+        for word in wgsl::WESL_KEYWORDS {
+            assert!(is_keyword(Language::Wesl, word), "{word}");
+            assert!(!is_keyword(Language::Wgsl, word), "{word}");
+        }
+        assert!(is_keyword(Language::Wesl, "fn"));
+        assert!(keywords(Language::Wesl).contains(&"import"));
+        assert!(!keywords(Language::Wgsl).contains(&"import"));
     }
 
 }

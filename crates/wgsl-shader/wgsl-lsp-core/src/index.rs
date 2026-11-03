@@ -14,9 +14,17 @@
 //! below is language-blind: WGSL parses with `wgsl-syntax` and GLSL projects
 //! its own CST outline onto the same arena
 //! ([`crate::glsl::GlslDocument::project`]).
+//!
+//! WESL asks one more thing of it: the module a path names is a *file*, and
+//! importing from it needs that file's declarations. So the index also keeps
+//! which files exist — an empty module is still a module — each declaration's
+//! doc comment for the hover an importer shows, and every `wesl.toml`, which
+//! says where `package::` starts.
 
 use lsp_types::{Range, Uri};
 use wgsl_syntax::{Language, SymbolKind};
+
+use crate::wesl::manifest::Manifest;
 
 /// One symbol from an unopened file.
 #[derive(Debug, Clone)]
@@ -30,26 +38,34 @@ pub struct Entry {
     /// The struct or function the symbol is declared in, for the "in …"
     /// suffix a symbol picker shows.
     pub container: Option<String>,
+    /// The `//` comment above the declaration.
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Default)]
 pub struct WorkspaceIndex {
     entries: Vec<Entry>,
+    /// Every indexed file and its language, symbols or none.
+    files: Vec<(Uri, Language)>,
+    /// Every `wesl.toml`, by the URI it was read from.
+    manifests: Vec<(Uri, Manifest)>,
 }
 
 impl WorkspaceIndex {
     /// Index one file, replacing whatever was held for that URI.
     pub fn set_file(&mut self, uri: &Uri, language: Language, text: &str) {
         self.remove(uri);
+        self.files.push((uri.clone(), language));
 
         let parsed = match language {
-            Language::Wgsl => wgsl_syntax::parse(text, language),
+            Language::Wgsl | Language::Wesl => wgsl_syntax::parse(text, language),
             Language::Glsl => crate::glsl::GlslDocument::project(text),
         };
         let lines = analyzer_core::spans::SpanTable::new(text);
         for symbol in &parsed.symbols {
-            // Locals and parameters are noise in a workspace-wide picker.
-            if symbol.kind.is_local() {
+            // Locals and parameters are noise in a workspace-wide picker, and
+            // an import is a name for something declared elsewhere.
+            if !symbol.kind.is_declaration() {
                 continue;
             }
             self.entries.push(Entry {
@@ -62,19 +78,40 @@ impl WorkspaceIndex {
                 container: symbol
                     .parent
                     .map(|parent| parsed.symbols[parent].name.clone()),
+                doc: crate::features::doc_comment(&parsed, text, symbol.full_span),
             });
         }
+    }
+
+    /// Hold a `wesl.toml`, replacing whatever was held for that URI.
+    pub fn set_manifest(&mut self, uri: &Uri, text: &str) {
+        self.remove(uri);
+        let path = uri.as_str();
+        let dir = path.rsplit_once('/').map_or(path, |(dir, _)| dir);
+        self.manifests.push((uri.clone(), Manifest::parse(dir, text)));
     }
 
     /// Forget a file — it was deleted, or it has just been opened and the
     /// live document is now the better source.
     pub fn remove(&mut self, uri: &Uri) {
         self.entries.retain(|entry| entry.uri.as_str() != uri.as_str());
+        self.files.retain(|(file, _)| file.as_str() != uri.as_str());
+        self.manifests.retain(|(file, _)| file.as_str() != uri.as_str());
+    }
+
+    /// Every indexed file and its language.
+    pub fn files(&self) -> impl Iterator<Item = (&Uri, Language)> {
+        self.files.iter().map(|(uri, language)| (uri, *language))
+    }
+
+    /// Every `wesl.toml` the host has pushed.
+    pub fn manifests(&self) -> impl Iterator<Item = &Manifest> {
+        self.manifests.iter().map(|(_, manifest)| manifest)
     }
 
     /// Whether anything is held for a URI.
     pub fn contains(&self, uri: &Uri) -> bool {
-        self.entries.iter().any(|entry| entry.uri.as_str() == uri.as_str())
+        self.files.iter().any(|(file, _)| file.as_str() == uri.as_str())
     }
 
     pub fn entries(&self) -> &[Entry] {
