@@ -5,10 +5,11 @@
 //! and pushes what it finds over `wgsl/workspaceFiles`; this is where that
 //! lands.
 //!
-//! Only the outline is kept, not the text. A workspace of a thousand shaders
-//! is then a few hundred kilobytes of names rather than tens of megabytes of
-//! source, and nothing here has to be invalidated when a file changes — the
-//! host re-pushes it.
+//! The outline is kept, and the text only of WGSL and WESL files. GLSL is the
+//! bulk of a large shader tree and only its names are ever asked for; a WGSL
+//! or WESL file may be imported, and linking an import needs its source.
+//! Nothing here has to be invalidated when a file changes — the host
+//! re-pushes it.
 //!
 //! Both languages produce the same [`wgsl_syntax::Symbol`] shape, so the code
 //! below is language-blind: WGSL parses with `wgsl-syntax` and GLSL projects
@@ -18,8 +19,9 @@
 //! WESL asks one more thing of it: the module a path names is a *file*, and
 //! importing from it needs that file's declarations. So the index also keeps
 //! which files exist — an empty module is still a module — each declaration's
-//! doc comment for the hover an importer shows, and every `wesl.toml`, which
-//! says where `package::` starts.
+//! doc comment for the hover an importer shows, every `wesl.toml`, which
+//! says where `package::` starts, and the text [`crate::wesl::link`] stitches
+//! into the module naga checks.
 
 use lsp_types::{Range, Uri};
 use wgsl_syntax::{Language, SymbolKind};
@@ -47,6 +49,8 @@ pub struct WorkspaceIndex {
     entries: Vec<Entry>,
     /// Every indexed file and its language, symbols or none.
     files: Vec<(Uri, Language)>,
+    /// The text of every WGSL and WESL file, for linking.
+    sources: Vec<(Uri, String)>,
     /// Every `wesl.toml`, by the URI it was read from.
     manifests: Vec<(Uri, Manifest)>,
 }
@@ -56,6 +60,9 @@ impl WorkspaceIndex {
     pub fn set_file(&mut self, uri: &Uri, language: Language, text: &str) {
         self.remove(uri);
         self.files.push((uri.clone(), language));
+        if language.is_wgsl_family() {
+            self.sources.push((uri.clone(), text.to_string()));
+        }
 
         let parsed = match language {
             Language::Wgsl | Language::Wesl => wgsl_syntax::parse(text, language),
@@ -96,12 +103,18 @@ impl WorkspaceIndex {
     pub fn remove(&mut self, uri: &Uri) {
         self.entries.retain(|entry| entry.uri.as_str() != uri.as_str());
         self.files.retain(|(file, _)| file.as_str() != uri.as_str());
+        self.sources.retain(|(file, _)| file.as_str() != uri.as_str());
         self.manifests.retain(|(file, _)| file.as_str() != uri.as_str());
     }
 
     /// Every indexed file and its language.
     pub fn files(&self) -> impl Iterator<Item = (&Uri, Language)> {
         self.files.iter().map(|(uri, language)| (uri, *language))
+    }
+
+    /// The text of an indexed WGSL or WESL file.
+    pub fn source(&self, uri: &str) -> Option<&str> {
+        self.sources.iter().find(|(file, _)| file.as_str() == uri).map(|(_, text)| text.as_str())
     }
 
     /// Every `wesl.toml` the host has pushed.

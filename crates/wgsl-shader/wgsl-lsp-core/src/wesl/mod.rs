@@ -17,13 +17,19 @@
 //! - **The features**: definition, hover, completion and semantic tokens
 //!   follow an import into the file it names, and diagnostics report an
 //!   import that names nothing.
+//! - **Validation** ([`link`]): naga reads one WGSL module and knows nothing
+//!   of imports or `@if`, so a file that uses them is linked with what it
+//!   imports, under the `wesl.features` setting ([`conditions`]), and naga
+//!   checks that. Its problems map back to the file.
 //!
-//! **What is not checked.** Types, and anything else that needs the imported
-//! declarations *inside* this file's analysis. naga reads one WGSL module and
-//! knows nothing of imports or `@if`, so a WESL file that uses neither is
-//! validated in full and one that uses them gets resolution and syntax
-//! checks only. A false squiggle costs more than a missed one.
+//! **What is not checked.** Types *in the editor's answers*: hover and
+//! completion read the file's own naga module, which a file that imports does
+//! not have. And nothing is linked while a path names nothing or leads into a
+//! dependency the server cannot see — a false squiggle costs more than a
+//! missed one.
 
+pub mod conditions;
+pub mod link;
 pub mod manifest;
 
 use lsp_types::{
@@ -170,29 +176,7 @@ impl Server {
     /// stands for `package::shared::utils::helper`; inside an import
     /// statement the path is taken as written.
     pub fn wesl_path_at(&self, document: &Document, offset: u32) -> Option<FullPath> {
-        let parsed = document.parsed();
-        let reference = parsed.reference_at(offset)?;
-        let name = document.slice(reference.span).to_string();
-        let in_import = in_import_statement(parsed, offset);
-
-        match parsed.path_prefix(document.text(), reference.span.start) {
-            Some(prefix) => {
-                let mut segments: Vec<String> =
-                    prefix.segments.iter().map(|(segment, _)| segment.clone()).collect();
-                segments.push(name);
-                if prefix.root == PathRoot::Bare && !in_import {
-                    if let Some(expanded) = expand_import(parsed, &segments, offset) {
-                        return Some(expanded);
-                    }
-                }
-                Some(FullPath { root: prefix.root, segments })
-            }
-            // The first segment of an import names a package.
-            None if in_import && !reference.is_declaration => {
-                Some(FullPath { root: PathRoot::Bare, segments: vec![name] })
-            }
-            None => expand_import(parsed, &[name], offset),
-        }
+        path_at(document.parsed(), document.text(), offset)
     }
 
     /// Where the WESL path or imported name at `offset` leads, when it leads
@@ -579,6 +563,33 @@ pub fn uses_wesl_syntax(parsed: &Parsed, source: &str) -> bool {
         || parsed.references.iter().any(|reference| {
             reference.is_member && follows_path_separator(parsed, source, reference.span.start)
         })
+}
+
+/// The full path the name at `offset` stands for — see
+/// [`Server::wesl_path_at`], which this answers for any parsed source.
+fn path_at(parsed: &Parsed, source: &str, offset: u32) -> Option<FullPath> {
+    let reference = parsed.reference_at(offset)?;
+    let name = parsed.text(source, reference.span).to_string();
+    let in_import = in_import_statement(parsed, offset);
+
+    match parsed.path_prefix(source, reference.span.start) {
+        Some(prefix) => {
+            let mut segments: Vec<String> =
+                prefix.segments.iter().map(|(segment, _)| segment.clone()).collect();
+            segments.push(name);
+            if prefix.root == PathRoot::Bare && !in_import {
+                if let Some(expanded) = expand_import(parsed, &segments, offset) {
+                    return Some(expanded);
+                }
+            }
+            Some(FullPath { root: prefix.root, segments })
+        }
+        // The first segment of an import names a package.
+        None if in_import && !reference.is_declaration => {
+            Some(FullPath { root: PathRoot::Bare, segments: vec![name] })
+        }
+        None => expand_import(parsed, &[name], offset),
+    }
 }
 
 /// The path an import brought in, with whatever `segments` adds after its

@@ -126,15 +126,28 @@ What it adds is the one thing no other language here needs: **another file**.
 `wgsl-lsp-core/src/wesl/` resolves a path (`package::a::b`, `super::x`, or a
 `wesl.toml` path dependency) to a module file or a declaration in one. It reads
 open documents first and the `WorkspaceIndex` otherwise — which, for this,
-keeps the list of known files, each declaration's doc comment, and every
-`wesl.toml` the host pushes (language id `toml`). `wesl/manifest.rs` reads just
-the two keys resolution needs rather than pulling a TOML parser into the WASM.
+keeps the list of known files, each declaration's doc comment, the text of
+every WGSL and WESL file, and every `wesl.toml` the host pushes (language id
+`toml`). `wesl/manifest.rs` reads just the two keys resolution needs rather
+than pulling a TOML parser into the WASM.
 
-naga runs on a `.wesl` file only when `wesl::uses_wesl_syntax` says it has none
-of imports, `::` or `@if`; it reads one module and cannot see an import. The
-`wesl` crate (wesl-rs) could compile a package to WGSL for naga, but it needs
-every module's text and maps errors back only per declaration — a deliberate
-non-goal for now, as it is in wgsl-analyzer.
+naga runs on a `.wesl` file as it stands only when `wesl::uses_wesl_syntax`
+says it has none of imports, `::` or `@if`. Otherwise `wesl/link.rs` links it:
+the file whole, minus its imports, plus each declaration reachable from it in
+other modules, renamed `package__lights__point__shade`, with every use —
+imported name, alias, qualified path — rewritten to match.
+`wesl/conditions.rs` runs conditional translation first, per file, under
+`wesl.features`, on the token stream, since `@if` can sit on a member,
+parameter or statement as well as a declaration. Every run of linked text
+records the span it came from, so naga's spans map back; renamed names are
+spelled as WESL paths again in its messages (`analysis::check_linked` keeps
+naga's codespan excerpt out of them, since it would quote the linked text).
+
+The `wesl` crate (wesl-rs) does the same job, but it brings its own parser,
+a TOML parser and a terminal renderer into the WASM, and its spans are not
+this parser's. The hand-rolled linker reuses the resolver the rest of the
+features already trust. It gives up — no naga at all — when a path does not
+resolve, a dependency is not visible, or a condition is not one it can read.
 
 ### The last-good module (WGSL)
 

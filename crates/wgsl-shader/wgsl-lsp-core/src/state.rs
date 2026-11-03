@@ -175,7 +175,9 @@ impl Document {
     /// Authoritative for WGSL, and therefore what diagnostics publish: if the
     /// document does not parse right now, this says so. Empty for GLSL, which
     /// [`crate::glsl`] answers for instead, and for a WESL file that imports
-    /// or translates conditionally, which naga cannot read.
+    /// or translates conditionally, which naga cannot read alone — that one is
+    /// checked linked with its imports ([`crate::wesl::link`]), which needs
+    /// the whole workspace and so is not the document's to answer.
     pub fn analysis(&self) -> &Analysis {
         let (text, language) = (&self.text, self.language);
         let last_good = &self.last_good;

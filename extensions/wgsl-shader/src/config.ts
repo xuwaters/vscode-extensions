@@ -1,5 +1,5 @@
-// The `wgsl.*` and `glsl.*` settings, gathered into the one object the server
-// deserializes.
+// The `wgsl.*`, `glsl.*` and `wesl.*` settings, gathered into the one object
+// the server deserializes.
 //
 // The shape here has to match `wgsl_lsp_core::settings::Settings` exactly. It
 // is spelled out rather than read generically so a typo is a TypeScript error
@@ -20,16 +20,40 @@ export interface LanguageSettings {
   embedded: { enabled: boolean; diagnostics: boolean };
 }
 
+/** WESL reads the `wgsl.*` settings; this is only what WGSL has no use for. */
+export interface WeslSettings {
+  /** The features `@if`, `@elif` and `@else` test. One left out is false. */
+  features: Record<string, boolean>;
+}
+
 export interface Settings {
   wgsl: LanguageSettings;
   glsl: LanguageSettings;
+  wesl: WeslSettings;
 }
 
 /** The configuration sections the server cares about. */
-export const SECTIONS = ['wgsl', 'glsl'] as const;
+export const SECTIONS = ['wgsl', 'glsl', 'wesl'] as const;
 
 export function read(scope?: vscode.Uri): Settings {
-  return { wgsl: readSection('wgsl', scope), glsl: readSection('glsl', scope) };
+  return {
+    wgsl: readSection('wgsl', scope),
+    glsl: readSection('glsl', scope),
+    wesl: { features: readFeatures(scope) },
+  };
+}
+
+/** `wesl.features`, with anything that is not a boolean left out. */
+function readFeatures(scope?: vscode.Uri): Record<string, boolean> {
+  const features = vscode.workspace.getConfiguration('wesl', scope).get<unknown>('features', {});
+  if (typeof features !== 'object' || features === null) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(features).filter(
+      (entry): entry is [string, boolean] => typeof entry[1] === 'boolean',
+    ),
+  );
 }
 
 function readSection(section: string, scope?: vscode.Uri): LanguageSettings {

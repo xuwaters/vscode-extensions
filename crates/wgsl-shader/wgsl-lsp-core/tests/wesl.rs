@@ -229,9 +229,9 @@ fn saving_the_imported_module_republishes_its_importers() {
 }
 
 /// A WESL file that uses nothing WGSL lacks is WGSL, and naga checks it in
-/// full; one that imports is not one naga can read, so it is not asked.
+/// full; one that imports is checked linked with what it imports.
 #[test]
-fn naga_validates_a_wesl_file_only_when_it_is_plain_wgsl() {
+fn naga_validates_a_plain_wesl_file_as_it_stands() {
     let mut harness = Harness::new();
     let plain = harness.open("plain.wesl", "fn f() -> f32 { return true; }\n");
     let diagnostics = harness.diagnostics(&plain).expect("naga found the mismatch");
@@ -253,6 +253,119 @@ fn conditional_declarations_are_not_duplicates() {
         "@if(mobile) const SAMPLES = 4;\n@else const SAMPLES = 16;\n\
          fn f() -> i32 { return SAMPLES; }\n",
     );
+    assert_eq!(harness.diagnostics(&uri), None);
+}
+
+// ── Linked validation ──────────────────────────────────────────────────────
+
+fn naga(diagnostics: &[Diagnostic]) -> Vec<&Diagnostic> {
+    diagnostics.iter().filter(|d| d.source.as_deref() == Some("naga")).collect()
+}
+
+/// A file that imports is type-checked against what it imports: here a
+/// function returning `f32` is used where an `i32` is due.
+#[test]
+fn an_importer_is_type_checked_against_its_imports() {
+    let (mut harness, uri) = workspace();
+    assert_eq!(harness.diagnostics(&uri), None, "MAIN is valid");
+
+    let source = "import package::lighting::attenuate;\n\
+                  fn f() -> i32 { return attenuate(2.0); }\n";
+    let uri = harness.open("bad.wesl", source);
+    let diagnostics = harness.diagnostics(&uri).expect("naga found the mismatch");
+    let naga = naga(&diagnostics);
+    assert!(!naga.is_empty(), "{diagnostics:?}");
+    // On the root's own text, not the linked module's.
+    assert!(naga.iter().all(|d| d.range.start.line == 1), "{naga:?}");
+    assert!(naga.iter().all(|d| !d.message.contains("package__")), "{naga:?}");
+}
+
+/// A renamed declaration is called by its WESL path in naga's messages.
+#[test]
+fn a_message_names_an_imported_declaration_by_its_path() {
+    let mut harness = Harness::new();
+    harness.workspace_files(&[("lib.wesl", "@if(never) fn gone() {}\n")]);
+    let source = "import package::lib::gone;\nfn f() { gone(); }\n";
+    let uri = harness.open("main.wesl", source);
+    let diagnostics = harness.diagnostics(&uri).expect("the call has nothing to call");
+    let naga = naga(&diagnostics);
+    assert_eq!(naga.len(), 1, "{diagnostics:?}");
+    assert!(naga[0].message.contains("package::lib::gone"), "{}", naga[0].message);
+    assert_eq!(naga[0].range.start, find(source, "gone();", 0));
+}
+
+/// A problem inside another module lands on the use that pulled it in, and
+/// points at where it is.
+#[test]
+fn a_problem_in_an_imported_module_lands_on_the_use() {
+    let mut harness = Harness::new();
+    let lib = "fn helper() -> f32 {\n    return true;\n}\n";
+    harness.workspace_files(&[("lib.wesl", lib)]);
+    let source = "import package::lib;\nfn f() -> f32 { return lib::helper(); }\n";
+    let uri = harness.open("main.wesl", source);
+    let diagnostics = harness.diagnostics(&uri).expect("the module has a problem");
+    let naga = naga(&diagnostics);
+    assert!(!naga.is_empty(), "{diagnostics:?}");
+    let problem = naga[0];
+    assert_eq!(problem.range.start, find(source, "lib::helper", 0));
+    assert!(problem.message.starts_with("in `package::lib`: "), "{}", problem.message);
+    let related = problem.related_information.as_ref().expect("related locations");
+    assert!(related.iter().all(|r| r.location.uri == uri_for("lib.wesl")), "{related:?}");
+    // The `return` among them, not only the function it is in.
+    assert!(related.iter().any(|r| r.location.range.start.line == 1), "{related:?}");
+}
+
+/// `@if` reads the `wesl.features` setting; a feature left out is false.
+#[test]
+fn conditions_follow_the_features_setting() {
+    let mut harness = Harness::new();
+    let source = "@if(wide) const N: i32 = 1;\n\
+                  @if(!wide) const N: f32 = 1.0;\n\
+                  fn f() -> i32 { return N; }\n";
+    let uri = harness.open("main.wesl", source);
+    assert!(!naga(&harness.diagnostics(&uri).unwrap()).is_empty(), "N is f32 without `wide`");
+
+    harness.configure(json!({ "wesl": { "features": { "wide": true } } }));
+    assert_eq!(harness.diagnostics(&uri), Some(Vec::new()));
+}
+
+/// A dependency the server cannot see leaves nothing to check against.
+#[test]
+fn an_unseen_dependency_is_not_type_checked() {
+    let mut harness = Harness::new();
+    let source = "import bevy::pbr::shade;\nfn f() -> i32 { return shade(); }\n";
+    let uri = harness.open("main.wesl", source);
+    assert_eq!(harness.diagnostics(&uri), None);
+}
+
+/// What the root pulls in through another module comes along, renamed, and
+/// two modules may declare the same name.
+#[test]
+fn transitive_imports_link_and_same_names_do_not_clash() {
+    let mut harness = Harness::new();
+    harness.workspace_files(&[
+        ("a.wesl", "import package::b::scale;\nfn value() -> f32 { return scale() * 2.0; }\n"),
+        ("b.wesl", "fn scale() -> f32 { return 0.5; }\nfn value() -> f32 { return 3.0; }\n"),
+    ]);
+    let source = "import package::a;\nimport package::b;\n\
+                  fn value() -> f32 { return a::value() + b::value(); }\n";
+    let uri = harness.open("main.wesl", source);
+    assert_eq!(harness.diagnostics(&uri), None);
+}
+
+/// `position` in `@builtin(position)` and `read` in `var<storage, read>` are
+/// words, not names: a module declaring either still links.
+#[test]
+fn builtin_and_template_words_are_not_renamed() {
+    let mut harness = Harness::new();
+    let lib = "const position: f32 = 1.0;\nconst read: u32 = 0u;\n\
+               @group(0) @binding(0) var<storage, read> data: array<f32>;\n\
+               struct Out { @builtin(position) clip: vec4f, }\n\
+               fn make() -> Out { return Out(vec4f(position + data[read])); }\n";
+    harness.workspace_files(&[("lib.wesl", lib)]);
+    let source = "import package::lib::make;\n\
+                  @vertex fn vs() -> @builtin(position) vec4f { return make().clip; }\n";
+    let uri = harness.open("main.wesl", source);
     assert_eq!(harness.diagnostics(&uri), None);
 }
 

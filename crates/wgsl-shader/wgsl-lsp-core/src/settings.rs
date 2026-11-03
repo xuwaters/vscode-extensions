@@ -9,9 +9,10 @@
 //! Everything is `#[serde(default)]`, so a client that sends a partial object,
 //! or none, gets the documented defaults rather than a deserialisation error.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use wgsl_syntax::Language;
-
 
 /// Everything the server reads out of the client's configuration.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,6 +20,16 @@ use wgsl_syntax::Language;
 pub struct Settings {
     pub wgsl: LanguageSettings,
     pub glsl: LanguageSettings,
+    pub wesl: WeslSettings,
+}
+
+/// The `wesl.*` settings: only what WGSL has no counterpart for.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WeslSettings {
+    /// The features `@if`, `@elif` and `@else` test, as a linker would be
+    /// handed them. One left out is false.
+    pub features: BTreeMap<String, bool>,
 }
 
 impl Settings {
@@ -159,6 +170,17 @@ mod tests {
         assert!(!settings.glsl.format.enable);
         assert!(settings.glsl.embedded.enabled);
         assert!(!settings.glsl.embedded.diagnostics);
+        assert!(settings.wesl.features.is_empty());
+    }
+
+    #[test]
+    fn wesl_features_are_read_by_name() {
+        let settings: Settings = serde_json::from_value(
+            serde_json::json!({ "wesl": { "features": { "high_quality": true, "debug": false } } }),
+        )
+        .unwrap();
+        assert_eq!(settings.wesl.features.get("high_quality"), Some(&true));
+        assert_eq!(settings.wesl.features.get("debug"), Some(&false));
     }
 
     /// A client that sends one key must not lose the defaults for the rest.

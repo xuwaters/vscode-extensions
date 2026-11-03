@@ -21,7 +21,7 @@ Rust and TypeScript string literals.
 | **Find references, rename** | Across the file, with built-in names refused before the rename box opens. |
 | **Outline and symbol search** | Nested — a struct's fields and a function's parameters sit under it. Entry points get their own icon. `⌘T` searches every shader in the workspace, opened or not. |
 | **Semantic highlighting** | Colour by what a name *resolves to*: `Light` paints as a struct because a struct was declared under that name, `dot` as a library function because the language defines one. GLSL adds macro invocations, and dims the conditional branch you are not in. |
-| **Diagnostics** | For WGSL, parse and validation errors from naga, on the token that caused them. For WESL, imports that name nothing. For GLSL, preprocessor, parser and semantic errors from this extension's own analyzer, each with a stable `GLSL####` code — in every dialect, not just the one naga reads. |
+| **Diagnostics** | For WGSL, parse and validation errors from naga, on the token that caused them. For WESL, the same, checked with the file's imports linked in, plus imports that name nothing. For GLSL, preprocessor, parser and semantic errors from this extension's own analyzer, each with a stable `GLSL####` code — in every dialect, not just the one naga reads. |
 | **Signature help** | Parameter hints for every built-in and for your own functions. GLSL's built-ins are overloaded, so you get the whole set — filtered to the `#version` in force, printed in the specification's own generic notation (`genType`, `gsampler2D`), with the one whose arity still fits what you have typed highlighted. |
 | **Inlay hints** | Inferred types on bindings that declare none (WGSL) or the size an implicitly sized array takes from its initialiser (GLSL), and parameter names at call sites. Off by default. |
 | **Code actions** | Add a missing `#version`, pin a guessed GLSL stage with `#pragma shader_stage(…)`, switch a WGSL type between `vec4f` and `vec4<f32>`. |
@@ -191,7 +191,8 @@ fn shade(light: Light, position: vec3f, normal: vec3f) -> vec3f {
   function as a function.
 - **Diagnostics** report an import that names nothing, on the segment that
   fails: ``cannot find `attenuat` in `package::lighting` ``. Declarations of the
-  same name under `@if`/`@else` are not duplicates.
+  same name under `@if`/`@else` are not duplicates. And naga type-checks the
+  file with what it imports linked in — see below.
 - **Semantic highlighting** paints an imported function as a function and a
   module as a namespace.
 
@@ -217,15 +218,33 @@ module.
 
 ### What is checked, and what is not
 
-naga reads one WGSL module and knows nothing of imports or `@if`. So:
+naga reads one WGSL module and knows nothing of imports or `@if`. So a `.wesl`
+file that uses either is **linked** first, the way a WESL linker would: the
+file, plus every declaration it reaches through its imports — and what those
+reach in turn — renamed so names from different modules cannot clash.
+Conditional translation picks the branches the `wesl.features` setting says.
+naga validates the result, types and all.
 
-- A `.wesl` file that uses **no** WESL syntax is WGSL, and naga validates it in
-  full — types and all.
-- One that **does** gets syntax checks and import resolution, and no type
-  checking. A name brought in by an import has no type this file can see, and
-  reporting errors about it would be guessing.
+- A problem in the file is reported where it is, and names an imported
+  declaration by its path: ``no definition in scope for identifier:
+  `package::lib::gone` ``.
+- A problem inside an imported module is reported on the use that pulled it
+  in, as ``in `package::lights::point`: …``, with a link to where it actually
+  is.
+- Only one configuration is checked: code a condition removes is not. Set
+  `wesl.features` to check another — `{ "high_quality": true }`.
+- Nothing is linked while an import names nothing, or reaches into a
+  dependency from a package manager, or a condition is more than feature
+  names, `!`, `&&`, `||` and parentheses. The file then gets syntax checks and
+  import resolution, and no type checking, rather than errors about code the
+  extension cannot see.
+- Hover and completion do not see imported types yet: `light.` after an
+  imported `Light` offers nothing.
 
-WESL reads the `wgsl.*` settings; there is no separate `wesl.` section.
+A `.wesl` file that uses no WESL syntax is WGSL, and naga validates it as it
+stands.
+
+WESL reads the `wgsl.*` settings, plus `wesl.features`.
 
 [WESL]: https://wesl-lang.dev
 
@@ -248,13 +267,14 @@ Every setting exists under both `wgsl.` and `glsl.`. WESL files read the
 | `embedded.enabled` | `true` | Language features inside tagged string literals. |
 | `embedded.diagnostics` | `false` | Validate embedded shaders too. |
 
-Plus three of their own:
+Plus four of their own:
 
 | Setting | Default | |
 | --- | --- | --- |
 | `glsl.defaultVersion` | `""` | The `#version` to analyse a file that declares none as — `450`, `330 core`, `300 es`. Empty follows the specification, which says 1.10. See [above](#which-stage-and-which-version). |
 | `glsl.showStageInStatusBar` | `true` | Shows the version and stage, with a `?` when the stage had to be guessed. |
 | `wgsl.rust.highlightHint` | `true` | Offer the rust-analyzer fix described above. |
+| `wesl.features` | `{}` | The features `@if`, `@elif` and `@else` test when a WESL file is checked. One left out is false. See [above](#what-is-checked-and-what-is-not). |
 
 `glsl.validate.dialect` was removed: it existed only to switch naga's
 Vulkan-only GLSL front end off for sources it could not read, and nothing skips

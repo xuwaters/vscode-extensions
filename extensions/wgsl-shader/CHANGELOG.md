@@ -20,13 +20,24 @@ from file to file.
 - **Diagnostics** for an import or qualified name that names nothing, on the
   segment that fails, and for a `super` that climbs out of its package.
   Declarations under `@if`/`@elif`/`@else` may share a name.
+- **Linked validation.** A file that imports or translates conditionally is
+  linked with what it imports — every declaration it reaches, renamed apart —
+  and naga type-checks the result. Problems land in the file, naming imported
+  declarations by their paths; one inside an imported module lands on the use
+  that pulled it in, linked to where it is.
+- **`wesl.features`**, the features `@if`, `@elif` and `@else` test when a file
+  is checked. One left out is false.
 - `@if`, `@elif` and `@else` complete after `@` in WESL files.
 
 ### Changed
 
-- naga validates a `.wesl` file only when it uses no WESL syntax; one that
-  imports or translates conditionally gets syntax checks and import resolution
-  instead. WESL files read the `wgsl.*` settings.
+- naga validates a `.wesl` file that uses no WESL syntax as it stands, and one
+  that does once it is linked. Nothing is linked while an import names nothing
+  or reaches into a dependency from a package manager: that file gets syntax
+  checks and import resolution only. WESL files read the `wgsl.*` settings,
+  plus `wesl.features`.
+- The workspace index keeps the text of WGSL and WESL files, which linking an
+  unopened module needs. GLSL is still kept as an outline only.
 - `:` is a completion trigger character, for `::`. A lone `:` still offers
   nothing, as before.
 - The workspace walk now picks up `.wesl` files and `wesl.toml`.

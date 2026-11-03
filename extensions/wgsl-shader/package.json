@@ -245,6 +245,14 @@
           "default": false,
           "markdownDescription": "Validate embedded WGSL too. Off by default: a shader inside a string is often a fragment assembled elsewhere, and checking it as a standalone module reports errors about code nobody wrote. Requires `#wgsl.embedded.enabled#`."
         },
+        "wesl.features": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "markdownDescription": "The features WESL's `@if`, `@elif` and `@else` test when a file is checked, as a linker would be handed them — `{ \"high_quality\": true }`. A feature left out is false.\n\nA WESL file that imports or translates conditionally is checked by linking it with what it imports and validating the result, and conditional translation picks the code that result holds. Code a condition removes is not checked; set the features to check another configuration."
+        },
         "glsl.validate.onSave": {
           "type": "boolean",
           "default": true,

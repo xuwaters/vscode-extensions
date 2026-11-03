@@ -16,10 +16,12 @@
 //! implement, so it was highlighted and never checked. It is checked now
 //! ([decision 0008](../../../../../docs/rfc/012-glsl-analyzer/decisions/0008-naga-glsl-in-dropped.md)).
 //!
-//! **WESL** is WGSL's, with naga skipped for a file it cannot read — one that
-//! imports or translates conditionally — plus what [`crate::wesl`] finds wrong
-//! with its paths. Those need the whole workspace, so they are added by
-//! [`Server::publish_diagnostics_for`] rather than by [`diagnostics`].
+//! **WESL** is WGSL's. A file that imports or translates conditionally is
+//! not one naga can read, so it is linked with what it imports
+//! ([`crate::wesl::link`]) and naga checks the result; on top of that comes
+//! what [`crate::wesl`] finds wrong with its paths. Both need the whole
+//! workspace, so they are added by [`Server::publish_diagnostics_for`] rather
+//! than by [`diagnostics`].
 //!
 //! The conservatism that keeps it honest lives one layer down, in
 //! `glsl-analysis`: a file whose preprocessing or parse failed gets resolution
@@ -101,8 +103,7 @@ fn wgsl_diagnostics(document: &Document) -> Vec<Diagnostic> {
 
     let naga_ran = analysis.module.is_some() || !analysis.problems.is_empty();
     for problem in &document.parsed().diagnostics {
-        let unbalanced = problem.message.starts_with("unmatched")
-            || problem.message.starts_with("unclosed");
+        let unbalanced = is_unbalanced(&problem.message);
         // An unbalanced delimiter is also what made naga fail, and reporting
         // it twice in two places is worse than reporting naga's version once.
         if unbalanced && naga_ran {
@@ -124,6 +125,11 @@ fn wgsl_diagnostics(document: &Document) -> Vec<Diagnostic> {
     diagnostics
 }
 
+/// Whether a syntax-layer message is about an unbalanced delimiter.
+fn is_unbalanced(message: &str) -> bool {
+    message.starts_with("unmatched") || message.starts_with("unclosed")
+}
+
 impl Server {
     /// Compute and publish diagnostics for one document.
     pub(crate) fn publish_diagnostics_for(&mut self, uri: &Uri) {
@@ -133,7 +139,23 @@ impl Server {
         let version = document.version;
         let mut diagnostics = diagnostics(document);
         if document.language == wgsl_syntax::Language::Wesl {
-            diagnostics.extend(self.wesl_diagnostics(document));
+            let paths = self.wesl_diagnostics(document);
+            // A path that names nothing leaves nothing to link; one that
+            // does is checked against what it names.
+            if paths.is_empty()
+                && crate::wesl::uses_wesl_syntax(document.parsed(), document.text())
+            {
+                let linked = self.wesl_link_diagnostics(document);
+                if !linked.is_empty() {
+                    // As for WGSL: naga's version of an unbalanced delimiter
+                    // is the one to keep.
+                    diagnostics.retain(|d| {
+                        d.source.as_deref() != Some(SYNTAX) || !is_unbalanced(&d.message)
+                    });
+                }
+                diagnostics.extend(linked);
+            }
+            diagnostics.extend(paths);
             diagnostics.sort_by_key(|d| (d.range.start.line, d.range.start.character));
         }
 

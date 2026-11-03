@@ -83,6 +83,55 @@ impl Analysis {
     }
 }
 
+/// Parse and validate a source that is not the text the user sees — a WESL
+/// file linked with its imports — so each message is the error alone, with no
+/// excerpt of the source quoted under it: that excerpt would show the linked
+/// text, not the file. Each problem's span is into `source`, for the caller to
+/// map back.
+pub fn check_linked(source: &str) -> Vec<Problem> {
+    let module = match naga::front::wgsl::parse_str(source) {
+        Ok(module) => module,
+        Err(error) => {
+            let mut message = error.message().to_string();
+            for note in error.notes() {
+                message.push('\n');
+                message.push_str(note);
+            }
+            return spread(error.labels().map(|(span, _)| span), message);
+        }
+    };
+    let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
+    let Err(error) = validator.validate(&module) else {
+        return Vec::new();
+    };
+    // The chain is the message: "function `f` is invalid", then why.
+    let mut message = error.as_inner().to_string();
+    let mut cause = std::error::Error::source(error.as_inner());
+    while let Some(inner) = cause {
+        message.push('\n');
+        message.push_str(&inner.to_string());
+        cause = inner.source();
+    }
+    spread(error.spans().map(|(span, _)| *span), message)
+}
+
+/// One problem per span carrying `message`, or one at the start when naga
+/// gave no span at all.
+fn spread(spans: impl Iterator<Item = naga::Span>, message: String) -> Vec<Problem> {
+    let problems: Vec<Problem> = spans
+        .filter_map(|span| span.to_range())
+        .map(|range| Problem {
+            span: ByteSpan::from_usize(range.start, range.end),
+            message: message.clone(),
+        })
+        .collect();
+    if problems.is_empty() {
+        vec![Problem { span: ByteSpan::EMPTY, message }]
+    } else {
+        problems
+    }
+}
+
 /// Run the shared validator, mapping each reported span to a problem.
 fn validate(module: &Module, source: &str) -> Vec<Problem> {
     let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());

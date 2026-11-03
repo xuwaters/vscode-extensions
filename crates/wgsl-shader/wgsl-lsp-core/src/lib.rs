@@ -19,9 +19,9 @@
 //!   naga implements (RFC 012). It answers types and diagnostics *and* survives
 //!   a half-typed line, so there is no fallback to arrange.
 //! - **WESL.** WGSL's two layers, plus [`wesl`]'s module resolution: an import
-//!   is followed into the file it names. naga validates a WESL file only when
-//!   it uses nothing WGSL lacks, since it reads one module and knows no
-//!   imports.
+//!   is followed into the file it names. naga reads one module and knows no
+//!   imports, so a file that imports or translates conditionally is linked
+//!   with what it imports first ([`wesl::link`]) and naga checks the result.
 
 pub mod analysis;
 pub mod capabilities;
@@ -106,7 +106,9 @@ impl Server {
     /// Apply new settings, returning whether diagnostics need republishing.
     pub fn set_settings(&mut self, settings: Settings) -> bool {
         let mut changed = settings.wgsl.validate != self.settings.wgsl.validate
-            || settings.glsl.validate != self.settings.glsl.validate;
+            || settings.glsl.validate != self.settings.glsl.validate
+            // Features decide which code a WESL file is checked as.
+            || settings.wesl != self.settings.wesl;
         self.settings = settings;
 
         // Unlike the triggers beside them, the assumed `#version` is read
