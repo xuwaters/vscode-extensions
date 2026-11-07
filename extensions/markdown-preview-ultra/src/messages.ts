@@ -130,6 +130,14 @@ export interface OverridesMessage {
   codeBlocks: CodeBlockPrefs;
 }
 
+export type ZoomAction = 'in' | 'out' | 'reset';
+
+/** A zoom command or its keybinding: the page steps its own zoom. */
+export interface ZoomMessage {
+  type: 'zoom';
+  action: ZoomAction;
+}
+
 /** The WASM engine is not built; show a friendly hint instead of content. */
 export interface NoEngineMessage {
   type: 'noEngine';
@@ -141,6 +149,7 @@ export type HostToWebview =
   | ThemeMessage
   | OverridesMessage
   | VisibilityMessage
+  | ZoomMessage
   | NoEngineMessage;
 
 // ── Webview → Host ───────────────────────────────────────────────────
@@ -207,6 +216,12 @@ export interface SetCodeBlocksMessage {
   codeBlocks: CodeBlockPrefs;
 }
 
+/** The page's zoom came to rest; the next page to open starts from it. */
+export interface SetZoomMessage {
+  type: 'setZoom';
+  zoom: number;
+}
+
 /** Task checkbox clicked (only when `taskLists.toggleFromPreview` is on). */
 export interface ToggleTaskMessage {
   type: 'toggleTask';
@@ -231,6 +246,7 @@ export type WebviewToHost =
   | SetThemeMessage
   | SetFontMessage
   | SetCodeBlocksMessage
+  | SetZoomMessage
   | ToggleTaskMessage
   | ErrorMessage;
 
@@ -252,6 +268,11 @@ export function isCodeBlockPrefs(v: unknown): v is CodeBlockPrefs {
   if (typeof v !== 'object' || v === null) return false;
   const p = v as Record<string, unknown>;
   return typeof p.wrap === 'boolean' && typeof p.lineNumbers === 'boolean';
+}
+
+/** The page clamps what it is handed; this only keeps out what it cannot read. */
+export function isZoom(v: unknown): v is number {
+  return isFiniteNumber(v) && v > 0;
 }
 
 /**
@@ -278,6 +299,8 @@ export function isWebviewToHost(msg: unknown): msg is WebviewToHost {
       return isPreviewFont(m.font);
     case 'setCodeBlocks':
       return isCodeBlockPrefs(m.codeBlocks);
+    case 'setZoom':
+      return isZoom(m.zoom);
     case 'toggleTask':
       return (
         isFiniteNumber(m.line) && m.line >= 0 && typeof m.checked === 'boolean'

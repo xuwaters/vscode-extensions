@@ -129,6 +129,23 @@ describe('installLightbox', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it('takes a zoom command while open, and leaves it to the page while closed', () => {
+    document.body.innerHTML = '<main id="content"><img id="pic" src="a.png"></main>';
+    const lightbox = installLightbox(document.getElementById('content') as HTMLElement);
+    expect(lightbox.isOpen()).toBe(false);
+    expect(lightbox.zoom('in')).toBe(false);
+
+    openPic();
+    sizeViewer(100, 100);
+    expect(lightbox.isOpen()).toBe(true);
+    expect(lightbox.zoom('in')).toBe(true);
+    expect(label()).toBe('150%');
+    expect(lightbox.zoom('out')).toBe(true);
+    expect(label()).toBe('100%');
+    expect(lightbox.zoom('reset')).toBe(true);
+    expect(viewer().classList.contains('fit')).toBe(true);
+  });
+
   it('closes on escape, the close button, or a click beside the image', () => {
     openPic();
     key({ key: 'Escape' });

@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
 import { MarkdownEditorProvider, isPreviewable } from './customEditor';
+import type { ZoomAction } from './messages';
 import { ModeManager } from './modes';
 import {
   CodeBlockStore,
   createFontStore,
   createThemeStore,
+  ZoomStore,
 } from './overrideStore';
 import { PreviewManager, canPreview } from './previewManager';
 import { PreviewRenderer } from './renderer';
@@ -31,6 +33,7 @@ export function activate(context: vscode.ExtensionContext): void {
     themes,
     fonts,
     codeBlocks,
+    new ZoomStore(context.globalState),
   );
   const manager = new PreviewManager(renderer);
   // The provider reads the panel's placement: a markdown file opened while the
@@ -67,6 +70,10 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     manager.showPreview(editor.document, column);
+  };
+
+  const zoom = (action: ZoomAction) => () => {
+    if (!editors.zoom(action)) manager.zoom(action);
   };
 
   context.subscriptions.push(
@@ -109,6 +116,12 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('markdownPreviewUltra.setModePreview', () =>
       modes.setMode('preview'),
+    ),
+    vscode.commands.registerCommand('markdownPreviewUltra.zoomIn', zoom('in')),
+    vscode.commands.registerCommand('markdownPreviewUltra.zoomOut', zoom('out')),
+    vscode.commands.registerCommand(
+      'markdownPreviewUltra.zoomReset',
+      zoom('reset'),
     ),
     vscode.window.registerWebviewPanelSerializer(PreviewManager.viewType, {
       deserializeWebviewPanel: (panel, state) =>

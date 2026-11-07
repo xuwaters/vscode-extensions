@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { applyTaskToggle, resolveLink } from './actions';
 import type { EngineSession } from './engine';
-import { isWebviewToHost, type WebviewToHost } from './messages';
+import { isWebviewToHost, type WebviewToHost, type ZoomAction } from './messages';
 import { shouldHandOffToSource } from './modeState';
 import type { PreviewManager } from './previewManager';
 import { NO_HISTORY, PreviewRenderer } from './renderer';
@@ -67,10 +67,26 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
    */
   private readonly handingOff = new Set<string>();
 
+  /** The live preview tabs, for commands aimed at whichever one is active. */
+  private readonly panels = new Set<vscode.WebviewPanel>();
+
   constructor(
     private readonly renderer: PreviewRenderer,
     private readonly manager: PreviewManager,
   ) {}
+
+  /**
+   * Zoom the active preview tab. Returns false when no preview tab is the active
+   * one, so the caller can offer the command to the side panel instead.
+   */
+  public zoom(action: ZoomAction): boolean {
+    for (const panel of this.panels) {
+      if (!panel.active) continue;
+      this.renderer.post(panel.webview, { type: 'zoom', action });
+      return true;
+    }
+    return false;
+  }
 
   /** Hand the preview editor a line to open at; set before `vscode.openWith`. */
   public parkLine(uri: vscode.Uri, line: number): void {
@@ -103,6 +119,7 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       localResourceRoots: this.renderer.localResourceRoots(document),
     };
     panel.webview.html = this.renderer.html(panel.webview);
+    this.panels.add(panel);
 
     let session: EngineSession | null = null;
     let debounce: ReturnType<typeof setTimeout> | undefined;
@@ -156,6 +173,7 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     ];
 
     panel.onDidDispose(() => {
+      this.panels.delete(panel);
       if (debounce) clearTimeout(debounce);
       for (const d of disposables) d.dispose();
       session?.dispose();
@@ -344,6 +362,9 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
         break;
       case 'setCodeBlocks':
         this.renderer.setCodeBlocks(msg.codeBlocks);
+        break;
+      case 'setZoom':
+        this.renderer.setZoom(msg.zoom);
         break;
       case 'toggleTask':
         await applyTaskToggle(document, msg);

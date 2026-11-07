@@ -399,10 +399,19 @@ const toc = new TocSidebar(
 if (state.tocWidth !== undefined) toc.setWidth(state.tocWidth);
 
 installCodeActions(content, () => codeBlocks, toggleCodeBlocks);
-installLightbox(content);
-installZoom(content, state.zoom ?? 1, (zoom) => {
-  saveState({ zoom });
-  invalidateScrollMap();
+const lightbox = installLightbox(content);
+const pageZoom = installZoom({
+  scaled: [frontmatterContainer, content],
+  content,
+  // A page restored from a reload keeps its own zoom; a new one opens at the
+  // last the reader chose, which the host stamped onto <body>.
+  initial: state.zoom ?? Number(document.body.dataset.zoom ?? 1),
+  suspended: lightbox.isOpen,
+  onChange: invalidateScrollMap,
+  onSettle: (zoom) => {
+    saveState({ zoom });
+    vscode.postMessage({ type: 'setZoom', zoom });
+  },
 });
 
 // A restored override must land before the first paint; the host stamped the
@@ -542,6 +551,9 @@ window.addEventListener('message', (event) => {
     case 'overrides':
       setOverrides(msg.overrides);
       setCodeBlocks(msg.codeBlocks);
+      break;
+    case 'zoom':
+      if (!lightbox.zoom(msg.action)) pageZoom.run(msg.action);
       break;
     case 'noEngine':
       showNoEngine();

@@ -13,6 +13,7 @@ import {
   configuredTheme,
   type CodeBlockStore,
   type OverrideStore,
+  type ZoomStore,
 } from './overrideStore';
 import { getNonce } from './util';
 
@@ -45,6 +46,7 @@ export class PreviewRenderer implements vscode.Disposable {
     private readonly themes: OverrideStore<PreviewTheme>,
     private readonly fonts: OverrideStore<PreviewFont>,
     private readonly codeBlocks: CodeBlockStore,
+    private readonly zoom: ZoomStore,
   ) {
     this.engine = new EngineBridge(extensionUri.fsPath);
     // Every switch means the same thing to a page — restyle — so the surfaces
@@ -97,6 +99,11 @@ export class PreviewRenderer implements vscode.Disposable {
   /** Flip the window-wide code-block switches (soft wrap, line numbers). */
   public setCodeBlocks(prefs: CodeBlockPrefs): void {
     this.codeBlocks.set(prefs);
+  }
+
+  /** Remember the zoom a page settled on, for the next page to open at. */
+  public setZoom(zoom: number): void {
+    this.zoom.set(zoom);
   }
 
   /** Hand a page where every switch currently stands. */
@@ -277,7 +284,7 @@ export class PreviewRenderer implements vscode.Disposable {
   <link rel="stylesheet" href="${styleUri}">
   <title>Markdown Preview Ultra</title>
 </head>
-<body${bodyClass}>
+<body${bodyClass} data-zoom="${this.zoom.value}">
   <div id="frontmatter"></div>
   <div id="content" class="markdown-preview"></div>
   <script nonce="${nonce}" type="module" src="${scriptUri}"></script>

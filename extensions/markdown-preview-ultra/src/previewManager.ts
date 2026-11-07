@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { applyTaskToggle, resolveLink } from './actions';
 import type { EngineSession } from './engine';
-import { isWebviewToHost, type WebviewToHost } from './messages';
+import { isWebviewToHost, type WebviewToHost, type ZoomAction } from './messages';
 import type { PreviewRenderer } from './renderer';
 import { ParkedScroll, SyncGuard } from './scrollSync';
 import { isMarkdownDocument, isMarkdownPath, visibleEditorFor } from './util';
@@ -273,6 +273,17 @@ export class PreviewManager implements vscode.Disposable {
         ? `Preview pinned to ${path.basename(preview.document.uri.fsPath)}.`
         : 'Preview will follow the active editor.',
     );
+  }
+
+  /**
+   * Zoom the side panel's page. Not while it is off screen: a hidden page has no
+   * layout, so it could not hold the reader's place across the reflow.
+   */
+  public zoom(action: ZoomAction): void {
+    const panel = this.preview?.panel;
+    if (panel?.visible) {
+      this.renderer.post(panel.webview, { type: 'zoom', action });
+    }
   }
 
   public dispose(): void {
@@ -610,6 +621,9 @@ export class PreviewManager implements vscode.Disposable {
         break;
       case 'setCodeBlocks':
         this.renderer.setCodeBlocks(msg.codeBlocks);
+        break;
+      case 'setZoom':
+        this.renderer.setZoom(msg.zoom);
         break;
       case 'toggleTask':
         void applyTaskToggle(preview.document, msg);

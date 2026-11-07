@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
   isCodeBlockPrefs,
+  isZoom,
   type CodeBlockPrefs,
   type PreviewFont,
   type PreviewTheme,
@@ -153,5 +154,31 @@ export class CodeBlockStore implements vscode.Disposable {
 
   public dispose(): void {
     this.emitter.dispose();
+  }
+}
+
+/**
+ * The zoom the reader last settled on, which the next page opens at. A mode
+ * switch replaces the webview, so without this the zoom would not survive going
+ * from Split to Preview. Unlike the switches above it is not pushed to pages
+ * already open: each of those keeps the zoom it is being read at.
+ */
+export class ZoomStore {
+  private static readonly key = 'markdownPreviewUltra.zoom';
+  private state: number;
+
+  constructor(private readonly memento: vscode.Memento) {
+    const stored = memento.get<unknown>(ZoomStore.key);
+    this.state = isZoom(stored) ? stored : 1;
+  }
+
+  public get value(): number {
+    return this.state;
+  }
+
+  public set(zoom: number): void {
+    if (zoom === this.state) return;
+    this.state = zoom;
+    void this.memento.update(ZoomStore.key, zoom);
   }
 }

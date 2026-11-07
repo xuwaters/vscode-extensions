@@ -219,8 +219,32 @@ replacing the page.
 | `alt+left` | `ctrl+alt+-` | Go Back (with the preview panel focused) |
 | `alt+right` | `ctrl+alt+shift+-` | Go Forward (with the preview panel focused) |
 
-Inside a focused preview, `ctrl`/`cmd` with `+`, `-` or `0` zooms the page, and
 `esc` closes the image viewer.
+
+### Zoom
+
+Zoom the preview — the side panel or a full-tab Preview view — with these:
+
+| Action | Windows/Linux | macOS |
+| --- | --- | --- |
+| Zoom in one step | `ctrl` `=` / `ctrl` `+` | `cmd` `=` / `cmd` `+` |
+| Zoom out one step | `ctrl` `-` | `cmd` `-` |
+| Zoom to 100% | `ctrl` `0` | `cmd` `0` |
+| Zoom smoothly, about the pointer | `ctrl`+wheel, `alt`+wheel, pinch | `ctrl`+wheel, `option`+wheel, pinch |
+
+The zoom goes from 25% to 500%, and the text reflows to fit the panel. The wheel
+and pinch zoom around the spot under the pointer, so what you point at stays put;
+a mouse notch moves about one step, and a pinch follows your fingers. The keys
+hold what is at the top of the view.
+
+The next preview you open starts at the zoom you last settled on, including the
+one a switch between Split and Preview opens. Previews already open keep their
+own zoom.
+
+The keys zoom the preview only while it is the active tab; with the focus in the
+source editor they zoom the VS Code window as usual. They are ordinary
+keybindings, so you can rebind `markdownPreviewUltra.zoomIn`, `zoomOut` and
+`zoomReset`.
 
 ### Image viewer
 

@@ -2,7 +2,7 @@
   "name": "wx-vsce-markdown-preview-ultra",
   "displayName": "Markdown Preview Ultra",
   "description": "Live Markdown preview on a Rust/WASM engine — incremental block patching, math (KaTeX), mermaid, GitHub alerts, TOC, two-way scroll sync, and Edit/Split/Preview modes",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -134,6 +134,23 @@
         "title": "Switch to Preview View",
         "category": "Markdown Preview Ultra",
         "icon": "$(preview)"
+      },
+      {
+        "command": "markdownPreviewUltra.zoomIn",
+        "title": "Zoom Preview In",
+        "category": "Markdown Preview Ultra",
+        "icon": "$(zoom-in)"
+      },
+      {
+        "command": "markdownPreviewUltra.zoomOut",
+        "title": "Zoom Preview Out",
+        "category": "Markdown Preview Ultra",
+        "icon": "$(zoom-out)"
+      },
+      {
+        "command": "markdownPreviewUltra.zoomReset",
+        "title": "Zoom Preview to 100%",
+        "category": "Markdown Preview Ultra"
       }
     ],
     "menus": {
@@ -185,6 +202,18 @@
         {
           "command": "markdownPreviewUltra.setModePreview",
           "when": "editorLangId == markdown || editorLangId == mdx || resourceExtname == .md || resourceExtname == .markdown || resourceExtname == .mdx || resourceExtname == .copilotmd || markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
+        },
+        {
+          "command": "markdownPreviewUltra.zoomIn",
+          "when": "markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
+        },
+        {
+          "command": "markdownPreviewUltra.zoomOut",
+          "when": "markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
+        },
+        {
+          "command": "markdownPreviewUltra.zoomReset",
+          "when": "markdownPreviewUltra.previewVisible || activeCustomEditorId == markdownPreviewUltra.editor"
         }
       ],
       "editor/title": [
@@ -270,6 +299,42 @@
         "key": "ctrl+k ctrl+p",
         "mac": "cmd+k cmd+p",
         "when": "(editorLangId == markdown || editorLangId == mdx || activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus"
+      },
+      {
+        "command": "markdownPreviewUltra.zoomIn",
+        "key": "ctrl+=",
+        "mac": "cmd+=",
+        "when": "(activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "markdownPreviewUltra.zoomIn",
+        "key": "ctrl+shift+=",
+        "mac": "cmd+shift+=",
+        "when": "(activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "markdownPreviewUltra.zoomIn",
+        "key": "ctrl+numpad_add",
+        "mac": "cmd+numpad_add",
+        "when": "(activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "markdownPreviewUltra.zoomOut",
+        "key": "ctrl+-",
+        "mac": "cmd+-",
+        "when": "(activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "markdownPreviewUltra.zoomOut",
+        "key": "ctrl+numpad_subtract",
+        "mac": "cmd+numpad_subtract",
+        "when": "(activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus && !inputFocus"
+      },
+      {
+        "command": "markdownPreviewUltra.zoomReset",
+        "key": "ctrl+0",
+        "mac": "cmd+0",
+        "when": "(activeWebviewPanelId == markdownPreviewUltra.preview || activeCustomEditorId == markdownPreviewUltra.editor) && !terminalFocus && !inputFocus"
       }
     ],
     "configuration": {

@@ -16,6 +16,7 @@ describe('isWebviewToHost', () => {
       true,
     );
     expect(isWebviewToHost({ type: 'setFont', font: 'monospace' })).toBe(true);
+    expect(isWebviewToHost({ type: 'setZoom', zoom: 1.5 })).toBe(true);
     expect(
       isWebviewToHost({
         type: 'setCodeBlocks',
@@ -47,6 +48,10 @@ describe('isWebviewToHost', () => {
     );
     expect(isWebviewToHost({ type: 'setFont' })).toBe(false);
     expect(isWebviewToHost({ type: 'setFont', font: 'comic-sans' })).toBe(false);
+    expect(isWebviewToHost({ type: 'setZoom' })).toBe(false);
+    expect(isWebviewToHost({ type: 'setZoom', zoom: 0 })).toBe(false);
+    expect(isWebviewToHost({ type: 'setZoom', zoom: Number.NaN })).toBe(false);
+    expect(isWebviewToHost({ type: 'setZoom', zoom: '1.5' })).toBe(false);
     expect(isWebviewToHost({ type: 'setCodeBlocks' })).toBe(false);
     expect(
       isWebviewToHost({ type: 'setCodeBlocks', codeBlocks: { wrap: true } }),

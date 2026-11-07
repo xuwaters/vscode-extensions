@@ -10,6 +10,7 @@
  *   keys and dragging the image scroll it too.
  * - `esc`, the close button, or a click beside the image closes it.
  */
+import type { ZoomAction } from '../../src/messages';
 
 /** VS Code's image-preview zoom steps. */
 export const ZOOM_LEVELS = [
@@ -63,7 +64,13 @@ interface Drag {
   moved: boolean;
 }
 
-export function installLightbox(content: HTMLElement): void {
+export interface Lightbox {
+  isOpen(): boolean;
+  /** Zoom the open image, reporting whether one was open to take it. */
+  zoom(action: ZoomAction): boolean;
+}
+
+export function installLightbox(content: HTMLElement): Lightbox {
   const overlay = document.createElement('div');
   overlay.id = 'lightbox';
 
@@ -296,6 +303,19 @@ export function installLightbox(content: HTMLElement): void {
     true,
   );
   window.addEventListener('blur', () => overlay.classList.remove('zoom-out-mode'));
+
+  return {
+    isOpen,
+    // The zoom commands, for when the keys never reached the handler above: the
+    // focus was outside the page, or the command came from the palette.
+    zoom(action) {
+      if (!isOpen()) return false;
+      if (action === 'in') zoomIn();
+      else if (action === 'out') zoomOut();
+      else setScale('fit');
+      return true;
+    },
+  };
 }
 
 /** A wheel delta in pixels, whichever unit the event reports it in. */
