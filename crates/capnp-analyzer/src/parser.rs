@@ -73,6 +73,31 @@ impl Parser {
         matches!(self.peek().kind, TokenKind::Eof)
     }
 
+    fn peek_next(&self) -> &TokenKind {
+        &self.tokens[(self.pos + 1).min(self.tokens.len() - 1)].kind
+    }
+
+    /// True when the current token starts a member name: an identifier, or
+    /// a keyword directly followed by one of `follow`. Cap'n Proto keywords
+    /// are contextual, so `group @1 :UInt64;` or `struct :group { .. }` are
+    /// ordinary fields (schema.capnp itself uses the latter).
+    fn at_name(&self, follow: &[TokenKind]) -> bool {
+        match self.peek().kind {
+            TokenKind::Ident(_) | TokenKind::KwStream => true,
+            ref k => keyword_text(k).is_some() && follow.contains(self.peek_next()),
+        }
+    }
+
+    /// Like `parse_ident`, but also accepts a keyword as the name. Callers
+    /// check `at_name` first.
+    fn parse_name(&mut self) -> Ident {
+        if let Some(text) = keyword_text(&self.peek().kind) {
+            let t = self.bump();
+            return Ident { text: SmolStr::new(text), span: t.span };
+        }
+        self.parse_ident()
+    }
+
     fn error(&mut self, span: ByteSpan, msg: impl Into<String>) {
         self.errors.push(ParseError { message: msg.into(), span });
     }
@@ -414,6 +439,9 @@ impl Parser {
     }
 
     fn parse_struct_member(&mut self) -> Option<StructMember> {
+        if self.at_name(&FIELD_FOLLOW) {
+            return Some(StructMember::Field(self.parse_field()));
+        }
         match self.peek().kind {
             TokenKind::KwStruct => Some(StructMember::Struct(self.parse_struct())),
             TokenKind::KwEnum => Some(StructMember::Enum(self.parse_enum())),
@@ -446,7 +474,7 @@ impl Parser {
         let mut members = Vec::new();
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
             let before = self.pos;
-            if matches!(self.peek().kind, TokenKind::Ident(_) | TokenKind::KwStream) {
+            if self.at_name(&FIELD_FOLLOW) {
                 members.push(self.parse_field());
             } else {
                 let span = self.peek().span;
@@ -465,7 +493,7 @@ impl Parser {
 
     fn parse_field(&mut self) -> Field {
         let start = self.peek().span;
-        let name = self.parse_ident();
+        let name = self.parse_name();
 
         let ordinal = if matches!(self.peek().kind, TokenKind::At) {
             Some(self.parse_ordinal())
@@ -635,7 +663,7 @@ impl Parser {
         let mut enumerants = Vec::new();
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
             let before = self.pos;
-            if matches!(self.peek().kind, TokenKind::Ident(_) | TokenKind::KwStream) {
+            if self.at_name(&ENUMERANT_FOLLOW) {
                 enumerants.push(self.parse_enumerant());
             } else {
                 let span = self.peek().span;
@@ -654,7 +682,7 @@ impl Parser {
 
     fn parse_enumerant(&mut self) -> Enumerant {
         let start = self.peek().span;
-        let name = self.parse_ident();
+        let name = self.parse_name();
         let ordinal = if matches!(self.peek().kind, TokenKind::At) {
             Some(self.parse_ordinal())
         } else {
@@ -710,6 +738,13 @@ impl Parser {
         let mut nested = Vec::new();
         while !self.at_eof() && !matches!(self.peek().kind, TokenKind::RBrace) {
             let before = self.pos;
+            if self.at_name(&METHOD_FOLLOW) {
+                methods.push(self.parse_method());
+                if self.pos == before {
+                    self.bump();
+                }
+                continue;
+            }
             match self.peek().kind {
                 TokenKind::KwStruct => nested.push(StructMember::Struct(self.parse_struct())),
                 TokenKind::KwEnum => nested.push(StructMember::Enum(self.parse_enum())),
@@ -738,7 +773,7 @@ impl Parser {
 
     fn parse_method(&mut self) -> Method {
         let start = self.peek().span;
-        let name = self.parse_ident();
+        let name = self.parse_name();
         let ordinal = if matches!(self.peek().kind, TokenKind::At) {
             Some(self.parse_ordinal())
         } else {
@@ -839,12 +874,12 @@ impl Parser {
 
     fn parse_method_param(&mut self) -> Option<MethodParam> {
         let start = self.peek().span;
-        if !matches!(self.peek().kind, TokenKind::Ident(_) | TokenKind::KwStream) {
+        if !self.at_name(&[TokenKind::Colon]) {
             let span = self.peek().span;
             self.error(span, "expected parameter name");
             return None;
         }
-        let name = self.parse_ident();
+        let name = self.parse_name();
         if !matches!(self.peek().kind, TokenKind::Colon) {
             let span = self.peek().span;
             self.error(span, "expected ':' in parameter");
@@ -944,6 +979,33 @@ fn type_keyword_text(k: &TokenKind) -> Option<&'static str> {
         TokenKind::TyList => "List",
         TokenKind::TyAnyPointer => "AnyPointer",
         TokenKind::TyCapability => "Capability",
+        _ => return None,
+    })
+}
+
+/// Tokens that, after a keyword, show it is used as a name.
+const FIELD_FOLLOW: [TokenKind; 2] = [TokenKind::At, TokenKind::Colon];
+const ENUMERANT_FOLLOW: [TokenKind; 2] = [TokenKind::At, TokenKind::Semi];
+const METHOD_FOLLOW: [TokenKind; 3] = [TokenKind::At, TokenKind::LParen, TokenKind::Arrow];
+
+/// Source text of a reserved word that Cap'n Proto still allows as a name.
+fn keyword_text(k: &TokenKind) -> Option<&'static str> {
+    Some(match k {
+        TokenKind::KwStruct => "struct",
+        TokenKind::KwEnum => "enum",
+        TokenKind::KwInterface => "interface",
+        TokenKind::KwUnion => "union",
+        TokenKind::KwGroup => "group",
+        TokenKind::KwConst => "const",
+        TokenKind::KwAnnotation => "annotation",
+        TokenKind::KwUsing => "using",
+        TokenKind::KwImport => "import",
+        TokenKind::KwExtends => "extends",
+        TokenKind::KwTrue => "true",
+        TokenKind::KwFalse => "false",
+        TokenKind::KwVoid => "void",
+        TokenKind::KwInf => "inf",
+        TokenKind::KwNan => "nan",
         _ => return None,
     })
 }
@@ -1113,6 +1175,112 @@ interface Admin {
         let src = "@0x1; struct S { stream @0 :Text; }";
         let r = parse(src);
         assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+    }
+
+    fn struct_members(r: &ParseResult) -> &[StructMember] {
+        match &r.file.decls[0] {
+            Decl::Struct(s) => &s.members,
+            _ => panic!("expected struct"),
+        }
+    }
+
+    fn field_names(members: &[StructMember]) -> Vec<&str> {
+        members
+            .iter()
+            .filter_map(|m| match m {
+                StructMember::Field(f) => Some(f.name.text.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn keywords_usable_as_field_names() {
+        let src = r#"@0x1;
+struct Entry {
+  group  @0 :UInt64;
+  struct @1 :Text;
+  union  @2 :Text;
+  const  @3 :Bool = true;
+  void   @4 :Void;
+  using  @5 :Text;
+}
+"#;
+        let r = parse(src);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+        assert_eq!(
+            field_names(struct_members(&r)),
+            ["group", "struct", "union", "const", "void", "using"]
+        );
+    }
+
+    #[test]
+    fn keywords_usable_as_group_and_union_names() {
+        // The shape of `struct Node` in Cap'n Proto's own schema.capnp.
+        let src = r#"@0x1;
+struct Node {
+  union {
+    file @0 :Void;
+    struct :group { dataWordCount @1 :UInt16; }
+    enum :group { enumerants @2 :List(Text); }
+    interface :group { methods @3 :List(Text); }
+    const :group { type @4 :Text; }
+    annotation :group { targetsFile @5 :Bool; }
+  }
+  group :union { a @6 :Void; union @7 :Text; }
+  struct Inner { x @8 :Text; }
+  enum Kind { struct @0; group @1; plain @2; }
+}
+"#;
+        let r = parse(src);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+        let members = struct_members(&r);
+        let union = members
+            .iter()
+            .find_map(|m| match m {
+                StructMember::AnonUnion(u) => Some(u),
+                _ => None,
+            })
+            .expect("anonymous union");
+        let names: Vec<_> = union.members.iter().map(|f| f.name.text.as_str()).collect();
+        assert_eq!(names, ["file", "struct", "enum", "interface", "const", "annotation"]);
+        assert!(matches!(union.members[1].body, FieldBody::NamedGroup(_)));
+        assert_eq!(field_names(members), ["group"]);
+        assert!(members.iter().any(|m| matches!(m, StructMember::Struct(s) if s.name.text == "Inner")));
+        let kind = members
+            .iter()
+            .find_map(|m| match m {
+                StructMember::Enum(e) => Some(e),
+                _ => None,
+            })
+            .expect("nested enum");
+        let names: Vec<_> = kind.enumerants.iter().map(|e| e.name.text.as_str()).collect();
+        assert_eq!(names, ["struct", "group", "plain"]);
+    }
+
+    #[test]
+    fn keywords_usable_as_method_and_param_names() {
+        let src = r#"@0x1;
+interface Registry {
+  struct @0 (group :Text, union :UInt32) -> (enum :Bool);
+  import @1 () -> stream;
+  struct Nested { x @0 :Text; }
+  plain @2 ();
+}
+"#;
+        let r = parse(src);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+        let iface = match &r.file.decls[0] {
+            Decl::Interface(i) => i,
+            _ => panic!("expected interface"),
+        };
+        let names: Vec<_> = iface.methods.iter().map(|m| m.name.text.as_str()).collect();
+        assert_eq!(names, ["struct", "import", "plain"]);
+        let params: Vec<_> =
+            iface.methods[0].params.as_ref().unwrap().iter().map(|p| p.name.text.as_str()).collect();
+        assert_eq!(params, ["group", "union"]);
+        assert!(iface.methods[1].streaming);
+        assert_eq!(iface.nested.len(), 1);
     }
 
     #[test]

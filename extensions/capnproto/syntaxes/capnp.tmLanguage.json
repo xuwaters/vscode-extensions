@@ -42,7 +42,7 @@
     "declarations": {
       "patterns": [
         {
-          "match": "\\b(struct|enum|interface|const|annotation|using|import|union|group|extends)\\b",
+          "match": "\\b(struct|enum|interface|const|annotation|using|import|union|group|extends)\\b(?!\\s*[@:(])",
           "name": "keyword.declaration.capnp"
         }
       ]
@@ -70,11 +70,11 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(true|false|void|inf|nan)\\b",
+          "match": "\\b(true|false|void|inf|nan)\\b(?!\\s*[@:(])",
           "name": "constant.language.capnp"
         },
         {
-          "match": "\\bstream\\b",
+          "match": "\\bstream\\b(?!\\s*[@:(])",
           "name": "keyword.control.capnp"
         },
         {
