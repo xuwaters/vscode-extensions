@@ -125,3 +125,10 @@ schema immediately.
   drop the analyzer's copy of the open schemas, re-read the include paths,
   rescan the workspace and recompute. Useful after files change outside the
   editor.
+- **Cap'n Proto: Generate File ID** (`capnp.generateFileId`) — give the active
+  schema a new random `@0x…;` file id (64 bits with the top bit set, as
+  `capnp id` prints). It goes after any leading comment block; if the file
+  already has an id you are asked before it is replaced, since every type's id
+  derives from it. Outside a `.capnp` editor the new id is copied to the
+  clipboard instead. The missing-file-id diagnostic (`CAPNP0002`) offers the
+  same thing as a quick fix.

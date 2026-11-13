@@ -3,6 +3,7 @@ import { AnalyzerBridge } from './analyzer';
 import { isCapnpDocument, refreshDiagnostics } from './diagnostics';
 import { resolveIncludePaths } from './includePaths';
 import { preloadWorkspace } from './workspaceBootstrap';
+import { registerFileId } from './fileIdCommand';
 import { CapnpDocumentSymbolProvider } from './providers/documentSymbol';
 import { CapnpFoldingRangeProvider } from './providers/foldingRange';
 import { CapnpHoverProvider } from './providers/hover';
@@ -42,6 +43,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ':',
     ),
     vscode.languages.registerWorkspaceSymbolProvider(new CapnpWorkspaceSymbolProvider(bridge)),
+    ...registerFileId(CAPNP_SELECTOR),
   );
 
   for (const doc of vscode.workspace.textDocuments) {

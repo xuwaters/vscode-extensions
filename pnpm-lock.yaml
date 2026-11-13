@@ -101,6 +101,9 @@ importers:
       typescript:
         specifier: catalog:build
         version: 6.0.3
+      vitest:
+        specifier: catalog:build
+        version: 4.1.0(@types/node@25.5.0)(happy-dom@15.11.7)(vite@7.3.1(@types/node@25.5.0)(lightningcss@1.32.0))
 
   extensions/cargo-make:
     devDependencies:
