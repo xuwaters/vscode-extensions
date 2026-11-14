@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "RON Ultra",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/extensions/ron-ultra",
+        "${workspaceFolder}/temp/_var"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/extensions/ron-ultra/dist/**/*.js"
+      ],
+      "preLaunchTask": "npm: build - extensions/ron-ultra"
+    },
+  ]
+}

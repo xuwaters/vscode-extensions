@@ -1,25 +1,26 @@
 {
-  // `temp/` is a farm of symlinks to large external checkouts (microsoft/vscode,
-  // vim, diesel, microsoft-fast, ...) and `target` points at the shared Rust
-  // build cache. Following those reaches ~8.3M files. Extensions call
-  // `workspace.findFiles`, which runs ripgrep with `--no-ignore --follow`, so
-  // .gitignore does NOT protect us here — only these settings do.
-  "search.followSymlinks": false,
-  "search.exclude": {
-    "temp": true,
-    "target": true,
-    "**/node_modules": true
-  },
   "files.watcherExclude": {
-    "**/temp/**": true,
+    "**/node_modules/**": true,
     "**/target/**": true,
-    "**/node_modules/**": true
+    "**/temp/**": true
   },
+  "npm.packageManager": "pnpm",
   // rust-analyzer paints whole string literals with a `string` semantic token,
   // and semantic tokens win over TextMate scopes. That hides the WGSL colouring
   // the wgsl-shader extension injects into `/* wgsl */ r#"..."#` strings. The
   // setting cannot be scoped to a single string, so it is set here rather than
   // in user settings: only this workspace gives up rust-analyzer's `string` and
   // `escapeSequence` tokens, which the Rust TextMate grammar covers anyway.
-  "rust-analyzer.semanticHighlighting.strings.enable": false
+  "rust-analyzer.semanticHighlighting.strings.enable": false,
+  "search.exclude": {
+    "**/node_modules": true,
+    "target": true,
+    "temp": true
+  },
+  // `temp/` is a farm of symlinks to large external checkouts (microsoft/vscode,
+  // vim, diesel, microsoft-fast, ...) and `target` points at the shared Rust
+  // build cache. Following those reaches ~8.3M files. Extensions call
+  // `workspace.findFiles`, which runs ripgrep with `--no-ignore --follow`, so
+  // .gitignore does NOT protect us here — only these settings do.
+  "search.followSymlinks": false
 }
