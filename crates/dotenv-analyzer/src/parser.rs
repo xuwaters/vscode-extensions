@@ -552,6 +552,19 @@ mod tests {
     }
 
     #[test]
+    fn apostrophe_inside_unquoted_value() {
+        let src = "SHOP=Okoro's Provisions\nERR=This week's done.\n";
+        let (f, diags) = parse(src);
+        assert!(diags.is_empty());
+        let Entry::Assignment(a) = &f.entries[0] else { panic!() };
+        assert_eq!(a.value_kind, ValueKind::Unquoted);
+        assert_eq!(&src[a.value_span.start as usize..a.value_span.end as usize], "Okoro's Provisions");
+        let Entry::Assignment(b) = &f.entries[1] else { panic!() };
+        assert_eq!(b.name.name, "ERR");
+        assert_eq!(b.value_kind, ValueKind::Unquoted);
+    }
+
+    #[test]
     fn multiline_double_quoted_value() {
         let src = "MSG=\"line1\nline2\"\nNEXT=ok\n";
         let (f, diags) = parse(src);

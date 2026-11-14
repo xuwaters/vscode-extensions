@@ -27,6 +27,7 @@
       ]
     },
     "value": {
+      "comment": "A quote opens a string only as the value's first character (\\G is the end of the `=` match); elsewhere it is part of an unquoted value, e.g. NAME=Okoro's Provisions.",
       "patterns": [
         { "include": "#string-double" },
         { "include": "#string-single" },
@@ -38,9 +39,9 @@
     },
     "string-double": {
       "name": "string.quoted.double.dotenv",
-      "begin": "\"",
+      "begin": "\\G[ \\t]*(\")",
       "beginCaptures": {
-        "0": { "name": "punctuation.definition.string.begin.dotenv" }
+        "1": { "name": "punctuation.definition.string.begin.dotenv" }
       },
       "end": "\"",
       "endCaptures": {
@@ -53,9 +54,9 @@
     },
     "string-single": {
       "name": "string.quoted.single.dotenv",
-      "begin": "'",
+      "begin": "\\G[ \\t]*(')",
       "beginCaptures": {
-        "0": { "name": "punctuation.definition.string.begin.dotenv" }
+        "1": { "name": "punctuation.definition.string.begin.dotenv" }
       },
       "end": "'",
       "endCaptures": {
@@ -64,9 +65,9 @@
     },
     "string-backtick": {
       "name": "string.interpolated.dotenv",
-      "begin": "`",
+      "begin": "\\G[ \\t]*(`)",
       "beginCaptures": {
-        "0": { "name": "punctuation.definition.string.begin.dotenv" }
+        "1": { "name": "punctuation.definition.string.begin.dotenv" }
       },
       "end": "`",
       "endCaptures": {
@@ -106,7 +107,7 @@
       "name": "comment.line.number-sign.dotenv"
     },
     "unquoted-value": {
-      "match": "[^\\s\"'`#$]+",
+      "match": "(?:[^\\s$]|\\$(?![A-Za-z_{]))+",
       "name": "string.unquoted.dotenv"
     }
   }
