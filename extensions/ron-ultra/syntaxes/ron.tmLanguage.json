@@ -1,0 +1,288 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "RON",
+  "scopeName": "source.ron",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#attribute"
+    },
+    {
+      "include": "#value"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.ron",
+          "match": "(//).*$",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.comment.ron"
+            }
+          }
+        },
+        {
+          "include": "#block-comment"
+        }
+      ]
+    },
+    "block-comment": {
+      "name": "comment.block.ron",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.comment.begin.ron"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.comment.end.ron"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#block-comment"
+        }
+      ]
+    },
+    "attribute": {
+      "name": "meta.attribute.ron",
+      "begin": "(#)(!)(\\[)",
+      "end": "\\]",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.attribute.ron"
+        },
+        "2": {
+          "name": "punctuation.definition.attribute.ron"
+        },
+        "3": {
+          "name": "punctuation.brackets.attribute.ron"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.brackets.attribute.ron"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.other.attribute.ron",
+          "match": "\\benable\\b"
+        },
+        {
+          "name": "support.constant.extension.ron",
+          "match": "\\b(?:implicit_some|unwrap_newtypes|unwrap_variant_newtypes|explicit_struct_names)\\b"
+        },
+        {
+          "name": "invalid.illegal.extension.ron",
+          "match": "\\b[\\p{L}_][\\p{L}\\p{N}_]*\\b"
+        },
+        {
+          "name": "punctuation.separator.comma.ron",
+          "match": ","
+        },
+        {
+          "name": "punctuation.brackets.round.ron",
+          "match": "[()]"
+        }
+      ]
+    },
+    "value": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#char"
+        },
+        {
+          "include": "#numbers"
+        },
+        {
+          "include": "#field"
+        },
+        {
+          "include": "#constants"
+        },
+        {
+          "include": "#named"
+        },
+        {
+          "include": "#punctuation"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.raw.ron",
+          "begin": "(b?r)(#*)(\\\")",
+          "end": "(\\\")(\\2)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.string.ron"
+            },
+            "2": {
+              "name": "punctuation.definition.string.raw.ron"
+            },
+            "3": {
+              "name": "punctuation.definition.string.begin.ron"
+            }
+          },
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.end.ron"
+            },
+            "2": {
+              "name": "punctuation.definition.string.raw.ron"
+            }
+          }
+        },
+        {
+          "name": "string.quoted.double.ron",
+          "begin": "(b?)(\\\")",
+          "end": "\\\"",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.string.ron"
+            },
+            "2": {
+              "name": "punctuation.definition.string.begin.ron"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.ron"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.ron",
+              "match": "\\\\(?:[nrt0\\\\'\\\"/bf]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]{1,6}\\}|u[0-9a-fA-F]{4})"
+            },
+            {
+              "name": "invalid.illegal.escape.ron",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "char": {
+      "name": "string.quoted.single.char.ron",
+      "match": "(b?)'(?:[^'\\\\\\n]|\\\\(?:[nrt0\\\\'\\\"/bf]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]{1,6}\\}|u[0-9a-fA-F]{4}))'",
+      "captures": {
+        "1": {
+          "name": "storage.type.string.ron"
+        }
+      }
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.hexadecimal.ron",
+          "match": "[+-]?\\b0x[0-9a-fA-F_]+(?:[iu](?:8|16|32|64|128|size))?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.octal.ron",
+          "match": "[+-]?\\b0o[0-7_]+(?:[iu](?:8|16|32|64|128|size))?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.binary.ron",
+          "match": "[+-]?\\b0b[01_]+(?:[iu](?:8|16|32|64|128|size))?\\b"
+        },
+        {
+          "name": "constant.numeric.float.ron",
+          "match": "[+-]?(?:\\b\\d[\\d_]*\\.(?!\\.)[\\d_]*(?:[eE][+-]?\\d[\\d_]*)?|(?<![\\w.])\\.\\d[\\d_]*(?:[eE][+-]?\\d[\\d_]*)?|\\b\\d[\\d_]*[eE][+-]?\\d[\\d_]*)(?:f32|f64)?(?![\\w.])"
+        },
+        {
+          "name": "constant.numeric.float.ron",
+          "match": "[+-]?\\b\\d[\\d_]*(?:f32|f64)\\b"
+        },
+        {
+          "name": "constant.numeric.float.ron",
+          "match": "(?:[+-]|\\b)(?:inf|NaN)\\b"
+        },
+        {
+          "name": "constant.numeric.integer.decimal.ron",
+          "match": "[+-]?\\b\\d[\\d_]*(?:[iu](?:8|16|32|64|128|size))?\\b"
+        }
+      ]
+    },
+    "field": {
+      "match": "((?:r#[\\w.+\\-]+|[\\p{L}_][\\p{L}\\p{N}_]*))\\s*(:)(?!:)",
+      "captures": {
+        "1": {
+          "name": "variable.other.member.ron"
+        },
+        "2": {
+          "name": "punctuation.separator.key-value.ron"
+        }
+      }
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.ron",
+          "match": "\\b(?:true|false)\\b"
+        },
+        {
+          "name": "constant.language.option.ron",
+          "match": "\\b(?:Some|None)\\b"
+        }
+      ]
+    },
+    "named": {
+      "patterns": [
+        {
+          "name": "entity.name.type.struct.ron",
+          "match": "(?:r#[\\w.+\\-]+|[\\p{L}_][\\p{L}\\p{N}_]*)(?=\\s*\\()"
+        },
+        {
+          "name": "entity.name.type.ron",
+          "match": "\\b\\p{Lu}[\\p{L}\\p{N}_]*\\b"
+        },
+        {
+          "name": "variable.other.ron",
+          "match": "(?:r#[\\w.+\\-]+|[\\p{L}_][\\p{L}\\p{N}_]*)"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.comma.ron",
+          "match": ","
+        },
+        {
+          "name": "punctuation.separator.key-value.ron",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.brackets.round.ron",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.brackets.square.ron",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.brackets.curly.ron",
+          "match": "[{}]"
+        }
+      ]
+    }
+  }
+}

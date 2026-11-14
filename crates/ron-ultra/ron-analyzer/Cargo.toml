@@ -1,0 +1,25 @@
+[package]
+name = "ron-analyzer"
+version = "0.1.0"
+edition = { workspace = true }
+description = "RON (Rusty Object Notation) analyzer — lossless parser, diagnostics, comment-preserving formatter, outline, hover paths — compilable to WASM for VSCode"
+license = "MIT"
+
+[lib]
+crate-type = [ "cdylib", "rlib" ]
+
+[dependencies]
+analyzer-core = { path = "../../analyzer-core" }
+wasm-bindgen = "0.2"
+serde = { version = "1", features = [ "derive" ] }
+serde_json = "1"
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lints]
+workspace = true

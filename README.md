@@ -20,6 +20,7 @@ Each extension has its own README with the full feature list and settings.
 | [Cap'n Proto Ultra](extensions/capnproto) | Highlighting, outline and diagnostics for `.capnp` schemas |
 | [Mojom IDL Ultra](extensions/mojom) | Highlighting, outline, navigation and diagnostics for `.mojom` files |
 | [JSON Ultra](extensions/json-ultra) | JSON, JSONC, JSON5 and JSON Lines: diagnostics, comment-preserving formatting, JSON-path hovers, a JSON Lines table preview |
+| [RON Ultra](extensions/ron-ultra) | RON (Rusty Object Notation): highlighting, diagnostics, comment-preserving formatting, outline, hover paths and smart select |
 | [dotenv (.env)](extensions/dotenv) | Highlighting, diagnostics, formatting and variable completion for `.env` files |
 | [Makefile](extensions/makefile) | Highlighting and outline for GNU Make |
 | [cargo-make (Makefile.toml)](extensions/cargo-make) | Highlighting, outline, completion, hover and diagnostics for `Makefile.toml` |
@@ -112,7 +113,7 @@ sources or how to regenerate their notices.
 | Path | Holds |
 | --- | --- |
 | `extensions/` | One folder per extension: TypeScript sources, grammars, `package.json` |
-| `crates/` | The Rust engines. Crates used by one extension are grouped in a folder named after it, such as `crates/typst` and `crates/wgsl-shader` |
+| `crates/` | The Rust engines. Crates used by one extension are grouped in a folder named after it, such as `crates/typst`, `crates/wgsl-shader` and `crates/ron-ultra` |
 | `scripts/` | Repo maintenance commands (`pnpm repo`), such as version bumps. See [scripts/README.md](scripts/README.md) |
 | `docs/rfc/` | Design documents for the larger extensions |
 

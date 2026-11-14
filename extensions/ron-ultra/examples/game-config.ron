@@ -1,0 +1,26 @@
+// Open this file in the Extension Development Host to try the extension.
+#![enable(implicit_some)]
+
+GameConfig( // the root struct
+    window_size: (800, 600),
+    window_title: "PAC-MAN",
+    fullscreen: false,
+
+    mouse_sensitivity: 1.4,
+    max_fps: 144u16,
+    seed: 0xDEAD_BEEF,
+    key_bindings: {
+        "up": Up,
+        "down": Down,
+        "left": Left,
+        "right": Right,
+    },
+    difficulty_options: (
+        start_difficulty: Easy,
+        adaptive: false,
+    ),
+    /* block comments /* nest */ in RON */
+    motd: r#"He said "hi""#,
+    icon: '🦀',
+    save_slot: None,
+)

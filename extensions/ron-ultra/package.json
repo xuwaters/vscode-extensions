@@ -1,0 +1,105 @@
+{
+  "name": "wx-vsce-ron-ultra",
+  "displayName": "RON Ultra",
+  "description": "RON (Rusty Object Notation) editing — syntax highlighting, diagnostics, comment-preserving formatting, outline, hover paths and smart select, powered by a RON analyzer compiled to WebAssembly.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "weixu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xuwaters/vscode-extensions.git",
+    "directory": "extensions/ron-ultra"
+  },
+  "bugs": {
+    "url": "https://github.com/xuwaters/vscode-extensions/issues"
+  },
+  "homepage": "https://github.com/xuwaters/vscode-extensions/tree/main/extensions/ron-ultra#readme",
+  "keywords": [
+    "ron",
+    "rusty object notation",
+    "rust",
+    "serde",
+    "formatter"
+  ],
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters"
+  ],
+  "activationEvents": [
+    "onLanguage:ron"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "ron",
+        "aliases": [
+          "RON",
+          "Rusty Object Notation",
+          "ron"
+        ],
+        "extensions": [
+          ".ron"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ron",
+        "scopeName": "source.ron",
+        "path": "./syntaxes/ron.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "RON Ultra",
+      "properties": {
+        "ronUltra.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Report syntax errors, invalid literals, mixed named and positional fields, duplicate fields and keys, and unknown extensions."
+        },
+        "ronUltra.format.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Format RON files with the built-in, comment-preserving formatter."
+        },
+        "ronUltra.format.printWidth": {
+          "type": "number",
+          "default": 80,
+          "minimum": 0,
+          "scope": "resource",
+          "markdownDescription": "Widest line a container may be collapsed onto, as in `(x: 1, y: 2)`. Containers that do not fit are written one entry per line. `0` expands every non-empty container."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:wasm": "cd ../../crates/ron-ultra/ron-analyzer && wasm-pack build --target nodejs --out-dir ../../../extensions/ron-ultra/wasm --out-name ron_analyzer",
+    "licenses": "cd ../../crates/ron-ultra/ron-analyzer && cargo about generate about.hbs -o ../../../extensions/ron-ultra/THIRD-PARTY-NOTICES.md",
+    "build": "tsdown",
+    "clean": "rm -rf dist wasm",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch",
+    "package": "pnpm run build:wasm && pnpm run build && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "tsdown --minify",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:build",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "catalog:build",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:build",
+    "vitest": "catalog:build",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  }
+}
