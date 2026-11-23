@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { exportDocument, pickAndExport } from './commands/export.js';
 import { namesTypstSource } from './commands/target.js';
+import { CoalescedRefresh } from './coalesce.js';
 import { createFromTemplate } from './commands/template.js';
 import { CompileRoot } from './compileRoot.js';
 import * as config from './config.js';
@@ -11,6 +12,9 @@ import { PreviewManager } from './preview/manager.js';
 import type { PreviewCommand } from './preview/messages.js';
 import { ModeManager } from './preview/modes.js';
 import { PageMemory } from './preview/pageMemory.js';
+
+/** How long file events settle before the workspace is walked again. */
+const PUBLISH_DEBOUNCE_MS = 300;
 
 /**
  * Typst Ultra.
@@ -46,26 +50,45 @@ export function activate(context: vscode.ExtensionContext): void {
   // completion have something to search. The host walks the file system; the
   // server does not. `.bib` files are in the list because a bibliography the
   // compile has not read yet is still a bibliography the reader can cite from.
-  const publishWorkspaceFiles = async () => {
-    const files = await vscode.workspace.findFiles(
-      '**/*.{typ,typc,bib}',
-      '**/node_modules/**',
-      2000,
-    );
-    client.notify('typst/workspaceFiles', {
-      uris: files.map((uri) => uri.toString()),
-    });
-  };
+  //
+  // Every walk is a ripgrep over the whole workspace, so walks are coalesced:
+  // a burst of file events costs one, and there is never more than one live.
+  // `undefined` for the excludes is what applies the reader's `files.exclude`
+  // and `search.exclude`; a glob of our own would replace them both.
+  const workspaceFiles = new CoalescedRefresh(PUBLISH_DEBOUNCE_MS, () => {
+    const cancellation = new vscode.CancellationTokenSource();
+    const done = (async () => {
+      try {
+        if (!client.running) return;
+        const files = await vscode.workspace.findFiles(
+          '**/*.{typ,typc,bib}',
+          undefined,
+          2000,
+          cancellation.token,
+        );
+        if (cancellation.token.isCancellationRequested) return;
+        client.notify('typst/workspaceFiles', {
+          uris: files.map((uri) => uri.toString()),
+        });
+      } finally {
+        cancellation.dispose();
+      }
+    })();
+    return { done, cancel: () => cancellation.cancel() };
+  });
+  context.subscriptions.push(
+    { dispose: () => workspaceFiles.dispose() },
+    // A new server, restarts included, knows nothing the host has told the
+    // last one. Activation runs before the first document opens, so this is
+    // also the first publish.
+    client.onDidStart(() => workspaceFiles.schedule()),
+  );
 
   /** Whether this workspace is a typst project at all, looked up once. */
   let typstProject: Promise<boolean> | undefined;
   const isTypstProject = async (): Promise<boolean> => {
     typstProject ??= (async () => {
-      const found = await vscode.workspace.findFiles(
-        '**/*.{typ,typc}',
-        '**/node_modules/**',
-        1,
-      );
+      const found = await vscode.workspace.findFiles('**/*.{typ,typc}', undefined, 1);
       return found.length > 0;
     })();
     return typstProject;
@@ -85,11 +108,7 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
 
-    const wasRunning = client.running;
     await client.start(document.uri);
-    // The file list is only useful once there is a server to receive it, and
-    // activation runs before the first document opens.
-    if (!wasRunning) void publishWorkspaceFiles();
   };
   vscode.workspace.textDocuments.forEach((document) => void startForDocument(document));
   context.subscriptions.push(
@@ -98,11 +117,15 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
+  // With no server there is nobody to tell, and the next start publishes.
+  const filesChanged = () => {
+    if (client.running) workspaceFiles.schedule();
+  };
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.{typ,typc,bib}');
   context.subscriptions.push(
     watcher,
-    watcher.onDidCreate(() => void publishWorkspaceFiles()),
-    watcher.onDidDelete(() => void publishWorkspaceFiles()),
+    watcher.onDidCreate(filesChanged),
+    watcher.onDidDelete(filesChanged),
   );
 
   context.subscriptions.push(
