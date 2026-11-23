@@ -23,6 +23,8 @@ members = [
   "crates/wgsl-shader/glsl-syntax",
   "crates/wgsl-shader/glsl-analysis",
   "crates/ron-ultra/ron-analyzer",
+  "crates/ron-ultra/ron-lsp-core",
+  "crates/ron-ultra/ron-lsp-wasm",
 ]
 exclude = ["crates/typst", "crates/fast", "crates/wgsl-shader", "crates/ron-ultra"]
 resolver = "3"

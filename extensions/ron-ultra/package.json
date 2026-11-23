@@ -1,8 +1,8 @@
 {
   "name": "wx-vsce-ron-ultra",
   "displayName": "RON Ultra",
-  "description": "RON (Rusty Object Notation) editing — syntax highlighting, diagnostics, comment-preserving formatting, outline, hover paths and smart select, powered by a RON analyzer compiled to WebAssembly.",
-  "version": "0.1.0",
+  "description": "RON (Rusty Object Notation) language server — syntax highlighting, diagnostics, validation and completion against the Rust struct a file deserializes into (/* @[crate::config::GameConfig] */), go to definition, comment-preserving formatting, outline, hovers and smart select, powered by WebAssembly.",
+  "version": "0.2.0",
   "private": true,
   "publisher": "weixu",
   "license": "MIT",
@@ -20,7 +20,9 @@
     "rusty object notation",
     "rust",
     "serde",
-    "formatter"
+    "formatter",
+    "schema",
+    "language server"
   ],
   "engines": {
     "vscode": "^1.96.0"
@@ -61,28 +63,41 @@
         "ronUltra.diagnostics.enabled": {
           "type": "boolean",
           "default": true,
-          "scope": "resource",
-          "description": "Report syntax errors, invalid literals, mixed named and positional fields, duplicate fields and keys, and unknown extensions."
+          "scope": "window",
+          "description": "Report syntax errors, invalid literals, mixed named and positional fields, duplicate fields and keys, unknown extensions, and mismatches with the annotated Rust type."
+        },
+        "ronUltra.schema.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "markdownDescription": "Check files that name their Rust type in a comment, such as `/* @[crate::config::GameConfig] */`, against that type — and offer its fields and variants as completions. The path resolves in the crate whose `Cargo.toml` is nearest above the file."
         },
         "ronUltra.format.enabled": {
           "type": "boolean",
           "default": true,
-          "scope": "resource",
+          "scope": "window",
           "description": "Format RON files with the built-in, comment-preserving formatter."
         },
         "ronUltra.format.printWidth": {
           "type": "number",
           "default": 80,
           "minimum": 0,
-          "scope": "resource",
+          "scope": "window",
           "markdownDescription": "Widest line a container may be collapsed onto, as in `(x: 1, y: 2)`. Containers that do not fit are written one entry per line. `0` expands every non-empty container."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "ronUltra.restartServer",
+        "title": "Restart Language Server",
+        "category": "RON Ultra"
+      }
+    ]
   },
   "scripts": {
-    "build:wasm": "cd ../../crates/ron-ultra/ron-analyzer && wasm-pack build --target nodejs --out-dir ../../../extensions/ron-ultra/wasm --out-name ron_analyzer",
-    "licenses": "cd ../../crates/ron-ultra/ron-analyzer && cargo about generate about.hbs -o ../../../extensions/ron-ultra/THIRD-PARTY-NOTICES.md",
+    "build:wasm": "cd ../../crates/ron-ultra/ron-lsp-wasm && wasm-pack build --target nodejs --out-dir ../../../extensions/ron-ultra/wasm --out-name ron_lsp_wasm",
+    "licenses": "cd ../../crates/ron-ultra/ron-lsp-wasm && cargo about generate about.hbs -o ../../../extensions/ron-ultra/THIRD-PARTY-NOTICES.md",
     "build": "tsdown",
     "clean": "rm -rf dist wasm",
     "typecheck": "tsc --noEmit",
@@ -91,6 +106,10 @@
     "vscode:prepublish": "tsdown --minify",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1"
   },
   "devDependencies": {
     "@types/node": "catalog:build",

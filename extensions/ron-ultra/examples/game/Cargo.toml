@@ -1,0 +1,13 @@
+# A tiny crate for trying RON Ultra's schema support: open
+# assets/game-config.ron, which names `crate::config::GameConfig`.
+[package]
+name = "ron-ultra-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+# Its own workspace, so the repository's Cargo workspace leaves it alone.
+[workspace]

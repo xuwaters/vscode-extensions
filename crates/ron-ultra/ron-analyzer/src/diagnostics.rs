@@ -29,6 +29,24 @@ pub enum DiagnosticCode {
     DuplicateKey,
     /// `#![enable(...)]` naming an extension RON does not have.
     UnknownExtension,
+    /// A `@[path::to::Type]` annotation that names nothing the schema can
+    /// find.
+    UnresolvedType,
+    /// A value of the wrong kind for its Rust type.
+    TypeMismatch,
+    /// A field the Rust struct does not declare.
+    UnknownField,
+    /// A required field of the Rust struct is absent.
+    MissingField,
+    /// A name that is not a variant of the Rust enum.
+    UnknownVariant,
+    /// A tuple, tuple struct or array with the wrong number of values.
+    WrongLength,
+    /// A struct written with someone else's name, or without one under
+    /// `explicit_struct_names`.
+    WrongName,
+    /// An integer too large or too small for its Rust type.
+    OutOfRange,
 }
 
 impl analyzer_core::diagnostics::DiagnosticCode for DiagnosticCode {
@@ -45,21 +63,34 @@ impl analyzer_core::diagnostics::DiagnosticCode for DiagnosticCode {
             DiagnosticCode::DuplicateField => "RON009",
             DiagnosticCode::DuplicateKey => "RON010",
             DiagnosticCode::UnknownExtension => "RON011",
+            DiagnosticCode::UnresolvedType => "RON012",
+            DiagnosticCode::TypeMismatch => "RON013",
+            DiagnosticCode::UnknownField => "RON014",
+            DiagnosticCode::MissingField => "RON015",
+            DiagnosticCode::UnknownVariant => "RON016",
+            DiagnosticCode::WrongLength => "RON017",
+            DiagnosticCode::WrongName => "RON018",
+            DiagnosticCode::OutOfRange => "RON019",
         }
     }
 }
 
 impl DiagnosticCode {
     /// Codes after which the AST has holes or untrustworthy raw slices, so
-    /// the formatter must not touch the file. Duplicates and unknown
-    /// extensions are real errors for a deserializer but leave the syntax
-    /// tree intact, so they do not block formatting.
+    /// the formatter must not touch the file. Duplicates, unknown
+    /// extensions and schema findings are real errors for a deserializer
+    /// but leave the syntax tree intact, so they do not block formatting.
     pub fn blocks_formatting(self) -> bool {
-        !matches!(
+        matches!(
             self,
-            DiagnosticCode::DuplicateField
-                | DiagnosticCode::DuplicateKey
-                | DiagnosticCode::UnknownExtension
+            DiagnosticCode::SyntaxError
+                | DiagnosticCode::UnterminatedString
+                | DiagnosticCode::UnterminatedComment
+                | DiagnosticCode::InvalidNumber
+                | DiagnosticCode::InvalidEscape
+                | DiagnosticCode::InvalidChar
+                | DiagnosticCode::TrailingContent
+                | DiagnosticCode::MixedFields
         )
     }
 }

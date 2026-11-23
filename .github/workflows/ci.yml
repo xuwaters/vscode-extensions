@@ -81,7 +81,7 @@ jobs:
             -p log-parser \
             -p fast-analyzer-wasm \
             -p json-analyzer \
-            -p ron-analyzer
+            -p ron-lsp-wasm
 
       - name: Report the typst artifact size
         run: |

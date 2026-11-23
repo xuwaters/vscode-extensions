@@ -2541,8 +2541,29 @@ name = "ron-analyzer"
 version = "0.1.0"
 dependencies = [
  "analyzer-core",
- "console_error_panic_hook",
  "pretty_assertions",
+ "serde",
+]
+
+[[package]]
+name = "ron-lsp-core"
+version = "0.1.0"
+dependencies = [
+ "analyzer-core",
+ "lsp-types",
+ "pretty_assertions",
+ "ron-analyzer",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ron-lsp-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "js-sys",
+ "ron-lsp-core",
  "serde",
  "serde_json",
  "wasm-bindgen",

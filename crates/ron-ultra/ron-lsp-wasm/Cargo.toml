@@ -1,0 +1,26 @@
+[package]
+name = "ron-lsp-wasm"
+version = "0.1.0"
+edition = { workspace = true }
+description = "wasm-bindgen surface for the RON language server — the only crate in the stack that knows WASM exists."
+license = "MIT"
+
+[lib]
+crate-type = [ "cdylib", "rlib" ]
+
+[lints]
+workspace = true
+
+# Only the wasm32 build has a binding to compile; natively the crate is empty,
+# so its dependencies are target-specific to keep `cargo test` lean.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ron-lsp-core = { path = "../ron-lsp-core" }
+
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = "1"
+serde_json = "1"
+console_error_panic_hook = "0.1"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

@@ -1,0 +1,20 @@
+[package]
+name = "ron-lsp-core"
+version = "0.1.0"
+edition = { workspace = true }
+description = "Transport-agnostic RON language server — method dispatch, document state, and every IDE feature, expressed in lsp-types shapes."
+license = "MIT"
+
+[lints]
+workspace = true
+
+[dependencies]
+ron-analyzer = { path = "../ron-analyzer" }
+analyzer-core = { path = "../../analyzer-core" }
+
+lsp-types = "0.97"
+serde = { version = "1", features = [ "derive" ] }
+serde_json = "1"
+
+[dev-dependencies]
+pretty_assertions = "1"

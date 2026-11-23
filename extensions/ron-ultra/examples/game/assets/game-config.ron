@@ -1,4 +1,7 @@
 // Open this file in the Extension Development Host to try the extension.
+// The comment below ties it to a Rust struct in ../src/config.rs: hover a
+// field, ctrl-click it, or misspell one to see the schema at work.
+/* @[crate::config::GameConfig] */
 #![enable(implicit_some)]
 
 GameConfig( // the root struct

@@ -96,6 +96,15 @@ describe('RON grammar', () => {
     expect(scopeOf(src, 'b:')).toBe('variable.other.member.ron');
   });
 
+  it('marks the schema annotation inside comments', () => {
+    const block = '/* @[crate::config::GameConfig] */\nGameConfig()';
+    expect(scopeOf(block, 'crate::config')).toBe('entity.name.type.ron');
+    expect(scopeOf(block, '@[')).toBe('punctuation.definition.annotation.begin.ron');
+    const line = '// schema: @[Vec<crate::Level>]\n[]';
+    expect(scopeOf(line, 'Vec')).toBe('entity.name.type.ron');
+    expect(scopeOf(line, 'schema')).toBe('comment.line.double-slash.ron');
+  });
+
   it('scopes comments and attributes', () => {
     const src = '#![enable(implicit_some, nope)] // tail\n5';
     expect(scopeOf(src, '#')).toBe('punctuation.definition.attribute.ron');

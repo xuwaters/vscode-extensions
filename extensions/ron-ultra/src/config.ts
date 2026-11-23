@@ -1,30 +1,26 @@
-// Typed readers over the `ronUltra.*` settings, per-resource scoped.
+// The `ronUltra.*` settings, gathered into the one object the server
+// deserializes. The shape must match `ron_lsp_core::Settings`; it is spelled
+// out so a typo is a TypeScript error here instead of a silently-defaulted
+// setting there.
 
 import * as vscode from 'vscode';
-import type { FormatOptions } from './types';
 
 export const CONFIG_SECTION = 'ronUltra';
 
-function config(resource: vscode.Uri): vscode.WorkspaceConfiguration {
-  return vscode.workspace.getConfiguration(CONFIG_SECTION, resource);
+export interface Settings {
+  diagnostics: { enabled: boolean };
+  format: { enabled: boolean; printWidth: number };
+  schema: { enabled: boolean };
 }
 
-export function readDiagnosticsEnabled(resource: vscode.Uri): boolean {
-  return config(resource).get<boolean>('diagnostics.enabled', true);
-}
-
-/** `null` when formatting is switched off. */
-export function readFormatOptions(
-  document: vscode.TextDocument,
-  options: vscode.FormattingOptions,
-): FormatOptions | null {
-  const ron = config(document.uri);
-  if (!ron.get<boolean>('format.enabled', true)) return null;
-  const files = vscode.workspace.getConfiguration('files', document.uri);
+export function read(): Settings {
+  const c = vscode.workspace.getConfiguration(CONFIG_SECTION);
   return {
-    tab_size: Math.max(1, Math.floor(options.tabSize)),
-    insert_spaces: options.insertSpaces,
-    print_width: Math.max(0, Math.floor(ron.get<number>('format.printWidth', 80))),
-    insert_final_newline: files.get<boolean>('insertFinalNewline', true),
+    diagnostics: { enabled: c.get<boolean>('diagnostics.enabled', true) },
+    format: {
+      enabled: c.get<boolean>('format.enabled', true),
+      printWidth: Math.max(0, Math.floor(c.get<number>('format.printWidth', 80))),
+    },
+    schema: { enabled: c.get<boolean>('schema.enabled', true) },
   };
 }

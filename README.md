@@ -20,7 +20,7 @@ Each extension has its own README with the full feature list and settings.
 | [Cap'n Proto Ultra](extensions/capnproto) | Highlighting, outline and diagnostics for `.capnp` schemas |
 | [Mojom IDL Ultra](extensions/mojom) | Highlighting, outline, navigation and diagnostics for `.mojom` files |
 | [JSON Ultra](extensions/json-ultra) | JSON, JSONC, JSON5 and JSON Lines: diagnostics, comment-preserving formatting, JSON-path hovers, a JSON Lines table preview |
-| [RON Ultra](extensions/ron-ultra) | RON (Rusty Object Notation): highlighting, diagnostics, comment-preserving formatting, outline, hover paths and smart select |
+| [RON Ultra](extensions/ron-ultra) | RON (Rusty Object Notation) language server: highlighting, diagnostics, validation and completion against the Rust type a file names (`/* @[crate::config::GameConfig] */`), go to definition, comment-preserving formatting, outline, hovers and smart select |
 | [dotenv (.env)](extensions/dotenv) | Highlighting, diagnostics, formatting and variable completion for `.env` files |
 | [Makefile](extensions/makefile) | Highlighting and outline for GNU Make |
 | [cargo-make (Makefile.toml)](extensions/cargo-make) | Highlighting, outline, completion, hover and diagnostics for `Makefile.toml` |
