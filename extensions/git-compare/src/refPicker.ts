@@ -51,8 +51,8 @@ async function pickFromRefs(
   // every ref before the popup even appears — and on a slow first call (a big
   // repo, cold ref cache) we don't make them stare at a blocked UI.
   const qp = vscode.window.createQuickPick<RefQuickPickItem>();
-  qp.title = `Compare ${repoName(repo)} (${displayHead(head?.name, head?.commit)}) working copy with…`;
-  qp.placeholder = 'Loading refs…';
+  qp.title = `Compare ${repoName(repo)} (${displayHead(head?.name, head?.commit)}) working copy with...`;
+  qp.placeholder = 'Loading refs...';
   qp.matchOnDescription = true;
   qp.matchOnDetail = true;
   qp.busy = true;
@@ -125,7 +125,7 @@ function makeEnterItem(typed: string): RefQuickPickItem {
     };
   }
   return {
-    label: '$(history) Select from commit history…',
+    label: '$(history) Select from commit history...',
     description: 'or type a branch, tag, or commit SHA',
     enterCommitish: true,
     alwaysShow: true,
@@ -174,194 +174,136 @@ function refKey(r: Ref): string | undefined {
   return `${r.type}:${r.name}`;
 }
 
+interface RefGroup {
+  label: string;
+  items: RefQuickPickItem[];
+}
+
+type NamedRef = Ref & { name: string };
+
+// Lists the refs in labelled groups, the most likely comparison first, and
+// ends with the "type a ref / browse history" entry.
 function buildItems(
   refs: readonly Ref[],
   head: Branch | undefined,
   typed: string,
 ): RefQuickPickItem[] {
-  const headName = head?.name;
-  const buckets: { label: string; items: RefQuickPickItem[] }[] = [];
+  const upstreams = upstreamItems(refs, head);
+  const otherLocals = refsOfType(refs, RefType.Head).filter((r) => r.name !== head?.name);
+  const isDefault = (r: NamedRef): boolean => DEFAULT_BRANCH_NAMES.has(r.name);
 
-  // Surface the upstream of the *current* branch first — that's the most
-  // common comparison ("what would I push?"). Use the branch's configured
-  // upstream; only guess by name when none is set, since several remotes can
-  // carry a branch of the same name.
-  const upstreamItems: RefQuickPickItem[] = [];
-  const upstreamRefs = new Set<string>();
-  const upstreamName = head?.upstream ? `${head.upstream.remote}/${head.upstream.name}` : undefined;
-  for (const ref of refs) {
-    if (ref.type !== RefType.RemoteHead || !ref.name) continue;
-    const isUpstream = upstreamName
-      ? ref.name === upstreamName
-      : !!headName && ref.name.endsWith(`/${headName}`);
-    if (isUpstream) {
-      upstreamRefs.add(ref.name);
-      upstreamItems.push(
-        refItem(ref, '$(cloud-download)', upstreamName ? 'Upstream of current branch' : 'Same name as current branch'),
-      );
-    }
-  }
-  if (upstreamItems.length) buckets.push({ label: 'Upstream', items: upstreamItems });
+  const groups: RefGroup[] = [
+    { label: 'Upstream', items: upstreams },
+    { label: 'Current branch', items: currentBranchItems(refs, head) },
+    { label: 'Default branches', items: branchItems(otherLocals.filter(isDefault)) },
+    { label: 'Local branches', items: branchItems(otherLocals.filter((r) => !isDefault(r))) },
+    { label: 'Remote branches', items: remoteBranchItems(refs, new Set(upstreams.map((i) => i.ref))) },
+    { label: 'Tags', items: refsOfType(refs, RefType.Tag).map((r) => refItem(r, '$(tag)')) },
+  ];
 
-  // The current branch itself: comparing the working copy with it shows the
-  // uncommitted changes.
-  if (headName) {
-    const current = refs.find((r) => r.type === RefType.Head && r.name === headName) ?? head;
-    if (current) {
-      buckets.push({
-        label: 'Current branch',
-        items: [refItem(current, '$(git-branch)', 'uncommitted changes', current.commit ?? head?.commit)],
-      });
-    }
-  }
-
-  const defaults: RefQuickPickItem[] = [];
-  for (const ref of refs) {
-    if (
-      ref.type === RefType.Head &&
-      ref.name &&
-      DEFAULT_BRANCH_NAMES.has(ref.name) &&
-      ref.name !== headName
-    ) {
-      defaults.push(refItem(ref, '$(git-branch)'));
-    }
-  }
-  if (defaults.length) buckets.push({ label: 'Default branches', items: defaults });
-
-  const localBranches = refs
-    .filter(
-      (r) =>
-        r.type === RefType.Head &&
-        r.name &&
-        r.name !== headName &&
-        !DEFAULT_BRANCH_NAMES.has(r.name),
-    )
-    .map((r) => refItem(r, '$(git-branch)'));
-  if (localBranches.length) buckets.push({ label: 'Local branches', items: localBranches });
-
-  // Skip refs already listed under Upstream, and `<remote>/HEAD`, which is only
-  // an alias for that remote's default branch.
-  const remoteBranches = refs
-    .filter(
-      (r) =>
-        r.type === RefType.RemoteHead &&
-        r.name &&
-        !upstreamRefs.has(r.name) &&
-        !r.name.endsWith('/HEAD'),
-    )
-    .map((r) => refItem(r, '$(cloud)'));
-  if (remoteBranches.length) buckets.push({ label: 'Remote branches', items: remoteBranches });
-
-  const tags = refs
-    .filter((r) => r.type === RefType.Tag && r.name)
-    .map((r) => refItem(r, '$(tag)'));
-  if (tags.length) buckets.push({ label: 'Tags', items: tags });
-
-  const items: RefQuickPickItem[] = [];
-  for (const bucket of buckets) {
-    items.push({ label: bucket.label, kind: vscode.QuickPickItemKind.Separator });
-    items.push(...bucket.items);
-  }
-  items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
-  items.push(makeEnterItem(typed));
-  return items;
+  return [
+    ...flattenGroups(groups),
+    { label: '', kind: vscode.QuickPickItemKind.Separator },
+    makeEnterItem(typed),
+  ];
 }
 
-async function pickFromHistory(
-  repo: Repository,
-): Promise<RefPickResult | typeof GO_BACK | undefined> {
-  const qp = vscode.window.createQuickPick<CommitQuickPickItem>();
-  const head = repo.state.HEAD;
-  qp.title = `Compare ${repoName(repo)} with a commit on ${displayHead(head?.name, head?.commit)}`;
-  qp.placeholder = 'Loading commits…';
-  qp.matchOnDescription = true;
-  qp.keepScrollPosition = true;
-  qp.buttons = [vscode.QuickInputButtons.Back];
-  qp.busy = true;
+function refsOfType(refs: readonly Ref[], type: RefType): NamedRef[] {
+  return refs.filter((r): r is NamedRef => r.type === type && !!r.name);
+}
 
-  let commits: Commit[] = [];
-  let limit = HISTORY_PAGE_SIZE;
-  let hasMore = false;
-  let loading = false;
+// The upstream of the *current* branch is the most common comparison ("what
+// would I push?"). Use the branch's configured upstream; only guess by name
+// when none is set, since several remotes can carry a branch of the same name.
+function upstreamItems(refs: readonly Ref[], head: Branch | undefined): RefQuickPickItem[] {
+  const remotes = refsOfType(refs, RefType.RemoteHead);
+  if (head?.upstream) {
+    const upstreamName = `${head.upstream.remote}/${head.upstream.name}`;
+    return remotes
+      .filter((r) => r.name === upstreamName)
+      .map((r) => refItem(r, '$(cloud-download)', 'Upstream of current branch'));
+  }
+  const headName = head?.name;
+  if (!headName) return [];
+  return remotes
+    .filter((r) => r.name.endsWith(`/${headName}`))
+    .map((r) => refItem(r, '$(cloud-download)', 'Same name as current branch'));
+}
 
-  const render = (focus?: Commit): void => {
-    const items: CommitQuickPickItem[] = [];
-    const typed = qp.value.trim();
-    if (typed) {
-      items.push({
-        label: `$(arrow-right) Use "${typed}"`,
-        description: 'Compare against this branch, tag, or commit SHA',
-        typed,
-        alwaysShow: true,
-      });
-    }
-    for (const c of commits) items.push(commitItem(c));
-    if (hasMore) {
-      items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
-      items.push({
-        label: loading ? '$(loading~spin) Loading…' : '$(fold-down) Load more commits…',
-        description: `showing the latest ${commits.length}`,
-        loadMore: true,
-        alwaysShow: true,
-      });
-    }
-    qp.items = items;
-    if (focus) {
-      const target = items.find((i) => i.commit === focus);
-      if (target) qp.activeItems = [target];
-    }
+// Comparing the working copy with the current branch shows the uncommitted
+// changes.
+function currentBranchItems(refs: readonly Ref[], head: Branch | undefined): RefQuickPickItem[] {
+  if (!head?.name) return [];
+  const current = refs.find((r) => r.type === RefType.Head && r.name === head.name) ?? head;
+  return [refItem(current, '$(git-branch)', 'uncommitted changes', current.commit ?? head.commit)];
+}
+
+function branchItems(branches: readonly NamedRef[]): RefQuickPickItem[] {
+  return branches.map((r) => refItem(r, '$(git-branch)'));
+}
+
+// Skips refs already listed under Upstream, and `<remote>/HEAD`, which is only
+// an alias for that remote's default branch.
+function remoteBranchItems(
+  refs: readonly Ref[],
+  upstreams: ReadonlySet<string | undefined>,
+): RefQuickPickItem[] {
+  return refsOfType(refs, RefType.RemoteHead)
+    .filter((r) => !upstreams.has(r.name) && !r.name.endsWith('/HEAD'))
+    .map((r) => refItem(r, '$(cloud)'));
+}
+
+// Drops empty groups and heads each remaining one with a labelled separator.
+function flattenGroups(groups: readonly RefGroup[]): RefQuickPickItem[] {
+  return groups
+    .filter((g) => g.items.length > 0)
+    .flatMap((g): RefQuickPickItem[] => [
+      { label: g.label, kind: vscode.QuickPickItemKind.Separator },
+      ...g.items,
+    ]);
+}
+
+// What the history picker has loaded so far.
+interface HistoryState {
+  commits: Commit[];
+  // How many commits the next `git log` asks for.
+  limit: number;
+  // Whether the last load filled `limit`, so older commits may exist.
+  hasMore: boolean;
+  loading: boolean;
+}
+
+type HistoryPickResult = RefPickResult | typeof GO_BACK | undefined;
+
+async function pickFromHistory(repo: Repository): Promise<HistoryPickResult> {
+  const qp = createHistoryQuickPick(repo);
+  const history: HistoryState = { commits: [], limit: HISTORY_PAGE_SIZE, hasMore: false, loading: false };
+
+  const loadMore = (): void => {
+    if (history.loading) return;
+    history.limit += HISTORY_PAGE_SIZE;
+    void loadHistory(repo, qp, history);
   };
 
-  const load = async (): Promise<void> => {
-    loading = true;
-    qp.busy = true;
-    render();
-    const previous = commits.length;
-    try {
-      const fetched = await repo.log({ maxEntries: limit });
-      commits = fetched;
-      hasMore = fetched.length >= limit;
-      qp.placeholder = commits.length
-        ? 'Select a commit — or type a SHA / branch name'
-        : 'No commits yet — type a branch, tag, or commit SHA';
-    } catch (err) {
-      hasMore = false;
-      qp.placeholder = `Failed to read commit history: ${(err as Error).message}`;
-    } finally {
-      loading = false;
-      qp.busy = false;
-    }
-    // After "Load more", land on the first newly loaded commit so the user
-    // can keep scrolling from where the old list ended.
-    render(previous > 0 ? commits[previous] : undefined);
-  };
-
-  const result = new Promise<RefPickResult | typeof GO_BACK | undefined>((resolve) => {
+  const result = new Promise<HistoryPickResult>((resolve) => {
     let resolved = false;
-    const finish = (value: RefPickResult | typeof GO_BACK | undefined): void => {
+    const finish = (value: HistoryPickResult): void => {
       resolved = true;
       qp.hide();
       resolve(value);
     };
-    qp.onDidChangeValue(() => render());
+    qp.onDidChangeValue(() => renderHistory(qp, history));
     qp.onDidTriggerButton((button) => {
       if (button === vscode.QuickInputButtons.Back) finish(GO_BACK);
     });
     qp.onDidAccept(() => {
       const picked = qp.activeItems[0];
       if (picked?.loadMore) {
-        if (!loading) {
-          limit += HISTORY_PAGE_SIZE;
-          void load();
-        }
+        loadMore();
         return;
       }
-      if (picked?.commit) {
-        finish({ ref: picked.commit.hash, label: picked.commit.hash.slice(0, 8) });
-        return;
-      }
-      const typed = picked?.typed ?? qp.value.trim();
-      if (typed) finish({ ref: typed, label: typed });
+      const chosen = historyPickResult(picked, qp.value);
+      if (chosen) finish(chosen);
     });
     qp.onDidHide(() => {
       if (!resolved) resolve(undefined);
@@ -370,8 +312,96 @@ async function pickFromHistory(
   });
 
   qp.show();
-  await load();
+  await loadHistory(repo, qp, history);
   return result;
+}
+
+function createHistoryQuickPick(repo: Repository): vscode.QuickPick<CommitQuickPickItem> {
+  const qp = vscode.window.createQuickPick<CommitQuickPickItem>();
+  const head = repo.state.HEAD;
+  qp.title = `Compare ${repoName(repo)} with a commit on ${displayHead(head?.name, head?.commit)}`;
+  qp.placeholder = 'Loading commits...';
+  qp.matchOnDescription = true;
+  qp.keepScrollPosition = true;
+  qp.buttons = [vscode.QuickInputButtons.Back];
+  qp.busy = true;
+  return qp;
+}
+
+// Re-reads the history up to `history.limit` commits and re-renders the picker.
+async function loadHistory(
+  repo: Repository,
+  qp: vscode.QuickPick<CommitQuickPickItem>,
+  history: HistoryState,
+): Promise<void> {
+  const previous = history.commits.length;
+  history.loading = true;
+  qp.busy = true;
+  renderHistory(qp, history);
+  try {
+    history.commits = await repo.log({ maxEntries: history.limit });
+    history.hasMore = history.commits.length >= history.limit;
+    qp.placeholder = history.commits.length
+      ? 'Select a commit — or type a SHA / branch name'
+      : 'No commits yet — type a branch, tag, or commit SHA';
+  } catch (err) {
+    history.hasMore = false;
+    qp.placeholder = `Failed to read commit history: ${(err as Error).message}`;
+  } finally {
+    history.loading = false;
+    qp.busy = false;
+  }
+  // After "Load more", land on the first newly loaded commit so the user
+  // can keep scrolling from where the old list ended.
+  renderHistory(qp, history, previous > 0 ? history.commits[previous] : undefined);
+}
+
+function renderHistory(
+  qp: vscode.QuickPick<CommitQuickPickItem>,
+  history: HistoryState,
+  focus?: Commit,
+): void {
+  const items = historyItems(history, qp.value.trim());
+  qp.items = items;
+  const target = focus && items.find((i) => i.commit === focus);
+  if (target) qp.activeItems = [target];
+}
+
+// The typed ref (if any), the loaded commits, then "Load more" when older
+// commits may exist.
+function historyItems(history: HistoryState, typed: string): CommitQuickPickItem[] {
+  const items: CommitQuickPickItem[] = [];
+  if (typed) {
+    items.push({
+      label: `$(arrow-right) Use "${typed}"`,
+      description: 'Compare against this branch, tag, or commit SHA',
+      typed,
+      alwaysShow: true,
+    });
+  }
+  items.push(...history.commits.map(commitItem));
+  if (history.hasMore) {
+    items.push(
+      { label: '', kind: vscode.QuickPickItemKind.Separator },
+      {
+        label: history.loading ? '$(loading~spin) Loading...' : '$(fold-down) Load more commits...',
+        description: `showing the latest ${history.commits.length}`,
+        loadMore: true,
+        alwaysShow: true,
+      },
+    );
+  }
+  return items;
+}
+
+// The highlighted commit, else the typed ref.
+function historyPickResult(
+  picked: CommitQuickPickItem | undefined,
+  value: string,
+): RefPickResult | undefined {
+  if (picked?.commit) return { ref: picked.commit.hash, label: picked.commit.hash.slice(0, 8) };
+  const typed = picked?.typed ?? value.trim();
+  return typed ? { ref: typed, label: typed } : undefined;
 }
 
 function commitItem(commit: Commit): CommitQuickPickItem {
