@@ -1,5 +1,6 @@
+import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { Commit, Ref, Repository } from './gitApi';
+import type { Branch, Commit, Ref, Repository } from './gitApi';
 import { RefType } from './gitApi';
 
 export interface RefPickResult {
@@ -44,14 +45,13 @@ async function pickFromRefs(
   repo: Repository,
 ): Promise<RefPickResult | typeof SHOW_HISTORY | undefined> {
   const head = repo.state.HEAD;
-  const headName = head?.name;
 
   // Show the picker immediately, then stream refs in once they load. This way
   // the user sees the picker right away — instead of waiting for git to list
   // every ref before the popup even appears — and on a slow first call (a big
   // repo, cold ref cache) we don't make them stare at a blocked UI.
   const qp = vscode.window.createQuickPick<RefQuickPickItem>();
-  qp.title = `Compare working copy (${displayHead(head?.name, head?.commit)}) with…`;
+  qp.title = `Compare ${repoName(repo)} (${displayHead(head?.name, head?.commit)}) working copy with…`;
   qp.placeholder = 'Loading refs…';
   qp.matchOnDescription = true;
   qp.matchOnDetail = true;
@@ -102,7 +102,7 @@ async function pickFromRefs(
 
   try {
     const refs = await collectRefs(repo);
-    items = buildItems(refs, headName, qp.value);
+    items = buildItems(refs, head, qp.value);
     qp.items = items;
     qp.placeholder = 'Select a branch, tag, or commit — or type a SHA / branch name';
   } catch (err) {
@@ -176,20 +176,44 @@ function refKey(r: Ref): string | undefined {
 
 function buildItems(
   refs: readonly Ref[],
-  headName: string | undefined,
+  head: Branch | undefined,
   typed: string,
 ): RefQuickPickItem[] {
+  const headName = head?.name;
   const buckets: { label: string; items: RefQuickPickItem[] }[] = [];
 
+  // Surface the upstream of the *current* branch first — that's the most
+  // common comparison ("what would I push?"). Use the branch's configured
+  // upstream; only guess by name when none is set, since several remotes can
+  // carry a branch of the same name.
   const upstreamItems: RefQuickPickItem[] = [];
-  // Surface the upstream of the *current* branch first if we can find it in
-  // the ref list — that's the most common comparison ("what would I push?").
+  const upstreamRefs = new Set<string>();
+  const upstreamName = head?.upstream ? `${head.upstream.remote}/${head.upstream.name}` : undefined;
   for (const ref of refs) {
-    if (ref.type === RefType.RemoteHead && ref.name && headName && ref.name.endsWith(`/${headName}`)) {
-      upstreamItems.push(refItem(ref, '$(cloud-download)', 'Upstream of current branch'));
+    if (ref.type !== RefType.RemoteHead || !ref.name) continue;
+    const isUpstream = upstreamName
+      ? ref.name === upstreamName
+      : !!headName && ref.name.endsWith(`/${headName}`);
+    if (isUpstream) {
+      upstreamRefs.add(ref.name);
+      upstreamItems.push(
+        refItem(ref, '$(cloud-download)', upstreamName ? 'Upstream of current branch' : 'Same name as current branch'),
+      );
     }
   }
   if (upstreamItems.length) buckets.push({ label: 'Upstream', items: upstreamItems });
+
+  // The current branch itself: comparing the working copy with it shows the
+  // uncommitted changes.
+  if (headName) {
+    const current = refs.find((r) => r.type === RefType.Head && r.name === headName) ?? head;
+    if (current) {
+      buckets.push({
+        label: 'Current branch',
+        items: [refItem(current, '$(git-branch)', 'uncommitted changes', current.commit ?? head?.commit)],
+      });
+    }
+  }
 
   const defaults: RefQuickPickItem[] = [];
   for (const ref of refs) {
@@ -215,8 +239,16 @@ function buildItems(
     .map((r) => refItem(r, '$(git-branch)'));
   if (localBranches.length) buckets.push({ label: 'Local branches', items: localBranches });
 
+  // Skip refs already listed under Upstream, and `<remote>/HEAD`, which is only
+  // an alias for that remote's default branch.
   const remoteBranches = refs
-    .filter((r) => r.type === RefType.RemoteHead && r.name)
+    .filter(
+      (r) =>
+        r.type === RefType.RemoteHead &&
+        r.name &&
+        !upstreamRefs.has(r.name) &&
+        !r.name.endsWith('/HEAD'),
+    )
     .map((r) => refItem(r, '$(cloud)'));
   if (remoteBranches.length) buckets.push({ label: 'Remote branches', items: remoteBranches });
 
@@ -240,7 +272,7 @@ async function pickFromHistory(
 ): Promise<RefPickResult | typeof GO_BACK | undefined> {
   const qp = vscode.window.createQuickPick<CommitQuickPickItem>();
   const head = repo.state.HEAD;
-  qp.title = `Compare with a commit on ${displayHead(head?.name, head?.commit)}`;
+  qp.title = `Compare ${repoName(repo)} with a commit on ${displayHead(head?.name, head?.commit)}`;
   qp.placeholder = 'Loading commits…';
   qp.matchOnDescription = true;
   qp.keepScrollPosition = true;
@@ -374,17 +406,23 @@ function relativeTime(date: Date): string {
   return relativeFormat.format(0, 'second');
 }
 
-function refItem(ref: Ref, icon: string, description?: string): RefQuickPickItem {
-  const name = ref.name ?? ref.commit?.slice(0, 8) ?? '';
+// The description is the short SHA, followed by `note` when given.
+function refItem(ref: Ref, icon: string, note?: string, commit = ref.commit): RefQuickPickItem {
+  const name = ref.name ?? commit?.slice(0, 8) ?? '';
+  const parts = [commit?.slice(0, 8), note].filter(Boolean);
   return {
     label: `${icon} ${name}`,
-    description: description ?? (ref.commit ? ref.commit.slice(0, 8) : undefined),
+    description: parts.length ? parts.join(' · ') : undefined,
     ref: name,
   };
 }
 
 function stripIcon(label: string): string {
   return label.replace(/^\$\([^)]+\)\s*/, '');
+}
+
+function repoName(repo: Repository): string {
+  return path.basename(repo.rootUri.fsPath);
 }
 
 function displayHead(name: string | undefined, commit: string | undefined): string {

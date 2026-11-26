@@ -13,9 +13,9 @@ through the changed files one at a time in a normal diff editor. No stacked
   window reload until you clear it.
 
 - **A ref picker that covers everything git calls a commit-ish.** The quick
-  pick groups refs under *Upstream* (the remote branch matching your current
-  branch name, listed first — the usual "what would I push?" comparison),
-  *Default branches* (`main`, `master`, `trunk`, `develop`), *Local branches*,
+  pick groups refs under *Upstream* (your current branch's configured
+  upstream, listed first — the usual "what would I push?" comparison),
+  *Current branch* (shows just your uncommitted changes), *Default branches* (`main`, `master`, `trunk`, `develop`), *Local branches*,
   *Remote branches*, and *Tags*, each row showing the short SHA. Anything you
   type in the filter box is offered as **Use "…"** — so a raw SHA, `HEAD~3`,
   or a branch that has not been fetched into the ref list all work. The picker
@@ -66,8 +66,13 @@ through the changed files one at a time in a normal diff editor. No stacked
   the hover. Renames are followed to whichever path the file has on that side.
   If the file does not exist there, you get a message instead of a git error.
 
-- **Multi-root and multi-repo aware.** With more than one repository open you
-  are asked which one to compare in; the tree tracks that repository's root.
+- **Multi-root and multi-repo aware.** Each repository remembers its own
+  comparison. The view follows the repository selected in the Source Control
+  *Repositories* view: select another repository and the view switches to that
+  repository's comparison (or offers **Compare with…** if it has none), with
+  the repository's name shown in the view title. **Compare with…** compares in
+  the selected repository, asking only when none (or several) is selected.
+  **Clear** forgets only the comparison of the repository being shown.
 
 - **Keeps itself current.** The tree reloads when the repository's git state
   changes (debounced by 250 ms), when you save a document (turn
@@ -90,7 +95,8 @@ enabled.
 
 2. Click it — or run **Git Compare: Compare With…** from the command palette,
    or press the compare icon in the view's title bar. If the workspace has
-   several repositories, choose one first.
+   several repositories, the one selected in the Source Control
+   *Repositories* view is used; otherwise choose one first.
 
 3. Pick a branch, tag, or remote branch from the list, or type a SHA or other
    commit-ish and choose **Use "…"**. To compare with an older commit, choose

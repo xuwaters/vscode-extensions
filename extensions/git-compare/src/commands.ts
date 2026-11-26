@@ -62,7 +62,11 @@ function isFileNodePayload(arg: object): arg is FileNodePayload {
 }
 
 async function chooseComparison(deps: CommandDeps): Promise<void> {
-  const repo = await pickRepository(deps.api.repositories);
+  // Use the repository selected in the Source Control view; only ask when
+  // nothing (or several repositories) is selected there.
+  const repos = deps.api.repositories;
+  const selected = repos.filter((r) => r.ui?.selected);
+  const repo = await pickRepository(selected.length > 0 ? selected : repos);
   if (!repo) {
     vscode.window.showWarningMessage('Git Compare: no Git repository in this workspace.');
     return;

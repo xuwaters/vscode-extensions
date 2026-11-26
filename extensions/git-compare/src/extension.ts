@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { registerCommands } from './commands';
 import { registerEmptyContentProvider } from './emptyProvider';
@@ -31,9 +32,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   registerCommands(context, { api, state, tree });
 
+  // With several repositories open, name the one the view is showing.
+  const syncViewDescription = (): void => {
+    const active = state.activeRepo;
+    view.description =
+      api.repositories.length > 1 && active ? path.basename(active) : undefined;
+  };
+  syncViewDescription();
+
   context.subscriptions.push(
     state.onDidChange(() => {
       tree.invalidate();
+      syncViewDescription();
       void vscode.commands.executeCommand(
         'setContext',
         'gitCompare.hasComparison',
@@ -52,13 +62,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     api.onDidOpenRepository(() => {
       void syncHasRepoContext(api);
+      syncViewDescription();
       tree.invalidate();
     }),
     api.onDidCloseRepository(() => {
       void syncHasRepoContext(api);
+      syncViewDescription();
       tree.invalidate();
     }),
   );
+
+  // Follow the repository selected in the Source Control Repositories view:
+  // the view switches to that repository's remembered comparison. With
+  // several selected it stays on the current one.
+  const followScmSelection = (): void => {
+    const selected = api.repositories.filter((r) => r.ui?.selected);
+    if (selected.length === 1) void state.setActiveRepo(selected[0].rootUri.fsPath);
+  };
 
   // Per-repository state listeners. Tracks new repos as they show up.
   const wired = new WeakSet<Repository>();
@@ -74,9 +94,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         timer = setTimeout(() => tree.invalidate(), 250);
       }),
     );
+    if (repo.ui) context.subscriptions.push(repo.ui.onDidChange(followScmSelection));
   };
   for (const repo of api.repositories) wireRepo(repo);
-  context.subscriptions.push(api.onDidOpenRepository((repo) => wireRepo(repo)));
+  context.subscriptions.push(
+    api.onDidOpenRepository((repo) => {
+      wireRepo(repo);
+      followScmSelection();
+    }),
+  );
+  followScmSelection();
 
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(() => {

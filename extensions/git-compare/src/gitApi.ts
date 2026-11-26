@@ -93,9 +93,17 @@ export interface BranchQuery {
   readonly sort?: 'alphabetically' | 'committerdate';
 }
 
+export interface RepositoryUIState {
+  /** Whether the repository is selected in the Source Control Repositories view. */
+  readonly selected: boolean;
+  readonly onDidChange: vscode.Event<void>;
+}
+
 export interface Repository {
   readonly rootUri: vscode.Uri;
   readonly state: RepositoryState;
+  // Optional: older vscode.git builds don't expose it.
+  readonly ui?: RepositoryUIState;
   diffWith(ref: string): Promise<Change[]>;
   diffWith(ref: string, path: string): Promise<string>;
   diffBetween(ref1: string, ref2: string): Promise<Change[]>;
