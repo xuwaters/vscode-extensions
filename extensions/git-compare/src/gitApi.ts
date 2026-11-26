@@ -54,8 +54,18 @@ export interface Change {
 export interface Commit {
   readonly hash: string;
   readonly message: string;
+  readonly parents?: string[];
   readonly authorName?: string;
+  readonly authorEmail?: string;
   readonly authorDate?: Date;
+  readonly commitDate?: Date;
+}
+
+export interface LogOptions {
+  /** Max number of log entries to retrieve. The git extension defaults to 32. */
+  readonly maxEntries?: number;
+  readonly path?: string;
+  readonly range?: string;
 }
 
 export interface RepositoryState {
@@ -92,6 +102,7 @@ export interface Repository {
   diffBetween(ref1: string, ref2: string, path: string): Promise<string>;
   getMergeBase(ref1: string, ref2: string): Promise<string | undefined>;
   getCommit(ref: string): Promise<Commit>;
+  log(options?: LogOptions): Promise<Commit[]>;
   show(ref: string, path: string): Promise<string>;
   getRefs?(query: RefQuery, cancellationToken?: vscode.CancellationToken): Promise<Ref[]>;
   getBranches?(query: BranchQuery, cancellationToken?: vscode.CancellationToken): Promise<Ref[]>;

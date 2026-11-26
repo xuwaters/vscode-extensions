@@ -16,11 +16,18 @@ through the changed files one at a time in a normal diff editor. No stacked
   pick groups refs under *Upstream* (the remote branch matching your current
   branch name, listed first — the usual "what would I push?" comparison),
   *Default branches* (`main`, `master`, `trunk`, `develop`), *Local branches*,
-  *Remote branches*, and *Tags*, each row showing the short SHA. The last entry
-  is **Enter commit-ish…**, and anything you type in the filter box is offered
-  as **Use "…"** — so a raw SHA, `HEAD~3`, or a branch that has not been
-  fetched into the ref list all work. The picker opens immediately and streams
-  refs in as git lists them, rather than blocking on a cold ref cache.
+  *Remote branches*, and *Tags*, each row showing the short SHA. Anything you
+  type in the filter box is offered as **Use "…"** — so a raw SHA, `HEAD~3`,
+  or a branch that has not been fetched into the ref list all work. The picker
+  opens immediately and streams refs in as git lists them, rather than
+  blocking on a cold ref cache.
+
+- **Pick any commit from history.** The last entry in the ref picker,
+  **Select from commit history…**, opens the current branch's log: one row per
+  commit with its subject, short SHA, author, and age, filterable by any of
+  them. The 50 most recent commits load first; **Load more commits…** at the
+  bottom adds 50 more each time. Typing a SHA or ref there still offers
+  **Use "…"**, and the Back button returns to the ref picker.
 
 - **Three groups, with merge-base semantics.** Under the root row:
 
@@ -71,7 +78,8 @@ Everything goes through the built-in Git extension's API rather than a separate
 git process, so the underlying operations are the same ones the Source Control
 view uses: `git diff <ref>` for the changed set, `git merge-base HEAD <ref>`
 plus `git diff <merge-base> <ref>` and `git diff <merge-base> HEAD` for the
-behind/ahead sets, and `git show <ref>:<path>` for file content at a revision.
+behind/ahead sets, `git show <ref>:<path>` for file content at a revision, and
+`git log -n <count>` for the commit-history picker.
 The built-in Git extension (`vscode.git`) is a hard dependency and must be
 enabled.
 
@@ -85,7 +93,9 @@ enabled.
    several repositories, choose one first.
 
 3. Pick a branch, tag, or remote branch from the list, or type a SHA or other
-   commit-ish and choose **Use "…"**. The view focuses itself and loads.
+   commit-ish and choose **Use "…"**. To compare with an older commit, choose
+   **Select from commit history…** and pick it from the log. The view focuses
+   itself and loads.
 
 4. Expand **Changed Files**, **Behind**, or **Ahead** and click any file to
    open its diff. Hovering a row shows the path, its status, and which side of

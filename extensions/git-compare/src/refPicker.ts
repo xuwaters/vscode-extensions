@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Ref, Repository } from './gitApi';
+import type { Commit, Ref, Repository } from './gitApi';
 import { RefType } from './gitApi';
 
 export interface RefPickResult {
@@ -12,9 +12,37 @@ interface RefQuickPickItem extends vscode.QuickPickItem {
   enterCommitish?: boolean;
 }
 
+interface CommitQuickPickItem extends vscode.QuickPickItem {
+  commit?: Commit;
+  typed?: string;
+  loadMore?: boolean;
+}
+
 const DEFAULT_BRANCH_NAMES = new Set(['main', 'master', 'trunk', 'develop']);
 
+// How many commits the history picker lists at first, and how many more each
+// "Load more" adds. `git log` is re-run with a larger limit rather than with
+// `--skip`, since older vscode.git builds ignore the skip option.
+const HISTORY_PAGE_SIZE = 50;
+
+// Sentinels for hand-offs between the two pickers.
+const SHOW_HISTORY = Symbol('showHistory');
+const GO_BACK = Symbol('goBack');
+
 export async function pickRef(repo: Repository): Promise<RefPickResult | undefined> {
+  // The ref picker can hand off to the commit-history picker, whose Back
+  // button returns to the ref picker.
+  for (;;) {
+    const picked = await pickFromRefs(repo);
+    if (picked !== SHOW_HISTORY) return picked;
+    const commit = await pickFromHistory(repo);
+    if (commit !== GO_BACK) return commit;
+  }
+}
+
+async function pickFromRefs(
+  repo: Repository,
+): Promise<RefPickResult | typeof SHOW_HISTORY | undefined> {
   const head = repo.state.HEAD;
   const headName = head?.name;
 
@@ -41,9 +69,9 @@ export async function pickRef(repo: Repository): Promise<RefPickResult | undefin
     }
   };
 
-  const result = new Promise<RefPickResult | undefined>((resolve) => {
+  const result = new Promise<RefPickResult | typeof SHOW_HISTORY | undefined>((resolve) => {
     let resolved = false;
-    const finish = (value: RefPickResult | undefined): void => {
+    const finish = (value: RefPickResult | typeof SHOW_HISTORY | undefined): void => {
       resolved = true;
       qp.hide();
       resolve(value);
@@ -54,7 +82,7 @@ export async function pickRef(repo: Repository): Promise<RefPickResult | undefin
       const typed = qp.value.trim();
       if (picked?.enterCommitish) {
         if (typed) finish({ ref: typed, label: typed });
-        else void promptCommitish().then(finish);
+        else finish(SHOW_HISTORY);
         return;
       }
       if (picked?.ref) {
@@ -97,8 +125,8 @@ function makeEnterItem(typed: string): RefQuickPickItem {
     };
   }
   return {
-    label: '$(edit) Enter commit-ish…',
-    description: 'Type a branch, tag, or commit SHA',
+    label: '$(history) Select from commit history…',
+    description: 'or type a branch, tag, or commit SHA',
     enterCommitish: true,
     alwaysShow: true,
   };
@@ -207,15 +235,143 @@ function buildItems(
   return items;
 }
 
-async function promptCommitish(): Promise<RefPickResult | undefined> {
-  const entered = await vscode.window.showInputBox({
-    title: 'Compare with commit-ish',
-    prompt: 'Branch name, tag, or commit SHA',
-    validateInput: (v) => (v.trim() === '' ? 'Required' : undefined),
+async function pickFromHistory(
+  repo: Repository,
+): Promise<RefPickResult | typeof GO_BACK | undefined> {
+  const qp = vscode.window.createQuickPick<CommitQuickPickItem>();
+  const head = repo.state.HEAD;
+  qp.title = `Compare with a commit on ${displayHead(head?.name, head?.commit)}`;
+  qp.placeholder = 'Loading commits…';
+  qp.matchOnDescription = true;
+  qp.keepScrollPosition = true;
+  qp.buttons = [vscode.QuickInputButtons.Back];
+  qp.busy = true;
+
+  let commits: Commit[] = [];
+  let limit = HISTORY_PAGE_SIZE;
+  let hasMore = false;
+  let loading = false;
+
+  const render = (focus?: Commit): void => {
+    const items: CommitQuickPickItem[] = [];
+    const typed = qp.value.trim();
+    if (typed) {
+      items.push({
+        label: `$(arrow-right) Use "${typed}"`,
+        description: 'Compare against this branch, tag, or commit SHA',
+        typed,
+        alwaysShow: true,
+      });
+    }
+    for (const c of commits) items.push(commitItem(c));
+    if (hasMore) {
+      items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+      items.push({
+        label: loading ? '$(loading~spin) Loading…' : '$(fold-down) Load more commits…',
+        description: `showing the latest ${commits.length}`,
+        loadMore: true,
+        alwaysShow: true,
+      });
+    }
+    qp.items = items;
+    if (focus) {
+      const target = items.find((i) => i.commit === focus);
+      if (target) qp.activeItems = [target];
+    }
+  };
+
+  const load = async (): Promise<void> => {
+    loading = true;
+    qp.busy = true;
+    render();
+    const previous = commits.length;
+    try {
+      const fetched = await repo.log({ maxEntries: limit });
+      commits = fetched;
+      hasMore = fetched.length >= limit;
+      qp.placeholder = commits.length
+        ? 'Select a commit — or type a SHA / branch name'
+        : 'No commits yet — type a branch, tag, or commit SHA';
+    } catch (err) {
+      hasMore = false;
+      qp.placeholder = `Failed to read commit history: ${(err as Error).message}`;
+    } finally {
+      loading = false;
+      qp.busy = false;
+    }
+    // After "Load more", land on the first newly loaded commit so the user
+    // can keep scrolling from where the old list ended.
+    render(previous > 0 ? commits[previous] : undefined);
+  };
+
+  const result = new Promise<RefPickResult | typeof GO_BACK | undefined>((resolve) => {
+    let resolved = false;
+    const finish = (value: RefPickResult | typeof GO_BACK | undefined): void => {
+      resolved = true;
+      qp.hide();
+      resolve(value);
+    };
+    qp.onDidChangeValue(() => render());
+    qp.onDidTriggerButton((button) => {
+      if (button === vscode.QuickInputButtons.Back) finish(GO_BACK);
+    });
+    qp.onDidAccept(() => {
+      const picked = qp.activeItems[0];
+      if (picked?.loadMore) {
+        if (!loading) {
+          limit += HISTORY_PAGE_SIZE;
+          void load();
+        }
+        return;
+      }
+      if (picked?.commit) {
+        finish({ ref: picked.commit.hash, label: picked.commit.hash.slice(0, 8) });
+        return;
+      }
+      const typed = picked?.typed ?? qp.value.trim();
+      if (typed) finish({ ref: typed, label: typed });
+    });
+    qp.onDidHide(() => {
+      if (!resolved) resolve(undefined);
+      qp.dispose();
+    });
   });
-  if (!entered) return undefined;
-  const trimmed = entered.trim();
-  return { ref: trimmed, label: trimmed };
+
+  qp.show();
+  await load();
+  return result;
+}
+
+function commitItem(commit: Commit): CommitQuickPickItem {
+  const subject = commit.message.split('\n', 1)[0].trim() || '(no message)';
+  const meta = [commit.hash.slice(0, 8)];
+  if (commit.authorName) meta.push(commit.authorName);
+  const date = commit.authorDate ?? commit.commitDate;
+  if (date) meta.push(relativeTime(date));
+  return {
+    label: `$(git-commit) ${subject}`,
+    description: meta.join(' · '),
+    commit,
+  };
+}
+
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * 24 * 3600],
+  ['month', 30 * 24 * 3600],
+  ['week', 7 * 24 * 3600],
+  ['day', 24 * 3600],
+  ['hour', 3600],
+  ['minute', 60],
+];
+
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+function relativeTime(date: Date): string {
+  const seconds = (date.getTime() - Date.now()) / 1000;
+  for (const [unit, size] of RELATIVE_UNITS) {
+    if (Math.abs(seconds) >= size) return relativeFormat.format(Math.round(seconds / size), unit);
+  }
+  return relativeFormat.format(0, 'second');
 }
 
 function refItem(ref: Ref, icon: string, description?: string): RefQuickPickItem {
